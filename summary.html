@@ -13,7 +13,10 @@
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Noto Sans JP','Hiragino Mincho ProN',serif;background:#e8e0d0;min-height:100vh;padding:16px;color:var(--ink)}
-.topbar{background:var(--ink);color:#fff;padding:14px 20px;border-radius:10px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+.topbar{background:var(--ink);color:#fff;padding:14px 20px 10px;border-radius:10px 10px 0 0;margin-bottom:0;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+.route-tabs{display:flex;gap:6px;background:var(--ink);padding:0 20px 12px;border-radius:0 0 10px 10px;margin-bottom:16px}
+.rtab{flex:1;padding:7px 4px;background:rgba(255,255,255,.1);color:rgba(255,255,255,.6);border:none;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;border-radius:8px;transition:all .15s}
+.rtab.active{background:#fff;color:var(--ink)}
 .topbar h1{font-size:18px;letter-spacing:.1em;font-weight:700}
 .topbar select{font-family:inherit;font-size:15px;padding:6px 12px;border:none;border-radius:6px;background:#fff;color:var(--ink);cursor:pointer}
 #loading{text-align:center;padding:60px 0;color:#888;font-size:15px}
@@ -66,6 +69,11 @@ body{font-family:'Noto Sans JP','Hiragino Mincho ProN',serif;background:#e8e0d0;
     <option value="">読み込み中...</option>
   </select>
 </div>
+<div class="route-tabs" id="routeTabs">
+  <button class="rtab active" id="rtab0" onclick="switchRoute(0)">小川ルート</button>
+  <button class="rtab" id="rtab1" onclick="switchRoute(1)">籠原ルート</button>
+  <button class="rtab" id="rtab2" onclick="switchRoute(2)">坂戸ルート</button>
+</div>
 <div id="loading"><div class="spinner"></div><br>データを読み込んでいます...<br><small>初回のみ時間がかかります</small></div>
 <div id="error">データの取得に失敗しました。<br>しばらく待ってから再度お試しください。</div>
 <div id="report"></div>
@@ -76,23 +84,50 @@ body{font-family:'Noto Sans JP','Hiragino Mincho ProN',serif;background:#e8e0d0;
 var API_URL = 'https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkVvYc7V77OJrh7h_PZCqtuV4aUL7NYz83VsNc5lY6sXONw/exec';
 
 var CACHED = null;
+var currentRoute = 0;
 
-var YAOKO  = ['ヤオコー寄居店','ヤオコーみどりが丘店','たまや','農林公園','道の駅おがわまち'];
-var CHOKU  = ['男衾農産物直売所','川本農産物直売所'];
+function switchRoute(idx) {
+  currentRoute = idx;
+  for (var i=0;i<3;i++) document.getElementById('rtab'+i).classList.toggle('active',i===idx);
+  var date = document.getElementById('dateSelect').value;
+  if (date && CACHED && CACHED[date]) render(date, CACHED[date]);
+}
+
+var YAOKO  = ['ヤオコー寄居店','ヤオコーみどりが丘店','ヤオコー皆野店','ヤオコー籠原店','ヤオコー本庄中央店','ヤオコー上里店','ヤオコー児玉バイパス店','ヤオコー坂戸泉店','ヤオコー坂戸千代田店','ヤオコーワカバウォーク店','ヤオコー一本松南店','ヤオコー長瀬店','たまや','農林公園','道の駅おがわまち'];
+var CHOKU  = ['男衾農産物直売所','川本農産物直売所','道の駅おかべ'];
 var OROSHI = ['ハーズ','深谷ベジタブルコミュニケーション'];
-var SIMPLE = ['たまや','農林公園','道の駅おがわまち']; // 蘇生庫・値引きなし
+var SIMPLE = ['たまや','農林公園','道の駅おがわまち'];
 
-var STORES = [
-  {name:'ヤオコー寄居店',                  cls:'yaoko',  sub:'河野さん・竹山さん', prices:['¥99','¥198','¥398','¥598']},
-  {name:'ヤオコーみどりが丘店',            cls:'yaoko',  sub:'杉田さん・川野さん', prices:['¥99','¥198','¥398','¥598']},
-  {name:'男衾農産物直売所',                cls:'choku',  sub:'', prices:['¥180','¥200','¥380','¥500']},
-  {name:'川本農産物直売所',                cls:'choku',  sub:'', prices:['¥180','¥200','¥380','¥500']},
-  {name:'ハーズ',                          cls:'others', sub:'五十嵐さん・加藤さん', prices:['¥149','¥224','¥298']},
-  {name:'深谷ベジタブルコミュニケーション', cls:'others', sub:'田島さん', prices:['¥95（姫）','¥95（小）','¥350','レストラン用']},
-  {name:'たまや',                          cls:'others', sub:'', prices:['¥220（税込）','¥450（税込）']},
-  {name:'農林公園',                        cls:'others', sub:'', prices:['¥180スライス','¥200','¥300','¥400']},
-  {name:'道の駅おがわまち',                cls:'others', sub:'', prices:['¥210','¥420']},
+var ROUTE_GROUPS = [
+  { label:'小川ルート', stores:[
+    {name:'ヤオコー寄居店',                  cls:'yaoko',  sub:'河野さん・竹山さん', prices:['¥99','¥198','¥398','¥598']},
+    {name:'ヤオコーみどりが丘店',            cls:'yaoko',  sub:'杉田さん・川野さん', prices:['¥99','¥198','¥398','¥598']},
+    {name:'男衾農産物直売所',                cls:'choku',  sub:'', prices:['¥180','¥200','¥380','¥500']},
+    {name:'川本農産物直売所',                cls:'choku',  sub:'', prices:['¥180','¥200','¥380','¥500']},
+    {name:'ハーズ',                          cls:'others', sub:'五十嵐さん・加藤さん', prices:['¥149','¥224','¥298']},
+    {name:'深谷ベジタブルコミュニケーション', cls:'others', sub:'田島さん', prices:['¥95（姫）','¥95（小）','¥350','レストラン用']},
+    {name:'たまや',                          cls:'others', sub:'', prices:['¥220（税込）','¥450（税込）']},
+    {name:'農林公園',                        cls:'others', sub:'', prices:['¥180スライス','¥200','¥300','¥400']},
+    {name:'道の駅おがわまち',                cls:'others', sub:'', prices:['¥210','¥420']},
+  ]},
+  { label:'籠原ルート', stores:[
+    {name:'ヤオコー皆野店',         cls:'yaoko', sub:'', prices:['¥99','¥198','¥398','¥598']},
+    {name:'ヤオコー籠原店',         cls:'yaoko', sub:'', prices:['¥99','¥198','¥398','¥598']},
+    {name:'道の駅おかべ',           cls:'choku', sub:'', prices:['¥200','¥216','¥380','¥420']},
+    {name:'ヤオコー本庄中央店',     cls:'yaoko', sub:'', prices:['¥99','¥198','¥398','¥598']},
+    {name:'ヤオコー上里店',         cls:'yaoko', sub:'', prices:['¥99','¥198','¥398','¥598']},
+    {name:'ヤオコー児玉バイパス店', cls:'yaoko', sub:'', prices:['¥99','¥198','¥398','¥598']},
+  ]},
+  { label:'坂戸ルート', stores:[
+    {name:'ヤオコー坂戸泉店',        cls:'yaoko', sub:'', prices:['¥99','¥198','¥398','¥598']},
+    {name:'ヤオコー坂戸千代田店',    cls:'yaoko', sub:'', prices:['¥99','¥198','¥398','¥598']},
+    {name:'ヤオコーワカバウォーク店', cls:'yaoko', sub:'', prices:['¥99','¥198','¥398','¥598']},
+    {name:'ヤオコー一本松南店',      cls:'yaoko', sub:'', prices:['¥99','¥198','¥398','¥598']},
+    {name:'ヤオコー長瀬店',          cls:'yaoko', sub:'', prices:['¥99','¥198','¥398','¥598']},
+  ]}
 ];
+var STORES = [];
+ROUTE_GROUPS.forEach(function(g){ STORES = STORES.concat(g.stores); });
 
 // ラベルの判定（新旧両方の列名に対応）
 var SECTION_PATTERNS = [
@@ -166,15 +201,16 @@ function getVal(secs, id, price) {
 function render(date, dayData) {
   var p=date.split('-'), days=['日','月','火','水','木','金','土'];
   var dateStr=p[0]+'年'+parseInt(p[1])+'月'+parseInt(p[2])+'日（'+days[new Date(date+'T00:00:00').getDay()]+'）';
+  var routeStores = ROUTE_GROUPS[currentRoute].stores;
   var staff='';
-  STORES.forEach(function(s){if(!staff&&dayData[s.name]&&dayData[s.name].担当者) staff=dayData[s.name].担当者;});
+  routeStores.forEach(function(s){if(!staff&&dayData[s.name]&&dayData[s.name].担当者) staff=dayData[s.name].担当者;});
 
   var html = '<div class="rhdr">';
   html += '<div class="rhdr-l"><h2>配 達 日 報</h2>';
-  html += '<p>ヤオコー：S+A+B+C　直売所：納品+前日在庫</p></div>';
+  html += '<p>'+ROUTE_GROUPS[currentRoute].label+'</p></div>';
   html += '<div class="rhdr-r"><div class="dbig">'+dateStr+'</div><div>担当：'+(staff||'―')+'</div></div></div>';
 
-  STORES.forEach(function(store) {
+  routeStores.forEach(function(store) {
     html += '<div class="ssec"><div class="shdr">';
     html += '<span class="sname '+store.cls+'">■ '+store.name+'</span>';
     if (store.sub) html += '<span class="sstaff">'+store.sub+'</span>';
