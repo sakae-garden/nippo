@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>配達日報 サマリー | 栄ガーデン</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap');
+:root{
+  --ink:#1a1a2e;--paper:#faf8f3;--accent:#c0392b;--rule:#d4c9b0;--light:#f0ebe0;
+  --green:#27ae60;--blue:#2980b9;--brown:#795548;--purple:#7b1fa2;--orange:#e65100;--teal:#00796b;
+  --yellow-bg:#fffde7;--yellow-bd:#f9a825;--yellow-lbl:#f57f17;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Noto Sans JP','Hiragino Mincho ProN',serif;background:#e8e0d0;min-height:100vh;padding:16px;color:var(--ink)}
+.topbar{background:var(--ink);color:#fff;padding:14px 20px;border-radius:10px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+.topbar h1{font-size:18px;letter-spacing:.1em;font-weight:700}
+.topbar select{font-family:inherit;font-size:15px;padding:6px 12px;border:none;border-radius:6px;background:#fff;color:var(--ink);cursor:pointer}
+#loading{text-align:center;padding:60px 0;color:#888;font-size:15px}
+.spinner{display:inline-block;width:32px;height:32px;border:3px solid #ccc;border-top-color:var(--ink);border-radius:50%;animation:spin .8s linear infinite;margin-bottom:12px}
+@keyframes spin{to{transform:rotate(360deg)}}
+#report{display:none}
+.rhdr{background:var(--paper);border:2px solid var(--ink);border-radius:10px 10px 0 0;padding:16px 20px 12px;display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px double var(--ink)}
+.rhdr-l h2{font-size:22px;letter-spacing:.15em;color:var(--accent)}
+.rhdr-l p{font-size:12px;color:#888;margin-top:4px}
+.rhdr-r{text-align:right;font-size:13px;color:#555}
+.rhdr-r .dbig{font-size:18px;font-weight:bold;color:var(--ink)}
+.ssec{background:var(--paper);border:1px solid var(--rule);border-top:none}
+.ssec:last-child{border-radius:0 0 10px 10px}
+.shdr{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--rule);background:var(--light)}
+.sname{font-size:15px;font-weight:bold;letter-spacing:.05em}
+.sname.yaoko{color:var(--accent)}.sname.choku{color:var(--green)}.sname.others{color:var(--blue)}
+.sstaff{font-size:12px;color:#888}
+.nodata{padding:12px 16px;font-size:13px;color:#aaa;font-style:italic;border-bottom:1px dashed var(--rule)}
+.ts-row{padding:6px 16px;font-size:11px;color:#888;background:#f9f7f2;border-bottom:1px solid var(--rule)}
+.igrid{display:grid;padding:10px 16px 14px;gap:4px;border-bottom:1px dashed var(--rule)}
+.irow{display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px dotted #e0d9cc;font-size:13px}
+.irow:last-child{border-bottom:none}
+.ilbl{flex:1;color:#555}
+.ival{font-size:16px;font-weight:bold;min-width:48px;text-align:right;color:var(--ink)}
+.ival.calc{color:var(--teal)}
+.iunit{font-size:11px;color:#999;min-width:16px}
+.sgrp{margin-bottom:6px}
+.sgrp.hl-chin{background:var(--yellow-bg);border:1.5px solid var(--yellow-bd);border-radius:8px;padding:8px 10px 6px;margin-bottom:10px}
+.sgrp.hl-chin .ival.calc{color:var(--yellow-lbl);font-size:18px}
+.sgrp.hl-chin .irow{border-bottom-color:#fff9c4}
+.slbl{font-size:10px;font-weight:bold;letter-spacing:.12em;padding:2px 6px;border-radius:3px;display:inline-block;margin-bottom:4px}
+.slbl.chinretsu{background:var(--yellow-bd);color:#fff}
+.slbl.nouhin{background:#e8f5e9;color:var(--green)}
+.slbl.zaikoS,.slbl.zaikoA,.slbl.zaikoB,.slbl.zaikoC{background:#efebe9;color:var(--brown)}
+.slbl.zenjitsu{background:#efebe9;color:var(--brown)}
+.slbl.sosei{background:#f3e5f5;color:var(--purple)}
+.slbl.nebiki{background:#fce4ec;color:var(--accent)}
+.slbl.mochikae{background:#fff3e0;color:var(--orange)}
+.slbl.tokki{background:#f5f5f5;color:#555}
+.tokki-txt{font-size:13px;color:#444;padding:4px 0;font-style:italic}
+.footer{text-align:center;padding:16px;font-size:11px;color:#aaa}
+#error{display:none;text-align:center;padding:40px;color:var(--accent);font-size:15px}
+@media(min-width:600px){.igrid{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <h1>🍄 配達日報サマリー</h1>
+  <select id="dateSelect" onchange="showReport(this.value)" disabled>
+    <option value="">読み込み中...</option>
+  </select>
+</div>
+<div id="loading"><div class="spinner"></div><br>データを読み込んでいます...<br><small>初回のみ時間がかかります</small></div>
+<div id="error">データの取得に失敗しました。<br>しばらく待ってから再度お試しください。</div>
+<div id="report"></div>
+<div class="footer">栄ガーデン 配達日報システム</div>
+
+<script>
+// ★★★ GAS URL ★★★
+var API_URL = 'https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkVvYc7V77OJrh7h_PZCqtuV4aUL7NYz83VsNc5lY6sXONw/exec';
+
+var CACHED = null;
+
+var YAOKO  = ['ヤオコー寄居店','ヤオコーみどりが丘店','たまや','農林公園','道の駅おがわまち'];
+var CHOKU  = ['男衾農産物直売所','川本農産物直売所'];
+var OROSHI = ['ハーズ','深谷ベジタブルコミュニケーション'];
+var SIMPLE = ['たまや','農林公園','道の駅おがわまち']; // 蘇生庫・値引きなし
+
+var STORES = [
+  {name:'ヤオコー寄居店',                  cls:'yaoko',  sub:'河野さん・竹山さん', prices:['¥99','¥198','¥398','¥598']},
+  {name:'ヤオコーみどりが丘店',            cls:'yaoko',  sub:'杉田さん・川野さん', prices:['¥99','¥198','¥398','¥598']},
+  {name:'男衾農産物直売所',                cls:'choku',  sub:'', prices:['¥180','¥200','¥380','¥500']},
+  {name:'川本農産物直売所',                cls:'choku',  sub:'', prices:['¥180','¥200','¥380','¥500']},
+  {name:'ハーズ',                          cls:'others', sub:'五十嵐さん・加藤さん', prices:['¥149','¥224','¥298']},
+  {name:'深谷ベジタブルコミュニケーション', cls:'others', sub:'田島さん', prices:['¥95（姫）','¥95（小）','¥350','レストラン用']},
+  {name:'たまや',                          cls:'others', sub:'', prices:['¥220（税込）','¥450（税込）']},
+  {name:'農林公園',                        cls:'others', sub:'', prices:['¥180スライス','¥200','¥300','¥400']},
+  {name:'道の駅おがわまち',                cls:'others', sub:'', prices:['¥210','¥420']},
+];
+
+// ラベルの判定（新旧両方の列名に対応）
+var SECTION_PATTERNS = [
+  {keys:['納品'],                    id:'nouhin',   label:'🟩 納品数'},
+  {keys:['S品','在庫S'],             id:'zaikoS',   label:'🟦 S品陳列数（当日）'},
+  {keys:['A品','在庫A'],             id:'zaikoA',   label:'🟫 A品陳列数（1日前）'},
+  {keys:['B品','在庫B'],             id:'zaikoB',   label:'🟫 B品陳列数（2日前）'},
+  {keys:['C品','在庫C'],             id:'zaikoC',   label:'🟫 C品陳列数（3日前）'},
+  {keys:['前日在庫'],                id:'zenjitsu', label:'🟫 前日在庫'},
+  {keys:['蘇生庫'],                  id:'sosei',    label:'🟪 蘇生庫へ'},
+  {keys:['値引き'],                  id:'nebiki',   label:'🟥 値引き'},
+  {keys:['持ち帰り'],                id:'mochikae', label:'🟧 持ち帰り'},
+  {keys:['特記事項'],                id:'tokki',    label:'📝 特記事項'},
+];
+
+var YAOKO_ORDER  = ['chinretsu','nouhin','zaikoS','zaikoA','zaikoB','zaikoC','sosei','nebiki','mochikae','tokki'];
+var SIMPLE_ORDER = ['chinretsu','nouhin','zaikoS','zaikoA','zaikoB','zaikoC','mochikae','tokki'];
+var CHOKU_ORDER  = ['chinretsu','nouhin','zenjitsu','mochikae','tokki'];
+var OROSHI_ORDER = ['nouhin','tokki'];
+var OTHER_ORDER  = ['nouhin','mochikae','tokki'];
+
+var cbIdx = 0;
+function jsonp(url, onSuccess, onError) {
+  var cb = 'cb_'+(cbIdx++);
+  var s = document.createElement('script');
+  var t = setTimeout(function(){cleanup();if(onError)onError();},15000);
+  function cleanup(){clearTimeout(t);delete window[cb];if(s.parentNode)s.parentNode.removeChild(s);}
+  window[cb] = function(d){cleanup();onSuccess(d);};
+  s.onerror = function(){cleanup();if(onError)onError();};
+  s.src = url + (url.indexOf('?')>-1?'&':'?') + 'callback='+cb;
+  document.body.appendChild(s);
+}
+
+window.onload = function() {
+  jsonp(API_URL + '?action=getAllData',
+    function(data) {
+      CACHED = data.allData;
+      document.getElementById('loading').style.display = 'none';
+      var sel = document.getElementById('dateSelect');
+      sel.innerHTML = '<option value="">-- 日付を選択 --</option>';
+      sel.disabled = false;
+      (data.availableDates||[]).forEach(function(d) {
+        var opt = document.createElement('option');
+        opt.value = d;
+        var p = d.split('-'), days=['日','月','火','水','木','金','土'];
+        opt.textContent = p[0]+'年'+parseInt(p[1])+'月'+parseInt(p[2])+'日（'+days[new Date(d+'T00:00:00').getDay()]+'）';
+        sel.appendChild(opt);
+      });
+      if (!data.availableDates || !data.availableDates.length)
+        sel.innerHTML = '<option value="">データがありません</option>';
+    },
+    function() {
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('error').style.display = 'block';
+    }
+  );
+};
+
+function showReport(date) {
+  if (!date || !CACHED) return;
+  render(date, CACHED[date]||{});
+}
+
+function getVal(secs, id, price) {
+  if (!secs[id]) return 0;
+  var t=0;
+  secs[id].items.forEach(function(it){if(it.label.indexOf(price)>-1) t+=parseInt(it.value)||0;});
+  return t;
+}
+
+function render(date, dayData) {
+  var p=date.split('-'), days=['日','月','火','水','木','金','土'];
+  var dateStr=p[0]+'年'+parseInt(p[1])+'月'+parseInt(p[2])+'日（'+days[new Date(date+'T00:00:00').getDay()]+'）';
+  var staff='';
+  STORES.forEach(function(s){if(!staff&&dayData[s.name]&&dayData[s.name].担当者) staff=dayData[s.name].担当者;});
+
+  var html = '<div class="rhdr">';
+  html += '<div class="rhdr-l"><h2>配 達 日 報</h2>';
+  html += '<p>ヤオコー：S+A+B+C　直売所：納品+前日在庫</p></div>';
+  html += '<div class="rhdr-r"><div class="dbig">'+dateStr+'</div><div>担当：'+(staff||'―')+'</div></div></div>';
+
+  STORES.forEach(function(store) {
+    html += '<div class="ssec"><div class="shdr">';
+    html += '<span class="sname '+store.cls+'">■ '+store.name+'</span>';
+    if (store.sub) html += '<span class="sstaff">'+store.sub+'</span>';
+    html += '</div>';
+
+    var sd = dayData[store.name];
+    if (!sd||!sd.items||!sd.items.length) {
+      html += '<div class="nodata">本日訪問なし / データなし</div></div>';
+      return;
+    }
+
+    // タイムスタンプ表示
+    if (sd.timestamp) {
+      html += '<div class="ts-row">🕐 最終更新：'+sd.timestamp+'</div>';
+    }
+
+    var isYaoko  = YAOKO.indexOf(store.name)>-1;
+    var isChoku  = CHOKU.indexOf(store.name)>-1;
+    var isOroshi = OROSHI.indexOf(store.name)>-1;
+    var isSimple = SIMPLE.indexOf(store.name)>-1;
+
+    // セクション分類
+    var secs = {};
+    sd.items.forEach(function(it) {
+      for (var i=0;i<SECTION_PATTERNS.length;i++) {
+        var pat = SECTION_PATTERNS[i];
+        var matched = pat.keys.some(function(k){return it.label.indexOf(k)>-1;});
+        if (matched) {
+          var id = pat.id;
+          if (!secs[id]) secs[id]={label:pat.label,id:id,items:[]};
+          secs[id].items.push(it);
+          break;
+        }
+      }
+    });
+
+    // 陳列数（自動計算）
+    if (isYaoko) {
+      var items=[];
+      store.prices.forEach(function(pr){
+        var t=getVal(secs,'zaikoS',pr)+getVal(secs,'zaikoA',pr)+getVal(secs,'zaikoB',pr)+getVal(secs,'zaikoC',pr);
+        items.push({label:pr,value:String(t),calc:true});
+      });
+      secs['chinretsu']={label:'🟦 陳列数（S+A+B+C）',id:'chinretsu',items:items,calc:true};
+    }
+    if (isChoku) {
+      var items=[];
+      store.prices.forEach(function(pr){
+        var t=getVal(secs,'nouhin',pr)+getVal(secs,'zenjitsu',pr);
+        items.push({label:pr,value:String(Math.max(t,0)),calc:true});
+      });
+      secs['chinretsu']={label:'🟦 陳列数（納品+前日在庫）',id:'chinretsu',items:items,calc:true};
+    }
+
+    var order = isYaoko&&!isSimple?YAOKO_ORDER:isSimple?SIMPLE_ORDER:isChoku?CHOKU_ORDER:isOroshi?OROSHI_ORDER:OTHER_ORDER;
+
+    html += '<div class="igrid">';
+    order.forEach(function(id){
+      if(!secs[id]) return;
+      var sec=secs[id];
+      var isChin=id==='chinretsu';
+      html += '<div class="sgrp'+(isChin?' hl-chin':'')+'">';
+      html += '<div class="slbl '+id+'">'+sec.label+'</div>';
+      if (id==='tokki') {
+        sec.items.forEach(function(it){html+='<div class="tokki-txt">'+(it.value||'―')+'</div>';});
+      } else {
+        sec.items.forEach(function(it){
+          var lbl = sec.calc ? it.label
+            : it.label.replace(/納品\s?/,'').replace(/[SABC]品\s?/,'').replace(/在庫[SABC]\s?/,'')
+                .replace(/前日在庫\s?/,'').replace(/蘇生庫\s?/,'').replace(/値引き\s?/,'')
+                .replace(/持ち帰り\s?/,'').replace('（個）','');
+          html += '<div class="irow"><span class="ilbl">'+lbl+'</span>'
+                + '<span class="ival'+(it.calc?' calc':'')+'">'+(it.value||'0')+'</span>'
+                + '<span class="iunit">個</span></div>';
+        });
+      }
+      html += '</div>';
+    });
+    html += '</div></div>';
+  });
+
+  document.getElementById('report').innerHTML = html;
+  document.getElementById('report').style.display = 'block';
+}
+</script>
+</body>
+</html>
