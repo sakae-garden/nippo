@@ -281,7 +281,7 @@ function render(date, dayData) {
           var lbl = sec.calc ? it.label
             : it.label.replace(/納品\s?/,'').replace(/[SABC]品\s?/,'').replace(/在庫[SABC]\s?/,'')
                 .replace(/前日在庫\s?/,'').replace(/蘇生庫\s?/,'').replace(/値引き\s?/,'')
-                .replace(/持ち帰り\s?/,'').replace('（個）','');
+                .replace(/持ち帰り\s?/,'').replace('（個）','').replace(/^_/,'');
           html += '<div class="irow"><span class="ilbl">'+lbl+'</span>'
                 + '<span class="ival'+(it.calc?' calc':'')+'">'+(it.value||'0')+'</span>'
                 + '<span class="iunit">個</span></div>';
