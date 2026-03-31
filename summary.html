@@ -100,10 +100,10 @@ var ROUTE_GROUPS=[
   {label:'小川ルート',stores:[
     {name:'ヤオコー寄居店',                  cls:'yaoko',  sub:'河野さん・竹山さん', type:'yaoko', prices:['¥99','¥198','¥398','¥598']},
     {name:'ヤオコーみどりが丘店',            cls:'yaoko',  sub:'杉田さん・川野さん', type:'yaoko', prices:['¥99','¥198','¥398','¥598']},
-    {name:'男衾農産物直売所',                cls:'choku',  sub:'', type:'choku', prices:['¥180','¥200','¥380','¥500']},
-    {name:'川本農産物直売所',                cls:'choku',  sub:'', type:'choku', prices:['¥180','¥200','¥380','¥500']},
+    {name:'男衾農産物直売所',                cls:'choku',  sub:'', type:'choku', prices:['¥180','¥200','¥380','¥540']},
+    {name:'川本農産物直売所',                cls:'choku',  sub:'', type:'choku', prices:['¥180','¥200','¥380','¥540']},
     {name:'ハーズ',                          cls:'others', sub:'五十嵐さん・加藤さん', type:'oroshi', prices:['¥315','¥158']},
-    {name:'深谷ベジタブルコミュニケーション', cls:'others', sub:'田島さん', type:'oroshi', prices:['¥95（姫）','¥95（小）','¥350','レストラン用']},
+    {name:'深谷ベジタブルコミュニケーション', cls:'others', sub:'田島さん', type:'oroshi', prices:['¥95（姫）','¥95（小）','¥350','レストラン用'], units:{'レストラン用':'kg'}},
     {name:'たまや',                          cls:'choku',  sub:'', type:'choku', prices:['¥220（税込）','¥450（税込）']},
     {name:'農林公園',                        cls:'choku',  sub:'', type:'choku', prices:['¥180','¥200','¥380','¥500']},
     {name:'道の駅おがわまち',                cls:'choku',  sub:'', type:'choku', prices:['¥210','¥420']},
@@ -360,7 +360,8 @@ function renderOroshi(store,secs){
     } else {
       sec.items.forEach(function(it){
         var lbl=it.label.replace(/納品\s?/,'').replace('（個）','').replace(/^_/,'');
-        html+='<div class="drow"><span class="dlbl">'+eH(lbl)+'</span><span class="dval">'+eH(it.value)+'</span><span class="dunit">個</span></div>';
+        var unit=(store.units&&store.units[lbl])?store.units[lbl]:'個';
+        html+='<div class="drow"><span class="dlbl">'+eH(lbl)+'</span><span class="dval">'+eH(it.value)+'</span><span class="dunit">'+unit+'</span></div>';
       });
     }
     html+='</div>';

@@ -134,10 +134,10 @@ var ROUTES = [
 var STORE_DEFS = {
   yorii:          { name:'ヤオコー寄居店',                  cls:'yaoko',  icon:'🏪', type:'yaoko',        prices:['¥99','¥198','¥398','¥598'] },
   midori:         { name:'ヤオコーみどりが丘店',            cls:'yaoko',  icon:'🏪', type:'yaoko',        prices:['¥99','¥198','¥398','¥598'] },
-  obusuma:        { name:'男衾農産物直売所',                cls:'choku',  icon:'🌿', type:'choku',        prices:['¥180','¥200','¥380','¥500'] },
-  kawamoto:       { name:'川本農産物直売所',                cls:'choku',  icon:'🌿', type:'choku',        prices:['¥180','¥200','¥380','¥500'] },
+  obusuma:        { name:'男衾農産物直売所',                cls:'choku',  icon:'🌿', type:'choku',        prices:['¥180','¥200','¥380','¥540'] },
+  kawamoto:       { name:'川本農産物直売所',                cls:'choku',  icon:'🌿', type:'choku',        prices:['¥180','¥200','¥380','¥540'] },
   hazu:           { name:'ハーズ',                          cls:'others', icon:'🛒', type:'oroshi',       prices:['¥315','¥158'] },
-  fukaya:         { name:'深谷ベジタブルコミュニケーション',cls:'others', icon:'🥬', type:'oroshi',       prices:['¥95（姫）','¥95（小）','¥350','レストラン用'] },
+  fukaya:         { name:'深谷ベジタブルコミュニケーション',cls:'others', icon:'🥬', type:'oroshi',       prices:['¥95（姫）','¥95（小）','¥350','レストラン用'], units:{'レストラン用':'kg'} },
   tamaya:         { name:'たまや',                          cls:'others', icon:'🏬', type:'choku',        prices:['¥220（税込）','¥450（税込）'] },
   nourin:         { name:'農林公園',                        cls:'others', icon:'🌳', type:'choku',        prices:['¥180','¥200','¥380','¥500'] },
   michieki:       { name:'道の駅おがわまち',                cls:'others', icon:'🚗', type:'choku',        prices:['¥210','¥420'] },
@@ -272,7 +272,8 @@ function bChinChoku(prices) {
 }
 function frow(label,key) {
   var v=state.formData[key]||'';
-  return '<div class="frow"><span class="frow-lbl">'+label+'</span><div class="frow-inp"><input type="number" min="0" inputmode="numeric" placeholder="0" value="'+eA(v)+'" oninput="upd(\''+eA(key)+'\',this.value)"><span class="frow-unit">個</span></div></div>';
+  var unit=(state.store.units&&state.store.units[label])?state.store.units[label]:'個';
+  return '<div class="frow"><span class="frow-lbl">'+label+'</span><div class="frow-inp"><input type="number" min="0" inputmode="numeric" placeholder="0" value="'+eA(v)+'" oninput="upd(\''+eA(key)+'\',this.value)"><span class="frow-unit">'+unit+'</span></div></div>';
 }
 function esc(s){return String(s).replace(/[^a-zA-Z0-9]/g,'_');}
 function eA(s){return String(s||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
