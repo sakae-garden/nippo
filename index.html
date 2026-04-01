@@ -352,6 +352,7 @@ function loadSavedData() {
 }
 
 
+function doSubmit() {
   if(!state.staff){alert('担当者を選択してください');return;}
   var items=[];
   Object.keys(state.formData).forEach(function(k){var v=state.formData[k];if(v!==''&&v!==null&&v!==undefined)items.push({key:k,value:String(v)});});
