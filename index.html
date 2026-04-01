@@ -39,6 +39,11 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .action-row{display:flex;gap:10px;margin-bottom:4px}
 .action-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:13px 10px;cursor:pointer;font-family:inherit;font-size:14px;font-weight:600;color:var(--ink);box-shadow:var(--shadow);transition:transform .1s}
 .action-btn:active{transform:scale(.97)}.a-icon{font-size:20px}
+.summary-link-btn{display:flex;align-items:center;justify-content:center;gap:8px;background:var(--ink);color:#fff;border-radius:var(--r);padding:13px 16px;text-decoration:none;font-size:15px;font-weight:700;letter-spacing:.04em;margin-bottom:10px;box-shadow:var(--shadow);transition:opacity .15s}
+.summary-link-btn:active{opacity:.8}
+.load-btn{width:100%;padding:12px;background:#e8f0fb;color:var(--blue);border:1.5px solid var(--blue);border-radius:var(--r);font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:10px;letter-spacing:.04em;transition:opacity .15s}
+.load-btn:active{opacity:.7}
+.load-btn:disabled{opacity:.4;cursor:not-allowed}
 .fsec{background:var(--card);border:1px solid var(--border);border-radius:var(--r);margin-bottom:10px;overflow:hidden;box-shadow:var(--shadow)}
 .fsec-hdr{padding:10px 14px;font-size:11px;font-weight:700;letter-spacing:.08em;display:flex;align-items:center;justify-content:space-between}
 .fsec-hdr.green{background:var(--green-bg);color:var(--green)}.fsec-hdr.blue{background:var(--blue-bg);color:var(--blue)}
@@ -204,7 +209,9 @@ function renderHome() {
   state.screen='home';
   setHeader('🍄 配達日報',false,true);
   var cfg=state.config||getDefaultConfig(), route=ROUTES[state.route];
-  var html='<div class="screen"><div class="action-row"><button class="action-btn" onclick="renderManual()"><span class="a-icon">📖</span>マニュアル</button><button class="action-btn" onclick="renderSettings()"><span class="a-icon">⚙️</span>設定</button></div>';
+  var html='<div class="screen">'
+    + '<a href="summary.html" target="_blank" class="summary-link-btn">📊 サマリーを見る</a>'
+    + '<div class="action-row"><button class="action-btn" onclick="renderManual()"><span class="a-icon">📖</span>マニュアル</button><button class="action-btn" onclick="renderSettings()"><span class="a-icon">⚙️</span>設定</button></div>';
   route.groups.forEach(function(g) {
     html+='<div class="sec-lbl">'+g.label+'</div><div class="store-list">';
     g.stores.forEach(function(id) {
@@ -224,7 +231,12 @@ function openStore(id) {
 
 function renderForm() {
   var s=state.store, p=s.prices, cfg=state.config||getDefaultConfig();
-  var html='<div class="screen"><div class="staff-sec"><div class="staff-lbl">担当者</div><div class="staff-btns">';
+  var html='<div class="screen">';
+
+  // 保存データ読み込みボタン
+  html+='<button class="load-btn" id="loadBtn" onclick="loadSavedData()">📥 保存済みデータを読み込む</button>';
+
+  html+='<div class="staff-sec"><div class="staff-lbl">担当者</div><div class="staff-btns">';
   (cfg.staff||['八島','青柳','杉','その他']).forEach(function(n){ html+='<button class="sbtn'+(state.staff===n?' sel':'')+'" onclick="selStaff(\''+n+'\')">'+n+'</button>'; });
   html+='</div></div>';
   if(s.type==='yaoko'||s.type==='yaoko_simple') {
@@ -295,7 +307,51 @@ function applyToS() {
   renderForm();
   setTimeout(function(){var el=document.getElementById('sec_S品');if(el){el.classList.add('flashed');setTimeout(function(){el.classList.remove('flashed');},700);}updateChin();},50);
 }
-function doSubmit() {
+function loadSavedData() {
+  var btn = document.getElementById('loadBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '📥 読み込み中...'; }
+
+  var url = API_URL
+    + '?action=getStoreData'
+    + '&store=' + encodeURIComponent(state.store.name)
+    + '&date=' + todayStr;
+
+  jsonp(url, 'cb_load', function(res) {
+    if (!res.success) {
+      alert('本日の保存データはありません。');
+      if (btn) { btn.disabled = false; btn.textContent = '📥 保存済みデータを読み込む'; }
+      return;
+    }
+    // 担当者をセット
+    if (res.staff) state.staff = res.staff;
+    // 各項目をformDataにセット
+    // GASのキー形式（例: "S品_¥99（個）"）→ アプリのキー形式（"S品_¥99"）に変換
+    if (res.items) {
+      Object.keys(res.items).forEach(function(key) {
+        // "（個）"を除去してフォームデータのキーに合わせる
+        var cleanKey = key.replace('（個）', '').replace('（kg）', '');
+        state.formData[cleanKey] = res.items[key];
+        // 元のキーそのままも試す
+        state.formData[key] = res.items[key];
+      });
+    }
+    // フォームを再描画
+    renderForm();
+    // 読み込み完了メッセージ
+    if (btn) {
+      btn.style.background = '#edf7f1';
+      btn.style.color = '#2d7a4f';
+      btn.style.borderColor = '#2d7a4f';
+      btn.textContent = '✅ 読み込み完了';
+      btn.disabled = true;
+    }
+  }, function() {
+    alert('データの取得に失敗しました。');
+    if (btn) { btn.disabled = false; btn.textContent = '📥 保存済みデータを読み込む'; }
+  });
+}
+
+
   if(!state.staff){alert('担当者を選択してください');return;}
   var items=[];
   Object.keys(state.formData).forEach(function(k){var v=state.formData[k];if(v!==''&&v!==null&&v!==undefined)items.push({key:k,value:String(v)});});
