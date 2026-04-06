@@ -179,7 +179,28 @@ window.onload=function(){
   },function(){document.getElementById('loading').style.display='none';document.getElementById('error').style.display='block';});
 };
 
-function showReport(date){if(!date||!CACHED)return;salesData={};render(date,CACHED[date]||{});}
+function showReport(date){
+  if(!date||!CACHED) return;
+  salesData={};
+  var dayData=CACHED[date]||{};
+
+  // スプレッドシートの「販売数_¥99」等の列を salesData に初期値としてセット
+  STORES.forEach(function(store){
+    var sd=dayData[store.name];
+    if(!sd||!sd.items) return;
+    sd.items.forEach(function(it){
+      if(it.label.indexOf('販売数_')===0){
+        var price=it.label.replace('販売数_','');
+        var sk=eId(store.name)+'__'+eId(price);
+        if(it.value!==''&&it.value!==null&&it.value!==undefined){
+          salesData[sk]=String(it.value);
+        }
+      }
+    });
+  });
+
+  render(date,dayData);
+}
 
 function parseSecs(sd){
   var secs={};
