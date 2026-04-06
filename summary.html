@@ -95,7 +95,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:#e8e0d0;min-height:100vh;p
 
 <script>
 var API_URL='https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkVvYc7V77OJrh7h_PZCqtuV4aUL7NYz83VsNc5lY6sXONw/exec';
-var CACHED=null, currentRoute=0, salesData={};
+var CACHED=null, currentRoute=0;
 
 var ROUTE_GROUPS=[
   {label:'小川ルート',stores:[
@@ -179,25 +179,7 @@ window.onload=function(){
 
 function showReport(date){
   if(!date||!CACHED) return;
-  salesData={};
-  var dayData=CACHED[date]||{};
-
-  // スプレッドシートの「販売数_¥99」等の列を salesData に初期値としてセット
-  STORES.forEach(function(store){
-    var sd=dayData[store.name];
-    if(!sd||!sd.items) return;
-    sd.items.forEach(function(it){
-      if(it.label.indexOf('販売数_')===0){
-        var price=it.label.replace('販売数_','');
-        var sk=eId(store.name)+'__'+eId(price);
-        if(it.value!==''&&it.value!==null&&it.value!==undefined){
-          salesData[sk]=String(it.value);
-        }
-      }
-    });
-  });
-
-  render(date,dayData);
+  render(date, CACHED[date]||{});
 }
 
 function parseSecs(sd){
@@ -257,7 +239,7 @@ function render(date,dayData){
     if(isO){
       html+=renderOroshi(store,secs);
     } else {
-      html+=renderInvTable(store,secs,isY);
+      html+=renderInvTable(store,secs,isY,sd.items);
       html+=renderAccordion(store,secs,isY);
     }
     html+='</div>';
@@ -267,10 +249,10 @@ function render(date,dayData){
   document.getElementById('report').style.display='block';
 }
 
-function renderInvTable(store,secs,isY){
+function renderInvTable(store,secs,isY,items){
   var prices=store.prices,sn=store.name;
   var chin=getChin(secs,prices,isY);
-  var tc=0,ts=0,tt=0;
+  var tc=0,ts=0,tt=0,totalZan=0,hasAnySales=false;
 
   var html='<div class="inv-wrap"><table class="inv-table"><thead><tr>';
   html+='<th>価格</th><th>陳列数</th>';
@@ -282,63 +264,39 @@ function renderInvTable(store,secs,isY){
     var sv=isY?(getRaw(secs.sosei,p)||0):0;
     var tenpo=c+sv;
     tc+=c;ts+=sv;tt+=tenpo;
-    var sk=eId(sn)+'__'+eId(p);
-    var sv2=salesData[sk]||'';
-    var zan=sv2!==''?Math.max(tenpo-(parseInt(sv2)||0),0):'';
+
+    // items から「販売数_¥99」等のラベルを直接検索
+    var salesVal='';
+    if(items){
+      items.forEach(function(it){
+        if(it.label==='販売数_'+p && it.value!=='' && it.value!==null && it.value!==undefined){
+          salesVal=String(it.value);
+        }
+      });
+    }
+
+    var zan=salesVal!==''?Math.max(tenpo-(parseInt(salesVal)||0),0):'';
+    if(salesVal!==''){hasAnySales=true;totalZan+=zan;}
+    else totalZan+=tenpo;
 
     html+='<tr><td>'+eH(p)+'</td>';
     html+='<td><span class="iv iv-chin">'+c+'</span></td>';
     if(isY) html+='<td><span class="iv iv-sosei">'+sv+'</span></td>';
     html+='<td><span class="iv iv-tenpo">'+tenpo+'</span></td>';
-    var salesVal=sv2!==''?sv2:'-';
-    html+='<td><span class="iv iv-sales" id="s_'+eId(sn)+'__'+eId(p)+'">'+eH(salesVal)+'</span></td>';
-    html+='<td><span class="iv iv-zan" id="z_'+eId(sn)+'__'+eId(p)+'">'+(zan===''?'-':zan)+'</span></td></tr>';
+    html+='<td><span class="iv iv-sales">'+eH(salesVal!==''?salesVal:'-')+'</span></td>';
+    html+='<td><span class="iv iv-zan">'+(zan===''?'-':zan)+'</span></td></tr>';
   });
 
   // 合計行
-  var totalZan=calcTotalZan(sn,prices,chin,secs,isY);
   html+='<tr class="iv-total"><td>合計</td><td><span class="iv iv-chin">'+tc+'</span></td>';
   if(isY) html+='<td><span class="iv iv-sosei">'+ts+'</span></td>';
   html+='<td><span class="iv iv-tenpo">'+tt+'</span></td><td></td>';
-  html+='<td><span class="iv iv-zan" id="z_'+eId(sn)+'__total">'+totalZan+'</span></td></tr>';
+  html+='<td><span class="iv iv-zan">'+(hasAnySales?String(totalZan):'-')+'</span></td></tr>';
 
   html+='</tbody></table></div>';
   return html;
 }
 
-function calcTotalZan(sn,prices,chin,secs,isY){
-  var total=0,has=false;
-  prices.forEach(function(p){
-    var sv=isY?(getRaw(secs.sosei,p)||0):0;
-    var tenpo=(chin[p]||0)+sv;
-    var sk=eId(sn)+'__'+eId(p);
-    var sv2=salesData[sk];
-    if(sv2!==undefined&&sv2!==''){has=true;total+=Math.max(tenpo-(parseInt(sv2)||0),0);}
-    else total+=tenpo;
-  });
-  return has?String(total):'-';
-}
-
-function updS(sk,val,sn){
-  salesData[sk]=val;
-  var store=null;STORES.forEach(function(s){if(s.name===sn)store=s;});
-  if(!store) return;
-  var date=document.getElementById('dateSelect').value;
-  if(!date||!CACHED||!CACHED[date]||!CACHED[date][sn]) return;
-  var secs=parseSecs(CACHED[date][sn]);
-  var isY=store.type==='yaoko';
-  var chin=getChin(secs,store.prices,isY);
-
-  store.prices.forEach(function(p){
-    var sv=isY?(getRaw(secs.sosei,p)||0):0;
-    var tenpo=(chin[p]||0)+sv;
-    var k=eId(sn)+'__'+eId(p);
-    var el=document.getElementById('z_'+k);
-    if(el){var v=salesData[k];el.textContent=(v!==undefined&&v!=='')?String(Math.max(tenpo-(parseInt(v)||0),0)):'-';}
-  });
-  var tel=document.getElementById('z_'+eId(sn)+'__total');
-  if(tel) tel.textContent=calcTotalZan(sn,store.prices,chin,secs,isY);
-}
 
 function renderAccordion(store,secs,isY){
   var detail=isY?YD:CD;
