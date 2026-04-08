@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>配達日報 | 栄ガーデン</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap');
+:root {
+  --bg:#f5f3ee; --card:#fff; --ink:#1c1c1e; --sub:#6c6c70;
+  --border:#e5e1d8; --shadow:0 2px 12px rgba(0,0,0,0.08);
+  --red:#c0392b; --green:#2d7a4f; --green-bg:#edf7f1;
+  --blue:#1a5fa8; --blue-bg:#e8f0fb;
+  --brown:#7a5c3a; --brown-bg:#f5ede4;
+  --orange:#e65100; --yellow:#b8860b; --yellow-bg:#fffde7;
+  --purple:#7b1fa2; --purple-bg:#f3e5f5;
+  --r:16px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh;color:var(--ink);max-width:480px;margin:0 auto;padding-bottom:60px}
+.hdr{background:var(--ink);color:#fff;padding:14px 18px 0;position:sticky;top:0;z-index:100}
+.hdr-top{display:flex;align-items:center;justify-content:space-between;padding-bottom:10px}
+.hdr h1{font-size:17px;font-weight:700;letter-spacing:.04em}
+.hdr-date{font-size:11px;color:#aaa;margin-top:-6px;padding-bottom:10px;padding-left:2px}
+.back-btn{background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:8px;padding:5px 12px;font-size:13px;cursor:pointer;font-family:inherit}
+.route-tabs{display:flex;gap:6px;padding:0 0 12px}
+.rtab{flex:1;padding:8px 4px;background:rgba(255,255,255,.1);color:rgba(255,255,255,.6);border:none;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;border-radius:8px}
+.rtab.active{background:#fff;color:var(--ink)}
+.screen{padding:16px}
+.sec-lbl{font-size:10px;font-weight:700;color:var(--sub);letter-spacing:.12em;text-transform:uppercase;margin:16px 0 8px 2px}
+.sec-lbl:first-child{margin-top:4px}
+.store-list{display:flex;flex-direction:column;gap:8px}
+.store-btn{display:flex;align-items:center;background:var(--card);border:1px solid var(--border);border-left:4px solid var(--border);border-radius:var(--r);padding:13px 16px;cursor:pointer;width:100%;text-align:left;font-family:inherit;box-shadow:var(--shadow);transition:transform .1s}
+.store-btn:active{transform:scale(.98)}
+.store-btn.yaoko{border-left-color:var(--red)}.store-btn.choku{border-left-color:var(--green)}.store-btn.others{border-left-color:var(--blue)}
+.si{font-size:22px;margin-right:12px}.sinfo{flex:1}.sname{font-size:15px;font-weight:600}.ssub{font-size:11px;color:var(--sub);margin-top:1px}.sarr{font-size:18px;color:#ccc}
+.action-row{display:flex;gap:10px;margin-bottom:4px}
+.action-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:13px 10px;cursor:pointer;font-family:inherit;font-size:14px;font-weight:600;color:var(--ink);box-shadow:var(--shadow);transition:transform .1s}
+.action-btn:active{transform:scale(.97)}.a-icon{font-size:20px}
+.summary-link-btn{display:flex;align-items:center;justify-content:center;gap:8px;background:var(--ink);color:#fff;border-radius:var(--r);padding:13px 16px;text-decoration:none;font-size:15px;font-weight:700;letter-spacing:.04em;margin-bottom:10px;box-shadow:var(--shadow);transition:opacity .15s}
+.summary-link-btn:active{opacity:.8}
+.load-btn{width:100%;padding:12px;background:#e8f0fb;color:var(--blue);border:1.5px solid var(--blue);border-radius:var(--r);font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:10px;letter-spacing:.04em;transition:opacity .15s}
+.load-btn:active{opacity:.7}
+.load-btn:disabled{opacity:.4;cursor:not-allowed}
+.fsec{background:var(--card);border:1px solid var(--border);border-radius:var(--r);margin-bottom:10px;overflow:hidden;box-shadow:var(--shadow)}
+.fsec-hdr{padding:10px 14px;font-size:11px;font-weight:700;letter-spacing:.08em;display:flex;align-items:center;justify-content:space-between}
+.fsec-hdr.green{background:var(--green-bg);color:var(--green)}.fsec-hdr.blue{background:var(--blue-bg);color:var(--blue)}
+.fsec-hdr.brown{background:var(--brown-bg);color:var(--brown)}.fsec-hdr.yellow{background:var(--yellow-bg);color:var(--yellow)}
+.fsec-hdr.purple{background:var(--purple-bg);color:var(--purple)}.fsec-hdr .note{font-size:10px;font-weight:400;opacity:.8}
+.apply-btn{background:var(--green);color:#fff;border:none;border-radius:8px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;transition:opacity .15s}
+.apply-btn:active{opacity:.7}
+@keyframes flash{0%{background:#c8f7dc}100%{background:inherit}}
+.flashed .fsec-hdr{animation:flash .7s ease-out}
+.frow{display:flex;align-items:center;padding:9px 14px;border-bottom:1px solid var(--border)}
+.frow:last-child{border-bottom:none}.frow-lbl{flex:1;font-size:14px}.frow-inp{display:flex;align-items:center;gap:5px}
+.frow input[type=number]{width:72px;height:40px;border:1.5px solid var(--border);border-radius:10px;text-align:center;font-size:16px;font-weight:600;font-family:inherit;color:var(--ink);background:#fafafa;-moz-appearance:textfield}
+.frow input::-webkit-inner-spin-button,.frow input::-webkit-outer-spin-button{-webkit-appearance:none}
+.frow input:focus{outline:none;border-color:var(--ink);background:#fff}
+.frow textarea{width:100%;border:1.5px solid var(--border);border-radius:10px;padding:8px 10px;font-size:14px;font-family:inherit;color:var(--ink);background:#fafafa;resize:vertical;min-height:70px}
+.frow textarea:focus{outline:none;border-color:var(--ink);background:#fff}.frow-unit{font-size:11px;color:var(--sub)}
+.chin-sec{background:var(--yellow-bg);border:2px solid #f9a825;border-radius:var(--r);margin-bottom:10px;overflow:hidden;box-shadow:var(--shadow)}
+.chin-hdr{padding:10px 14px;background:#f9a825;color:#fff;font-size:11px;font-weight:700;letter-spacing:.08em}
+.chin-row{display:flex;align-items:center;padding:9px 14px;border-bottom:1px solid #fff9c4}
+.chin-row:last-child{border-bottom:none}.chin-lbl{flex:1;font-size:14px}
+.chin-val{font-size:20px;font-weight:700;color:var(--orange);min-width:48px;text-align:right}
+.chin-unit{font-size:11px;color:var(--sub);margin-left:4px}
+.staff-sec{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:13px 14px;margin-bottom:10px;box-shadow:var(--shadow)}
+.staff-lbl{font-size:11px;font-weight:700;color:var(--sub);margin-bottom:8px;letter-spacing:.08em}
+.staff-btns{display:flex;gap:8px;flex-wrap:wrap}
+.sbtn{padding:7px 15px;border-radius:20px;border:1.5px solid var(--border);background:#fafafa;font-family:inherit;font-size:14px;cursor:pointer;transition:all .15s;color:var(--ink)}
+.sbtn.sel{background:var(--ink);color:#fff;border-color:var(--ink)}
+.submit-btn{width:100%;padding:15px;background:var(--ink);color:#fff;border:none;border-radius:var(--r);font-family:inherit;font-size:16px;font-weight:700;cursor:pointer;margin-top:4px;letter-spacing:.04em;transition:opacity .15s}
+.submit-btn:active{opacity:.8}.submit-btn:disabled{opacity:.5;cursor:not-allowed}
+.done-screen{text-align:center;padding:60px 20px}.done-icon{font-size:64px;margin-bottom:16px}
+.done-title{font-size:22px;font-weight:700;margin-bottom:8px}.done-sub{font-size:14px;color:var(--sub);margin-bottom:32px;line-height:1.7}
+.home-btn{background:var(--ink);color:#fff;border:none;border-radius:var(--r);padding:14px 32px;font-family:inherit;font-size:15px;font-weight:600;cursor:pointer}
+.manual{padding:16px}.manual h2{font-size:16px;font-weight:700;margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid var(--border)}
+.manual h3{font-size:14px;font-weight:700;margin:16px 0 6px}.manual p{font-size:13px;color:#444;line-height:1.8;margin-bottom:6px}
+.manual-badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700;margin-bottom:4px}
+.mb-green{background:var(--green-bg);color:var(--green)}.mb-blue{background:var(--blue-bg);color:var(--blue)}
+.mb-brown{background:var(--brown-bg);color:var(--brown)}.mb-yellow{background:var(--yellow-bg);color:var(--yellow)}
+.mb-purple{background:var(--purple-bg);color:var(--purple)}.mb-orange{background:#fff3e0;color:var(--orange)}
+.manual-tip{background:#f0f4f8;border-left:3px solid var(--blue);border-radius:0 8px 8px 0;padding:10px 12px;font-size:13px;color:#333;margin:10px 0;line-height:1.7}
+.settings{padding:16px}.settings h2{font-size:16px;font-weight:700;margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid var(--border)}
+.settings-sec{background:var(--card);border:1px solid var(--border);border-radius:var(--r);margin-bottom:12px;overflow:hidden;box-shadow:var(--shadow)}
+.settings-sec-hdr{padding:10px 14px;background:#f5f5f5;font-size:12px;font-weight:700;color:var(--sub);letter-spacing:.08em}
+.settings-item{display:flex;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border);gap:10px}
+.settings-item:last-child{border-bottom:none}.settings-item label{flex:1;font-size:13px}
+.settings-item input[type=text]{flex:2;border:1.5px solid var(--border);border-radius:8px;padding:6px 10px;font-size:13px;font-family:inherit}
+.settings-item input:focus{outline:none;border-color:var(--ink)}
+.staff-list-edit{padding:12px 14px}.staff-tag-wrap{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.staff-tag{display:flex;align-items:center;gap:4px;background:#f0f0f0;border-radius:20px;padding:4px 10px 4px 12px;font-size:13px}
+.staff-tag-del{background:none;border:none;color:#999;cursor:pointer;font-size:16px;line-height:1;padding:0}
+.staff-add-row{display:flex;gap:8px}.staff-add-row input{flex:1;border:1.5px solid var(--border);border-radius:8px;padding:8px 10px;font-size:14px;font-family:inherit}
+.staff-add-row input:focus{outline:none;border-color:var(--ink)}
+.add-btn{background:var(--green);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap}
+.save-btn{width:100%;padding:14px;background:var(--green);color:#fff;border:none;border-radius:var(--r);font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;margin-top:8px}
+.settings-msg{text-align:center;font-size:13px;padding:8px;color:var(--green);font-weight:600;display:none}
+.loading-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:200}
+.loading-box{background:#fff;border-radius:16px;padding:24px 32px;text-align:center;font-size:14px;font-weight:600}
+.spinner{display:inline-block;width:28px;height:28px;border:3px solid #eee;border-top-color:var(--ink);border-radius:50%;animation:spin .8s linear infinite;margin-bottom:10px}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="hdr">
+  <div class="hdr-top">
+    <h1 id="hTitle">🍄 配達日報</h1>
+    <button class="back-btn" id="backBtn" style="display:none" onclick="goBack()">← 戻る</button>
+  </div>
+  <div class="hdr-date" id="hDate"></div>
+  <div class="route-tabs" id="routeTabs">
+    <button class="rtab active" id="tab0" onclick="switchRoute(0)">小川ルート</button>
+    <button class="rtab" id="tab1" onclick="switchRoute(1)">籠原ルート</button>
+    <button class="rtab" id="tab2" onclick="switchRoute(2)">坂戸ルート</button>
+  </div>
+</div>
+<div id="app"></div>
+<script>
+var API_URL = 'https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkVvYc7V77OJrh7h_PZCqtuV4aUL7NYz83VsNc5lY6sXONw/exec';
+
+var ROUTES = [
+  { id:'ogawa', label:'小川ルート', groups:[
+    { label:'ヤオコー', stores:['yorii','midori'] },
+    { label:'農産物直売所', stores:['obusuma','kawamoto'] },
+    { label:'その他', stores:['hazu','fukaya','tamaya','nourin','michieki'] }
+  ]},
+  { id:'kagohara', label:'籠原ルート', groups:[
+    { label:'ヤオコー', stores:['minano','kagohara_s','honjo','kamisato','kodama'] },
+    { label:'直売所', stores:['okabe'] }
+  ]},
+  { id:'sakado', label:'坂戸ルート', groups:[
+    { label:'ヤオコー', stores:['sakado_izumi','sakado_chiyoda','wakaba','ipponmatsu','nagase'] }
+  ]}
+];
+
+var STORE_DEFS = {
+  yorii:          { name:'ヤオコー寄居店',                  cls:'yaoko',  icon:'🏪', type:'yaoko',        prices:['¥99','¥198','¥398','¥598'] },
+  midori:         { name:'ヤオコーみどりが丘店',            cls:'yaoko',  icon:'🏪', type:'yaoko',        prices:['¥99','¥198','¥398','¥598'] },
+  obusuma:        { name:'男衾農産物直売所',                cls:'choku',  icon:'🌿', type:'choku',        prices:['¥180','¥200','¥380','¥540'] },
+  kawamoto:       { name:'川本農産物直売所',                cls:'choku',  icon:'🌿', type:'choku',        prices:['¥180','¥200','¥380','¥540'] },
+  hazu:           { name:'ハーズ',                          cls:'others', icon:'🛒', type:'oroshi',       prices:['¥315','¥158'] },
+  fukaya:         { name:'深谷ベジタブルコミュニケーション',cls:'others', icon:'🥬', type:'oroshi',       prices:['¥95（姫）','¥95（小）','¥350','レストラン用'], units:{'レストラン用':'kg'} },
+  tamaya:         { name:'たまや',                          cls:'others', icon:'🏬', type:'choku',        prices:['¥220（税込）','¥450（税込）'] },
+  nourin:         { name:'農林公園',                        cls:'others', icon:'🌳', type:'choku',        prices:['¥180','¥200','¥380','¥500'] },
+  michieki:       { name:'道の駅おがわまち',                cls:'others', icon:'🚗', type:'choku',        prices:['¥210','¥420'] },
+  minano:         { name:'ヤオコー皆野店',                  cls:'yaoko',  icon:'🏪', type:'yaoko',        prices:['¥99','¥198','¥398','¥598'] },
+  kagohara_s:     { name:'ヤオコー籠原店',                  cls:'yaoko',  icon:'🏪', type:'yaoko',        prices:['¥99','¥198','¥398','¥598'] },
+  okabe:          { name:'道の駅おかべ',                    cls:'choku',  icon:'🚗', type:'choku',        prices:['¥200','¥216','¥380','¥420'] },
+  honjo:          { name:'ヤオコー本庄中央店',              cls:'yaoko',  icon:'🏪', type:'yaoko',        prices:['¥99','¥198','¥398','¥598'] },
+  kamisato:       { name:'ヤオコー上里店',                  cls:'yaoko',  icon:'🏪', type:'yaoko',        prices:['¥99','¥198','¥398','¥598'] },
+  kodama:         { name:'ヤオコー児玉バイパス店',          cls:'yaoko',  icon:'🏪', type:'yaoko',        prices:['¥99','¥198','¥398','¥598'] },
+  sakado_izumi:   { name:'ヤオコー坂戸泉店',               cls:'yaoko',  icon:'🏪', type:'yaoko',        prices:['¥99','¥198','¥398','¥598'] },
+  sakado_chiyoda: { name:'ヤオコー坂戸千代田店',           cls:'yaoko',  icon:'🏪', type:'yaoko',        prices:['¥99','¥198','¥398','¥598'] },
+  wakaba:         { name:'ヤオコーワカバウォーク店',        cls:'yaoko',  icon:'🏪', type:'yaoko',        prices:['¥99','¥198','¥398','¥598'] },
+  ipponmatsu:     { name:'ヤオコー一本松南店',              cls:'yaoko',  icon:'🏪', type:'yaoko',        prices:['¥99','¥198','¥398','¥598'] },
+  nagase:         { name:'ヤオコー長瀬店',                  cls:'yaoko',  icon:'🏪', type:'yaoko',        prices:['¥99','¥198','¥398','¥598'] }
+};
+
+var state = { screen:'home', route:0, store:null, formData:{}, staff:'', config:null };
+var today = new Date();
+var DAYS = ['日','月','火','水','木','金','土'];
+var todayStr = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
+document.getElementById('hDate').textContent = today.getFullYear()+'年'+(today.getMonth()+1)+'月'+today.getDate()+'日（'+DAYS[today.getDay()]+'）';
+
+function loadConfig(cb) {
+  var cached = localStorage.getItem('nippo_config');
+  state.config = cached ? (function(){ try{return JSON.parse(cached);}catch(e){return getDefaultConfig();} })() : getDefaultConfig();
+  if (cb) cb();
+  jsonp(API_URL+'?action=getConfig','cb_cfg',function(res){ if(res.success&&res.config){ state.config=res.config; localStorage.setItem('nippo_config',JSON.stringify(res.config)); } },function(){});
+}
+
+function getDefaultConfig() {
+  var c = {};
+  Object.keys(STORE_DEFS).forEach(function(k){ c[STORE_DEFS[k].name]=''; });
+  c['ヤオコー寄居店']='河野さん・竹山さん'; c['ヤオコーみどりが丘店']='杉田さん・川野さん';
+  c['ハーズ']='五十嵐さん・加藤さん'; c['深谷ベジタブルコミュニケーション']='田島さん';
+  return { staff:['八島','青柳','杉','その他'], storeContacts:c };
+}
+
+var cbIdx=0;
+function jsonp(url,base,onOk,onErr) {
+  var n=base+'_'+(cbIdx++), s=document.createElement('script');
+  var t=setTimeout(function(){cleanup();if(onErr)onErr();},15000);
+  function cleanup(){clearTimeout(t);delete window[n];if(s.parentNode)s.parentNode.removeChild(s);}
+  window[n]=function(d){cleanup();onOk(d);};
+  s.onerror=function(){cleanup();if(onErr)onErr();};
+  s.src=url+(url.indexOf('?')>-1?'&':'?')+'callback='+n;
+  document.body.appendChild(s);
+}
+function showLoading(msg){var el=document.getElementById('lo');if(!el){el=document.createElement('div');el.id='lo';el.className='loading-overlay';el.innerHTML='<div class="loading-box"><div class="spinner"></div><br>'+(msg||'送信中...')+'</div>';document.body.appendChild(el);}}
+function hideLoading(){var el=document.getElementById('lo');if(el)el.parentNode.removeChild(el);}
+
+function setHeader(title,showBack,showTabs) {
+  document.getElementById('hTitle').textContent=title;
+  document.getElementById('backBtn').style.display=showBack?'':'none';
+  document.getElementById('routeTabs').style.display=showTabs?'':'none';
+}
+function switchRoute(idx) {
+  state.route=idx;
+  for(var i=0;i<3;i++) document.getElementById('tab'+i).classList.toggle('active',i===idx);
+  renderHome();
+}
+function goBack(){ renderHome(); }
+
+function renderHome() {
+  state.screen='home';
+  setHeader('🍄 配達日報',false,true);
+  var cfg=state.config||getDefaultConfig(), route=ROUTES[state.route];
+  var html='<div class="screen">'
+    + '<a href="summary.html" target="_blank" class="summary-link-btn">📊 サマリーを見る</a>'
+    + '<div class="action-row"><button class="action-btn" onclick="renderManual()"><span class="a-icon">📖</span>マニュアル</button><button class="action-btn" onclick="renderSettings()"><span class="a-icon">⚙️</span>設定</button></div>';
+  route.groups.forEach(function(g) {
+    html+='<div class="sec-lbl">'+g.label+'</div><div class="store-list">';
+    g.stores.forEach(function(id) {
+      var s=STORE_DEFS[id], sub=(cfg.storeContacts&&cfg.storeContacts[s.name])||'';
+      html+='<button class="store-btn '+s.cls+'" onclick="openStore(\''+id+'\')"><span class="si">'+s.icon+'</span><span class="sinfo"><span class="sname">'+s.name+'</span>'+(sub?'<br><span class="ssub">'+sub+'</span>':'')+'</span><span class="sarr">›</span></button>';
+    });
+    html+='</div>';
+  });
+  html+='</div>';
+  document.getElementById('app').innerHTML=html;
+}
+
+function openStore(id) {
+  state.store=STORE_DEFS[id]; state.formData={}; state.staff=''; state.screen='form';
+  setHeader(state.store.name,true,false); renderForm();
+}
+
+function renderForm() {
+  var s=state.store, p=s.prices, cfg=state.config||getDefaultConfig();
+  var html='<div class="screen">';
+
+  // 保存データ読み込みボタン
+  html+='<button class="load-btn" id="loadBtn" onclick="loadSavedData()">📥 保存済みデータを読み込む</button>';
+
+  html+='<div class="staff-sec"><div class="staff-lbl">担当者</div><div class="staff-btns">';
+  (cfg.staff||['八島','青柳','杉','その他']).forEach(function(n){ html+='<button class="sbtn'+(state.staff===n?' sel':'')+'" onclick="selStaff(\''+n+'\')">'+n+'</button>'; });
+  html+='</div></div>';
+  if(s.type==='yaoko'||s.type==='yaoko_simple') {
+    html+=bChin(p);
+    html+=bNouhin(p);
+    html+=bSec('🟦 S品陳列数（当日）','blue','S品',p);
+    html+=bSec('🟫 A品陳列数（1日前）','brown','A品',p);
+    html+=bSec('🟫 B品陳列数（2日前）','brown','B品',p);
+    html+=bSec('🟫 C品陳列数（3日前）','brown','C品',p);
+    if(s.type==='yaoko') html+=bSec('🟪 蘇生庫へ','purple','蘇生庫',p);
+    if(s.type==='yaoko') html+=bSec('🟥 値引き','yellow','値引き',p,'※C品陳列数には含めない');
+    html+=bSec('🟧 持ち帰り','yellow','持ち帰り',p);
+  } else if(s.type==='choku') {
+    html+=bChinChoku(p);
+    html+=bSec('🟩 納品数','green','納品',p);
+    html+=bSec('🟫 前日在庫','brown','前日在庫',p);
+    html+=bSec('🟧 持ち帰り','yellow','持ち帰り',p);
+  } else {
+    html+=bSec('🟩 納品数','green','納品',p);
+  }
+  html+='<div class="fsec"><div class="fsec-hdr" style="background:#f5f5f5;color:#555">📝 特記事項</div><div class="frow"><textarea oninput="upd(\'特記事項\',this.value)" placeholder="気になることがあれば記入">'+eH(state.formData['特記事項']||'')+'</textarea></div></div>';
+  html+='<button class="submit-btn" id="submitBtn" onclick="doSubmit()">✅ 送信する</button></div>';
+  document.getElementById('app').innerHTML=html;
+}
+
+function bNouhin(prices) {
+  var h='<div class="fsec" id="secNouhin"><div class="fsec-hdr green"><span>🟩 納品数</span><button class="apply-btn" onclick="applyToS()">→ S品に反映</button></div><div>';
+  prices.forEach(function(p){h+=frow(p,'納品_'+p);});
+  return h+'</div></div>';
+}
+function bSec(title,color,key,prices,note) {
+  var h='<div class="fsec" id="sec_'+esc(key)+'"><div class="fsec-hdr '+color+'"><span>'+title+'</span>'+(note?'<span class="note">'+note+'</span>':'')+'</div><div>';
+  prices.forEach(function(p){h+=frow(p,key+'_'+p);});
+  return h+'</div></div>';
+}
+function bChin(prices) {
+  var h='<div class="chin-sec"><div class="chin-hdr">🟦 陳列数（S品＋A品＋B品＋C品 自動計算）</div>';
+  prices.forEach(function(p){ h+='<div class="chin-row"><span class="chin-lbl">'+p+'</span><span class="chin-val" id="cv_'+esc(p)+'">'+cY(p)+'</span><span class="chin-unit">個</span></div>'; });
+  return h+'</div>';
+}
+function bChinChoku(prices) {
+  var h='<div class="chin-sec"><div class="chin-hdr">🟦 陳列数（納品＋前日在庫 自動計算）</div>';
+  prices.forEach(function(p){ var t=(parseInt(state.formData['納品_'+p])||0)+(parseInt(state.formData['前日在庫_'+p])||0); h+='<div class="chin-row"><span class="chin-lbl">'+p+'</span><span class="chin-val" id="cv_'+esc(p)+'">'+t+'</span><span class="chin-unit">個</span></div>'; });
+  return h+'</div>';
+}
+function frow(label,key) {
+  var v=state.formData[key]||'';
+  var unit=(state.store.units&&state.store.units[label])?state.store.units[label]:'個';
+  return '<div class="frow"><span class="frow-lbl">'+label+'</span><div class="frow-inp"><input type="number" min="0" inputmode="numeric" placeholder="0" value="'+eA(v)+'" oninput="upd(\''+eA(key)+'\',this.value)"><span class="frow-unit">'+unit+'</span></div></div>';
+}
+function esc(s){return String(s).replace(/[^a-zA-Z0-9]/g,'_');}
+function eA(s){return String(s||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+function eH(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function selStaff(n){state.staff=n;document.querySelectorAll('.sbtn').forEach(function(b){b.classList.toggle('sel',b.textContent===n);});}
+function upd(k,v){state.formData[k]=v;updateChin();}
+function updateChin() {
+  var s=state.store;
+  s.prices.forEach(function(p){
+    var el=document.getElementById('cv_'+esc(p));
+    if(!el) return;
+    if(s.type==='yaoko'||s.type==='yaoko_simple') el.textContent=cY(p);
+    else if(s.type==='choku') el.textContent=(parseInt(state.formData['納品_'+p])||0)+(parseInt(state.formData['前日在庫_'+p])||0);
+  });
+}
+function cY(p){return(parseInt(state.formData['S品_'+p])||0)+(parseInt(state.formData['A品_'+p])||0)+(parseInt(state.formData['B品_'+p])||0)+(parseInt(state.formData['C品_'+p])||0);}
+function applyToS() {
+  state.store.prices.forEach(function(p){state.formData['S品_'+p]=state.formData['納品_'+p]||'0';});
+  renderForm();
+  setTimeout(function(){var el=document.getElementById('sec_S品');if(el){el.classList.add('flashed');setTimeout(function(){el.classList.remove('flashed');},700);}updateChin();},50);
+}
+function loadSavedData() {
+  var btn = document.getElementById('loadBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '📥 読み込み中...'; }
+
+  var url = API_URL
+    + '?action=getStoreData'
+    + '&store=' + encodeURIComponent(state.store.name)
+    + '&date=' + todayStr;
+
+  jsonp(url, 'cb_load', function(res) {
+    if (!res.success) {
+      alert('本日の保存データはありません。');
+      if (btn) { btn.disabled = false; btn.textContent = '📥 保存済みデータを読み込む'; }
+      return;
+    }
+    // 担当者をセット
+    if (res.staff) state.staff = res.staff;
+    // 各項目をformDataにセット
+    // GASのキー形式（例: "S品_¥99（個）"）→ アプリのキー形式（"S品_¥99"）に変換
+    if (res.items) {
+      Object.keys(res.items).forEach(function(key) {
+        // "（個）"を除去してフォームデータのキーに合わせる
+        var cleanKey = key.replace('（個）', '').replace('（kg）', '');
+        state.formData[cleanKey] = res.items[key];
+        // 元のキーそのままも試す
+        state.formData[key] = res.items[key];
+      });
+    }
+    // フォームを再描画
+    renderForm();
+    // 読み込み完了メッセージ
+    if (btn) {
+      btn.style.background = '#edf7f1';
+      btn.style.color = '#2d7a4f';
+      btn.style.borderColor = '#2d7a4f';
+      btn.textContent = '✅ 読み込み完了';
+      btn.disabled = true;
+    }
+  }, function() {
+    alert('データの取得に失敗しました。');
+    if (btn) { btn.disabled = false; btn.textContent = '📥 保存済みデータを読み込む'; }
+  });
+}
+
+
+function doSubmit() {
+  if(!state.staff){alert('担当者を選択してください');return;}
+  var items=[];
+  Object.keys(state.formData).forEach(function(k){var v=state.formData[k];if(v!==''&&v!==null&&v!==undefined)items.push({key:k,value:String(v)});});
+  var url=API_URL+'?action=submit&store='+encodeURIComponent(state.store.name)+'&date='+todayStr+'&staff='+encodeURIComponent(state.staff)+'&items='+encodeURIComponent(JSON.stringify(items));
+  showLoading('送信中...');
+  document.getElementById('submitBtn')&&(document.getElementById('submitBtn').disabled=true);
+  jsonp(url,'cb_sub',function(res){
+    hideLoading();
+    if(res.success){renderDone();}
+    else{alert('送信に失敗しました。\n'+(res.error||'')+'\nもう一度お試しください。');document.getElementById('submitBtn')&&(document.getElementById('submitBtn').disabled=false);}
+  },function(){hideLoading();alert('通信エラーが発生しました。\nインターネット接続を確認してください。');document.getElementById('submitBtn')&&(document.getElementById('submitBtn').disabled=false);});
+}
+function renderDone() {
+  state.screen='done';setHeader('送信完了',false,false);
+  document.getElementById('app').innerHTML='<div class="done-screen"><div class="done-icon">✅</div><div class="done-title">送信完了！</div><div class="done-sub">お疲れ様でした。<br>'+state.store.name+'の日報を送信しました。<br><br>'+todayStr.replace(/-/g,'/')+'　担当：'+state.staff+'</div><button class="home-btn" onclick="renderHome()">← 店舗一覧に戻る</button></div>';
+}
+
+function renderManual() {
+  state.screen='manual';setHeader('📖 入力マニュアル',true,false);
+  var h='<div class="manual"><h2>配達日報 入力ガイド</h2>';
+  h+='<div class="manual-tip">📱 「送信する」を押すまでデータは保存されません。<br>⚠️ 入力ミスは再送信で修正できます（最新データが反映されます）。</div>';
+  h+='<h3><span class="manual-badge mb-green">🟩 納品数</span></h3><p>その日に店舗に持っていった個数を入力します。「→ S品に反映」ボタンで納品数をそのままS品陳列数にコピーできます。</p>';
+  h+='<h3><span class="manual-badge mb-blue">🟦 S品陳列数（当日）</span></h3><p>当日陳列した商品の陳列数です。納品してそのまま陳列したものだけでなく、<strong>蘇生庫から出して当日陳列したものも含みます</strong>。</p>';
+  h+='<h3><span class="manual-badge mb-brown">🟫 A品陳列数（1日前）</span></h3><p>1日前に陳列し、まだ棚にある商品の個数です。</p>';
+  h+='<h3><span class="manual-badge mb-brown">🟫 B品陳列数（2日前）</span></h3><p>2日前に陳列し、まだ棚にある商品の個数です。</p>';
+  h+='<h3><span class="manual-badge mb-brown">🟫 C品陳列数（3日前）</span></h3><p>3日前に陳列し、まだ棚にある商品の個数です。<br>※C品は<strong>値引き対象外</strong>の数を入力してください。</p>';
+  h+='<h3><span class="manual-badge" style="background:#e0f2f1;color:#00796b">🟦 陳列数（自動計算）</span></h3><p>S品＋A品＋B品＋C品の合計を自動計算します。入力不要です。</p>';
+  h+='<h3><span class="manual-badge mb-purple">🟪 蘇生庫へ</span></h3><p>蘇生庫に移した個数を入力します。（ヤオコーのみ）</p>';
+  h+='<h3><span class="manual-badge mb-yellow">🟥 値引き</span></h3><p>値引き対応した個数を入力します。C品陳列数には含めません。（ヤオコーのみ）</p>';
+  h+='<h3><span class="manual-badge mb-orange">🟧 持ち帰り</span></h3><p>持ち帰った個数を入力します。</p>';
+  h+='<h3 style="margin-top:20px">🌿 直売所（男衾・川本・道の駅おかべ）</h3><p>陳列数 ＝ 納品数 ＋ 前日在庫 として自動計算されます。</p>';
+  h+='</div>';
+  document.getElementById('app').innerHTML=h;
+}
+
+function renderSettings() {
+  state.screen='settings';setHeader('⚙️ 設定',true,false);
+  var cfg=JSON.parse(JSON.stringify(state.config||getDefaultConfig()));
+  var h='<div class="settings"><h2>設定</h2><div class="settings-sec"><div class="settings-sec-hdr">担当者リスト</div><div class="staff-list-edit"><div class="staff-tag-wrap" id="staffTagWrap">';
+  cfg.staff.forEach(function(s,i){h+='<span class="staff-tag">'+eH(s)+'<button class="staff-tag-del" onclick="rmStaff('+i+')">×</button></span>';});
+  h+='</div><div class="staff-add-row"><input type="text" id="newStaffInput" placeholder="新しい担当者名" maxlength="20"><button class="add-btn" onclick="addStaff()">追加</button></div></div></div>';
+  h+='<div class="settings-sec"><div class="settings-sec-hdr">各店舗の担当者表示名</div>';
+  Object.keys(STORE_DEFS).forEach(function(id){var s=STORE_DEFS[id],v=(cfg.storeContacts&&cfg.storeContacts[s.name])||'';h+='<div class="settings-item"><label>'+s.name+'</label><input type="text" value="'+eA(v)+'" oninput="updC(\''+eA(s.name)+'\',this.value)" placeholder="担当者名（任意）" maxlength="30"></div>';});
+  h+='</div><div class="settings-msg" id="settingsMsg">✅ 保存しました</div><button class="save-btn" onclick="saveCfg()">💾 保存する</button></div>';
+  document.getElementById('app').innerHTML=h;
+  window._ec=cfg;
+}
+function rmStaff(i){window._ec.staff.splice(i,1);rfTags();}
+function addStaff(){var inp=document.getElementById('newStaffInput'),n=inp.value.trim();if(!n)return;if(window._ec.staff.indexOf(n)>-1){alert('すでに登録されています');return;}window._ec.staff.push(n);inp.value='';rfTags();}
+function rfTags(){var w=document.getElementById('staffTagWrap');if(!w)return;var h='';window._ec.staff.forEach(function(s,i){h+='<span class="staff-tag">'+eH(s)+'<button class="staff-tag-del" onclick="rmStaff('+i+')">×</button></span>';});w.innerHTML=h;}
+function updC(name,val){if(!window._ec.storeContacts)window._ec.storeContacts={};window._ec.storeContacts[name]=val;}
+function saveCfg(){localStorage.setItem('nippo_config',JSON.stringify(window._ec));state.config=window._ec;jsonp(API_URL+'?action=saveConfig&data='+encodeURIComponent(JSON.stringify(window._ec)),'cb_sc',function(){},function(){});var m=document.getElementById('settingsMsg');if(m){m.style.display='block';setTimeout(function(){m.style.display='none';},2000);}}
+
+loadConfig(renderHome);
+</script>
+
+<footer style="position:fixed;bottom:0;left:0;width:100%;height:52px;background:#1c1c1e;display:flex;align-items:center;justify-content:center;z-index:100">
+  <a href="https://sakae-garden.github.io/" style="color:#fff;text-decoration:none;font-size:15px;font-weight:500;font-family:'Noto Sans JP',sans-serif">🏠 ホームに戻る</a>
+</footer>
+</body>
+</html>
