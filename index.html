@@ -183,7 +183,7 @@ function getDefaultConfig() {
 var cbIdx=0;
 function jsonp(url,base,onOk,onErr) {
   var n=base+'_'+(cbIdx++), s=document.createElement('script');
-  var t=setTimeout(function(){cleanup();if(onErr)onErr();},15000);
+  var t=setTimeout(function(){cleanup();if(onErr)onErr();},30000);
   function cleanup(){clearTimeout(t);delete window[n];if(s.parentNode)s.parentNode.removeChild(s);}
   window[n]=function(d){cleanup();onOk(d);};
   s.onerror=function(){cleanup();if(onErr)onErr();};
@@ -363,7 +363,17 @@ function doSubmit() {
     hideLoading();
     if(res.success){renderDone();}
     else{alert('送信に失敗しました。\n'+(res.error||'')+'\nもう一度お試しください。');document.getElementById('submitBtn')&&(document.getElementById('submitBtn').disabled=false);}
-  },function(){hideLoading();alert('通信エラーが発生しました。\nインターネット接続を確認してください。');document.getElementById('submitBtn')&&(document.getElementById('submitBtn').disabled=false);});
+  },function(){
+    // 3秒後に1回だけ自動リトライ
+    showLoading('再送信中...');
+    setTimeout(function(){
+      jsonp(url,'cb_sub_retry',function(res){
+        hideLoading();
+        if(res.success){renderDone();}
+        else{alert('送信に失敗しました。\n'+(res.error||'')+'\nもう一度お試しください。');document.getElementById('submitBtn')&&(document.getElementById('submitBtn').disabled=false);}
+      },function(){hideLoading();alert('通信エラーが発生しました。\nインターネット接続を確認してください。');document.getElementById('submitBtn')&&(document.getElementById('submitBtn').disabled=false);});
+    },3000);
+  });
 }
 function renderDone() {
   state.screen='done';setHeader('送信完了',false,false);

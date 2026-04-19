@@ -146,7 +146,7 @@ var OD=['nouhin','tokki'];
 var cbIdx=0;
 function jsonp(url,ok,err){
   var cb='c'+(cbIdx++),s=document.createElement('script');
-  var t=setTimeout(function(){cl();if(err)err();},15000);
+  var t=setTimeout(function(){cl();if(err)err();},30000);
   function cl(){clearTimeout(t);delete window[cb];if(s.parentNode)s.parentNode.removeChild(s);}
   window[cb]=function(d){cl();ok(d);};
   s.onerror=function(){cl();if(err)err();};
@@ -161,20 +161,32 @@ function switchRoute(i){
   if(d&&CACHED&&CACHED[d]) render(d,CACHED[d]);
 }
 
+function handleAllDataSuccess(data){
+  CACHED=data.allData;
+  document.getElementById('loading').style.display='none';
+  var sel=document.getElementById('dateSelect');
+  sel.innerHTML='<option value="">-- 日付を選択 --</option>';
+  sel.disabled=false;
+  (data.availableDates||[]).forEach(function(d){
+    var o=document.createElement('option'),p=d.split('-'),days=['日','月','火','水','木','金','土'];
+    o.value=d;o.textContent=p[0]+'年'+parseInt(p[1])+'月'+parseInt(p[2])+'日（'+days[new Date(d+'T00:00:00').getDay()]+'）';
+    sel.appendChild(o);
+  });
+  if(!data.availableDates||!data.availableDates.length) sel.innerHTML='<option value="">データがありません</option>';
+}
+
 window.onload=function(){
-  jsonp(API_URL+'?action=getAllData',function(data){
-    CACHED=data.allData;
-    document.getElementById('loading').style.display='none';
-    var sel=document.getElementById('dateSelect');
-    sel.innerHTML='<option value="">-- 日付を選択 --</option>';
-    sel.disabled=false;
-    (data.availableDates||[]).forEach(function(d){
-      var o=document.createElement('option'),p=d.split('-'),days=['日','月','火','水','木','金','土'];
-      o.value=d;o.textContent=p[0]+'年'+parseInt(p[1])+'月'+parseInt(p[2])+'日（'+days[new Date(d+'T00:00:00').getDay()]+'）';
-      sel.appendChild(o);
-    });
-    if(!data.availableDates||!data.availableDates.length) sel.innerHTML='<option value="">データがありません</option>';
-  },function(){document.getElementById('loading').style.display='none';document.getElementById('error').style.display='block';});
+  jsonp(API_URL+'?action=getAllData',handleAllDataSuccess,function(){
+    // 5秒後に1回だけ自動リトライ
+    document.getElementById('loading').innerHTML='<div class="spinner"></div><br>再取得中...<br><small>しばらくお待ちください</small>';
+    setTimeout(function(){
+      jsonp(API_URL+'?action=getAllData',handleAllDataSuccess,function(){
+        document.getElementById('loading').style.display='none';
+        document.getElementById('error').innerHTML='データ取得に失敗しました。<br>しばらく待ってから更新してください。';
+        document.getElementById('error').style.display='block';
+      });
+    },5000);
+  });
 };
 
 function showReport(date){
