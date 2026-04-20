@@ -132,7 +132,7 @@ var ROUTES = [
     { label:'直売所', stores:['okabe'] }
   ]},
   { id:'sakado', label:'坂戸ルート', groups:[
-    { label:'ヤオコー', stores:['sakado_izumi','sakado_chiyoda','wakaba','ipponmatsu','nagase'] }
+    { label:'ヤオコー', stores:['nagase','ipponmatsu','wakaba','sakado_chiyoda','sakado_izumi','higashimatsuyama_shinjuku'] }
   ]}
 ];
 
@@ -156,7 +156,8 @@ var STORE_DEFS = {
   sakado_chiyoda: { name:'ヤオコー坂戸千代田店',           cls:'yaoko',  icon:'🏪', type:'yaoko',        prices:['¥99','¥198','¥398','¥598'] },
   wakaba:         { name:'ヤオコーワカバウォーク店',        cls:'yaoko',  icon:'🏪', type:'yaoko',        prices:['¥99','¥198','¥398','¥598'] },
   ipponmatsu:     { name:'ヤオコー一本松南店',              cls:'yaoko',  icon:'🏪', type:'yaoko',        prices:['¥99','¥198','¥398','¥598'] },
-  nagase:         { name:'ヤオコー長瀬店',                  cls:'yaoko',  icon:'🏪', type:'yaoko',        prices:['¥99','¥198','¥398','¥598'] }
+  nagase:         { name:'ヤオコー長瀬店',                  cls:'yaoko',  icon:'🏪', type:'yaoko',        prices:['¥99','¥198','¥398','¥598'] },
+  higashimatsuyama_shinjuku: { name:'ヤオコー東松山新宿店',  cls:'yaoko',  icon:'🏪', type:'yaoko',        prices:['¥99','¥198','¥398','¥598'] }
 };
 
 var state = { screen:'home', route:0, store:null, formData:{}, staff:'', config:null };
