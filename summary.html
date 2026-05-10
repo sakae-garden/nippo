@@ -225,7 +225,7 @@ function getChin(secs,prices,isYaoko){
   return r;
 }
 
-function eId(s){return String(s).replace(/[^a-zA-Z0-9]/g,'_');}
+function eId(s){return String(s).split('').map(function(c){var cc=c.charCodeAt(0);return (cc<128&&/[a-zA-Z0-9]/.test(c))?c:'x'+cc.toString(16);}).join('');}
 function eA(s){return String(s||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 function eH(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
