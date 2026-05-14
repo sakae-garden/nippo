@@ -211,7 +211,7 @@ function renderHome() {
   setHeader('🍄 配達日報',false,true);
   var cfg=state.config||getDefaultConfig(), route=ROUTES[state.route];
   var html='<div class="screen">'
-    + '<a href="summary.html" target="_blank" class="summary-link-btn">📊 サマリーを見る</a>'
+    + '<a href="summary.html" class="summary-link-btn">📊 サマリーを見る</a>'
     + '<div class="action-row"><button class="action-btn" onclick="renderManual()"><span class="a-icon">📖</span>マニュアル</button><button class="action-btn" onclick="renderSettings()"><span class="a-icon">⚙️</span>設定</button></div>';
   route.groups.forEach(function(g) {
     html+='<div class="sec-lbl">'+g.label+'</div><div class="store-list">';
