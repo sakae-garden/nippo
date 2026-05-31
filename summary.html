@@ -95,7 +95,9 @@ body{font-family:'Noto Sans JP',sans-serif;background:#e8e0d0;min-height:100vh;p
 
 <script>
 var API_URL='https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkVvYc7V77OJrh7h_PZCqtuV4aUL7NYz83VsNc5lY6sXONw/exec';
-var CACHED=null, currentRoute=0;
+var CHOKU_SALES_URL='https://script.google.com/macros/s/AKfycbyH2TDhYiRgfvE1ZpK3fWYByp5sOplMdP2E4sHIp5aQ0w0UxjF4IOrvxShfs3K7Gu088Q/exec';
+var CHOKU_API_NAME={'男衾農産物直売所':'男衾農産物直売所','川本農産物直売所':'川本農産物直売所'};
+var CACHED=null, CHOKU_SALES=null, currentRoute=0;
 
 var ROUTE_GROUPS=[
   {label:'小川ルート',stores:[
@@ -177,6 +179,7 @@ function handleAllDataSuccess(data){
 }
 
 window.onload=function(){
+  jsonp(CHOKU_SALES_URL,function(d){CHOKU_SALES=(d&&d.sales)||{};},function(){CHOKU_SALES={};});
   jsonp(API_URL+'?action=getAllData',handleAllDataSuccess,function(){
     // 5秒後に1回だけ自動リトライ
     document.getElementById('loading').innerHTML='<div class="spinner"></div><br>再取得中...<br><small>しばらくお待ちください</small>';
@@ -189,6 +192,22 @@ window.onload=function(){
     },5000);
   });
 };
+
+function parsePrice(p){
+  var m=String(p).match(/(\d[\d,]*)/);
+  return m ? parseInt(m[1].replace(/,/g,''),10) : 0;
+}
+function calcChokuAmount(prices, chin){
+  var sum=0;
+  prices.forEach(function(p){ sum += (chin[p]||0) * parsePrice(p); });
+  return sum;
+}
+function getChokuSales(storeName, date){
+  if (!CHOKU_API_NAME[storeName]) return null;
+  if (!CHOKU_SALES || !CHOKU_SALES[date]) return null;
+  var v = CHOKU_SALES[date][CHOKU_API_NAME[storeName]];
+  return (v===undefined || v===null) ? null : Number(v);
+}
 
 function showReport(date){
   if(!date||!CACHED) return;
@@ -252,7 +271,7 @@ function render(date,dayData){
     if(isO){
       html+=renderOroshi(store,secs);
     } else {
-      html+=renderInvTable(store,secs,isY,sd.items);
+      html+=renderInvTable(store,secs,isY,sd.items,date);
       html+=renderAccordion(store,secs,isY);
     }
     html+='</div>';
@@ -262,7 +281,7 @@ function render(date,dayData){
   document.getElementById('report').style.display='block';
 }
 
-function renderInvTable(store,secs,isY,items){
+function renderInvTable(store,secs,isY,items,date){
   var prices=store.prices,sn=store.name;
   var chin=getChin(secs,prices,isY);
   var tc=0,ts=0,tt=0,totalZan=0,hasAnySales=false;
@@ -307,6 +326,18 @@ function renderInvTable(store,secs,isY,items){
   html+='<td><span class="iv iv-zan">'+(hasAnySales?String(totalZan):'-')+'</span></td></tr>';
 
   html+='</tbody></table></div>';
+
+  // 直売所の売上行（API実売上 → なければ納品額計算）
+  if(store.type==='choku'){
+    var apiSales=getChokuSales(store.name, date);
+    var amount, label;
+    if(apiSales!==null){ amount=apiSales; label='本日売上（税抜）'; }
+    else { amount=calcChokuAmount(prices,chin); label='本日納品額（参考）'; }
+    html+='<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 14px;background:#fff8e1;border-top:2px solid var(--yellow-bd);font-size:13px">';
+    html+='<span style="color:var(--yellow-lbl);font-weight:700">💰 '+label+'</span>';
+    html+='<span style="font-size:18px;font-weight:700;color:var(--accent);font-family:tabular-nums">¥'+amount.toLocaleString()+'</span>';
+    html+='</div>';
+  }
   return html;
 }
 
