@@ -272,14 +272,16 @@ function renderInvTable(store,secs,isY,items){
 
   var html='<div class="inv-wrap"><table class="inv-table"><thead><tr>';
   if(showPrice) html+='<th>価格</th>';
-  html+='<th>陳列数</th>';
+  html+=isY?'<th>陳列数</th>':'<th>納品数</th>';
   if(isY) html+='<th>蘇生庫</th>';
   html+='<th>店頭在庫</th><th>販売数</th><th>残在庫</th></tr></thead><tbody>';
 
   prices.forEach(function(p){
-    var c=chin[p]||0;
+    // yaoko: 1列目=陳列数(S+A+B+C) / choku: 1列目=納品数のみ
+    var c=isY?(chin[p]||0):(getRaw(secs.nouhin,p)||0);
     var sv=isY?(getRaw(secs.sosei,p)||0):0;
-    var tenpo=c+sv;
+    // 店頭在庫: yaoko=陳列数+蘇生庫 / choku=納品+前日在庫
+    var tenpo=isY?(c+sv):(chin[p]||0);
     tc+=c;ts+=sv;tt+=tenpo;
 
     // items から「販売数_¥99」等のラベルを直接検索
