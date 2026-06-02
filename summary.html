@@ -267,8 +267,8 @@ function renderInvTable(store,secs,isY,items){
   var chin=getChin(secs,prices,isY);
   var tc=0,ts=0,tt=0,totalZan=0,hasAnySales=false;
 
-  // 直売所（choku）は価格列を非表示にする
-  var showPrice=isY;
+  // 価格列は常に表示
+  var showPrice=true;
 
   var html='<div class="inv-wrap"><table class="inv-table"><thead><tr>';
   if(showPrice) html+='<th>価格</th>';
