@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>出荷情報 - 栄ガーデン</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{font-family:'Noto Sans JP',sans-serif;background:#f5f0e8;color:#2c2c2e;min-height:100vh;padding-bottom:80px}
+header{background:#2c3e2d;color:#fff;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+header h1{font-size:16px;font-weight:700}
+header .back{color:#a8d5a2;text-decoration:none;font-size:14px}
+.container{max-width:680px;margin:0 auto;padding:14px}
+.cond-card{background:#fff;border-radius:12px;padding:14px;margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.cond-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.cond-grid .full{grid-column:1 / -1}
+.cond-grid label{display:block;font-size:11px;font-weight:600;color:#666;margin-bottom:3px;letter-spacing:.5px}
+.cond-grid select,.cond-grid input,.cond-grid textarea{width:100%;padding:8px 10px;border:1.5px solid #d0c8b8;border-radius:8px;font-size:14px;font-family:inherit;background:#faf8f4;-webkit-appearance:none}
+.cond-grid textarea{min-height:48px;resize:vertical}
+.cond-grid select:focus,.cond-grid input:focus,.cond-grid textarea:focus{outline:none;border-color:#2c3e2d;background:#fff}
+.route-tabs{display:flex;background:#fff;border-radius:10px;padding:4px;margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.route-tab{flex:1;padding:11px 4px;text-align:center;font-size:14px;font-weight:600;border-radius:8px;cursor:pointer;color:#888}
+.route-tab.active{background:#2c3e2d;color:#fff}
+.route-memo{background:#fff5f5;border:1.5px solid #f5d0d0;border-left:5px solid #c0392b;border-radius:8px;padding:10px 12px;margin-bottom:14px;color:#c0392b;font-size:13px;font-weight:500;line-height:1.5;white-space:pre-wrap}
+.route-memo:empty{display:none}
+.group{background:#fff;border-radius:12px;margin-bottom:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.group-header{padding:10px 14px;background:#2c3e2d;color:#fff;font-size:14px;font-weight:700;letter-spacing:1px;display:flex;align-items:center;justify-content:space-between}
+.group-header .gsum{font-size:13px;font-weight:600;color:#a8d5a2}
+.store{padding:10px 14px;border-bottom:1px solid #efe8d8}
+.store:last-child{border-bottom:none}
+.store-name{font-size:14px;font-weight:700;color:#2c3e2d;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between}
+.store-name .fix-tag{font-size:10px;background:#888;color:#fff;padding:2px 7px;border-radius:8px;font-weight:600}
+.store-name .nodata-tag{font-size:10px;background:#cbb8a0;color:#fff;padding:2px 7px;border-radius:8px;font-weight:600}
+.price-head{display:grid;grid-template-columns:60px 1fr 1fr 1fr;gap:6px;padding:5px 0;font-size:10px;color:#888;font-weight:600;text-align:center;letter-spacing:.5px}
+.price-row{display:grid;grid-template-columns:60px 1fr 1fr 1fr;gap:6px;align-items:center;padding:5px 0;font-size:12px}
+.price-row .pr-label{font-size:11px;font-weight:700;color:#666;text-align:center;background:#f5f0e8;padding:4px 0;border-radius:4px}
+.price-row .pr-calc{text-align:center;color:#888;font-size:10px;line-height:1.3}
+.price-row .pr-calc strong{color:#2c3e2d;font-size:14px;font-weight:700;display:block;margin-top:1px}
+.price-row .pr-zan{text-align:center;font-size:11px;color:#856404;background:#fff5e8;padding:5px 0;border-radius:6px;font-weight:700}
+.price-row .pr-ship input{width:100%;padding:6px 4px;border:1.5px solid #4a9d4a;border-radius:6px;font-size:15px;font-family:inherit;background:#e8f5e8;color:#155724;text-align:center;-webkit-appearance:none;font-weight:700}
+.price-row .pr-ship input.manual{background:#cce5ff;color:#004085;border-color:#4a90e2}
+.price-row .pr-ship input:focus{outline:none;border-color:#2c3e2d}
+.group-total{display:grid;grid-template-columns:60px 1fr 1fr 1fr;gap:6px;align-items:center;padding:8px 14px;background:#e8f5e8;border-top:2px solid #4a9d4a;font-size:12px;font-weight:700;color:#155724}
+.group-total .gt-label{font-size:11px;text-align:center;background:#4a9d4a;color:#fff;padding:4px 0;border-radius:4px;letter-spacing:.5px}
+.group-total .gt-cell{text-align:center;font-size:14px;font-weight:900}
+.group-total .gt-cell small{display:block;font-size:9px;color:#155724;font-weight:600;opacity:.7}
+.total-bar{background:#1c1c1e;color:#fff;border-radius:10px;padding:12px 16px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 1px 4px rgba(0,0,0,.1)}
+.total-bar .label{font-size:13px;color:#a8d5a2;font-weight:600}
+.total-bar .value{font-size:22px;font-weight:900;letter-spacing:1px}
+.btn-reset{display:block;width:100%;padding:10px;background:#fff;color:#666;border:1.5px dashed #d0c8b8;border-radius:8px;font-size:13px;font-family:inherit;cursor:pointer;margin-bottom:14px}
+.btn-reset:active{background:#faf8f4}
+.fxbox{padding:10px 14px;display:grid;grid-template-columns:60px 1fr;gap:8px;align-items:center;border-bottom:1px solid #efe8d8;font-size:12px}
+.fxbox:last-child{border-bottom:none}
+.fxbox .pr-label{font-size:11px;font-weight:700;color:#666;text-align:center;background:#f5f0e8;padding:4px 0;border-radius:4px}
+.fxbox input{width:100%;padding:6px 8px;border:1.5px solid #d0c8b8;border-radius:6px;font-size:14px;font-family:inherit;background:#faf8f4;text-align:center;font-weight:700}
+.fxbox input.manual{background:#cce5ff;color:#004085;border-color:#4a90e2}
+
+/* 前日残タブ */
+.prev-section{margin-bottom:14px}
+.prev-route-hdr{font-size:13px;font-weight:700;letter-spacing:.5px;padding:8px 12px;border-radius:6px 6px 0 0;color:#fff}
+.prev-route-hdr.r-ogawa{background:#3F5B4A}
+.prev-route-hdr.r-kago{background:#5A6BAD}
+.prev-route-hdr.r-saka{background:#A65B5B}
+.prev-route-hdr.r-choku{background:#7C5B3F}
+.prev-route-hdr.r-michi{background:#5B7C7C}
+.prev-store{background:#fff;padding:8px 12px;border-bottom:1px dashed #e0d8c8}
+.prev-store:last-child{border-bottom:none}
+.prev-store-name{font-size:13px;font-weight:700;color:#2c3e2d;margin-bottom:4px}
+.prev-prices{display:flex;flex-wrap:wrap;gap:6px}
+.prev-prices .pp{background:#f5f0e8;padding:3px 8px;border-radius:4px;color:#666;font-size:11px}
+.prev-prices .pp strong{color:#2c3e2d;margin-left:3px;font-size:13px}
+.prev-prices .pp.warn{background:#fff3e0;color:#e65100}
+.prev-prices .pp.warn strong{color:#e65100}
+
+#loading{text-align:center;padding:30px 16px;color:#888;font-size:13px}
+.spinner{display:inline-block;width:24px;height:24px;border:3px solid #ccc;border-top-color:#2c3e2d;border-radius:50%;animation:spin .8s linear infinite;margin-bottom:8px}
+@keyframes spin{to{transform:rotate(360deg)}}
+#status{text-align:center;font-size:11px;color:#888;padding:6px;background:#fff;border-radius:6px;margin-bottom:10px}
+#status.saving{color:#004085;background:#cce5ff}
+#status.ok{color:#155724;background:#e8f5e8}
+#status.err{color:#c0392b;background:#fff5f5}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<header>
+  <a href="index.html" class="back">&lt; ホーム</a>
+  <h1>出荷情報</h1>
+  <span></span>
+</header>
+<div class="container">
+
+  <div class="cond-card">
+    <div class="cond-grid">
+      <div class="full">
+        <label>対象日</label>
+        <input type="date" id="target-date" onchange="reload()">
+      </div>
+      <div>
+        <label>天気</label>
+        <select id="weather" onchange="onCoefChange()">
+          <option value="晴">晴 ×1.00</option>
+          <option value="曇">曇 ×0.95</option>
+          <option value="雨">雨 ×0.80</option>
+          <option value="雪">雪 ×0.60</option>
+        </select>
+      </div>
+      <div>
+        <label>特設・チラシ</label>
+        <select id="event" onchange="onCoefChange()">
+          <option value="通常">通常 ×1.00</option>
+          <option value="チラシ">チラシ ×1.30</option>
+          <option value="特設">特設 ×1.50</option>
+          <option value="チラシ+特設">チラシ+特設 ×1.80</option>
+          <option value="お盆・お彼岸">お盆・お彼岸 ×1.20</option>
+          <option value="BBQ・アウトドア">BBQ・アウトドア ×1.15</option>
+        </select>
+      </div>
+      <div class="full">
+        <label>ルートメモ（現在のタブ用、注意事項を共有）</label>
+        <textarea id="route-memo-input" placeholder="例: ヤオコー上里店は10時納品厳守" oninput="onCoefChange()"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <div class="route-tabs" id="route-tabs"></div>
+  <div class="route-memo" id="route-memo-display"></div>
+
+  <div class="total-bar">
+    <span class="label" id="total-label">ルート出荷合計</span>
+    <span class="value" id="route-total">0 袋</span>
+  </div>
+
+  <div id="status"></div>
+  <div id="loading"><div class="spinner"></div><br>データを取得中…</div>
+  <div id="content" class="hidden"></div>
+
+  <button class="btn-reset" onclick="resetEdits()">このルートの手動編集をリセット</button>
+</div>
+
+<script>
+// ============================================================
+// GAS endpoint
+// ============================================================
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbwONfRwnsKLNP9vOI1CCtd8YT9eOKDqkSoRhPJxusqARxnFlFzooZOUJ5G0O-5mBeUC/exec';
+
+const ROUTES = [
+  {key:'小川', label:'小川', color:'r-ogawa'},
+  {key:'籠原', label:'籠原', color:'r-kago'},
+  {key:'坂戸', label:'坂戸', color:'r-saka'},
+  {key:'前日残', label:'前日残', color:''}
+];
+const GROUP_ORDER = ['yaoko','choku','michi','others'];
+const GROUP_LABEL = {yaoko:'ヤオコー', choku:'直売所', michi:'道の駅', others:'その他'};
+
+// shipping_config.py のミラー（クライアントで再計算する用ではなく、表示のフォールバック）
+const YAOKO_PRICES = [99,198,398,598];
+const CHOKU_PRICES = [200,380];
+
+let CURRENT = null;       // {date, weekday, weather, event, memo:{}, stores:[]}
+let CURRENT_TAB = '小川';
+let DATE_STR = '';
+
+// ============================================================
+// JSONP helper
+// ============================================================
+let cbIdx = 0;
+function jsonp(params, ok, err){
+  const cb = 'cb' + (cbIdx++) + '_' + Date.now();
+  const s = document.createElement('script');
+  const timer = setTimeout(() => { cleanup(); err && err(new Error('timeout')); }, 20000);
+  function cleanup(){ clearTimeout(timer); try { delete window[cb]; } catch(e){} if(s.parentNode) s.parentNode.removeChild(s); }
+  window[cb] = data => { cleanup(); ok(data); };
+  s.onerror = () => { cleanup(); err && err(new Error('script-error')); };
+  const qs = Object.keys(params).map(k => encodeURIComponent(k)+'='+encodeURIComponent(params[k])).join('&');
+  s.src = GAS_URL + '?' + qs + '&callback=' + cb;
+  document.body.appendChild(s);
+}
+
+function setStatus(text, type){
+  const el = document.getElementById('status');
+  el.textContent = text;
+  el.className = type || '';
+}
+
+// 店舗名から接頭語を除く（表示用）
+function shortName(name){
+  return name.replace(/^ヤオコー/, '').replace(/^道の駅/, '').replace(/農産物直売所$/, '');
+}
+
+function priceLabel(p){
+  if(p === 'manual') return '手動';
+  return '¥' + p;
+}
+
+// ============================================================
+// 初期化
+// ============================================================
+function init(){
+  const tabs = document.getElementById('route-tabs');
+  ROUTES.forEach(r => {
+    const b = document.createElement('div');
+    b.className = 'route-tab' + (r.key === CURRENT_TAB ? ' active' : '');
+    b.textContent = r.label;
+    b.onclick = () => switchTab(r.key);
+    tabs.appendChild(b);
+  });
+
+  const today = new Date();
+  DATE_STR = today.toISOString().slice(0,10);
+  document.getElementById('target-date').value = DATE_STR;
+  reload();
+}
+
+function switchTab(key){
+  CURRENT_TAB = key;
+  document.querySelectorAll('.route-tab').forEach((el,i) => {
+    el.classList.toggle('active', ROUTES[i].key === key);
+  });
+  if(CURRENT) render();
+  // ルートメモ表示切替（前日残タブはメモ非表示）
+  const memoInput = document.getElementById('route-memo-input');
+  if(key === '前日残'){
+    memoInput.parentElement.classList.add('hidden');
+  } else {
+    memoInput.parentElement.classList.remove('hidden');
+    const m = (CURRENT && CURRENT.memo) || {};
+    memoInput.value = m[key] || '';
+  }
+}
+
+// ============================================================
+// データ読み込み
+// ============================================================
+function reload(){
+  DATE_STR = document.getElementById('target-date').value;
+  if(!DATE_STR) return;
+  document.getElementById('loading').classList.remove('hidden');
+  document.getElementById('content').classList.add('hidden');
+  setStatus('読み込み中…', 'saving');
+
+  jsonp({action:'getShipping', date:DATE_STR}, data => {
+    CURRENT = data;
+    document.getElementById('weather').value = data.weather || '晴';
+    document.getElementById('event').value = data.event || '通常';
+    const memoInput = document.getElementById('route-memo-input');
+    if(CURRENT_TAB !== '前日残'){
+      memoInput.value = (data.memo && data.memo[CURRENT_TAB]) || '';
+    }
+    render();
+    document.getElementById('loading').classList.add('hidden');
+    document.getElementById('content').classList.remove('hidden');
+    setStatus('読み込み完了 ('+data.weekday+'曜日)', 'ok');
+  }, e => {
+    document.getElementById('loading').classList.add('hidden');
+    setStatus('読み込み失敗: '+e.message, 'err');
+  });
+}
+
+// ============================================================
+// 描画
+// ============================================================
+function render(){
+  if(CURRENT_TAB === '前日残'){
+    renderPrevTab();
+  } else {
+    renderRouteTab(CURRENT_TAB);
+  }
+  // メモ表示
+  const display = document.getElementById('route-memo-display');
+  if(CURRENT_TAB === '前日残'){
+    display.textContent = '';
+  } else {
+    display.textContent = (CURRENT.memo && CURRENT.memo[CURRENT_TAB]) || '';
+  }
+}
+
+function getShippingValue(price){
+  // edited が null でなければそれを使う、それ以外は calc
+  if(price.edited !== null && price.edited !== undefined) return price.edited;
+  return price.calc;
+}
+
+function renderRouteTab(routeKey){
+  const stores = CURRENT.stores.filter(s => s.route === routeKey);
+  const groups = {yaoko:[], choku:[], michi:[], others:[]};
+  stores.forEach(s => groups[s.group] && groups[s.group].push(s));
+
+  const out = [];
+  let routeTotal = 0;
+
+  GROUP_ORDER.forEach(g => {
+    if(groups[g].length === 0) return;
+    const groupHtml = [];
+    let groupTotal = 0;
+    const priceTotals = {}; // 価格別合計
+
+    groupHtml.push('<div class="group"><div class="group-header"><span>'+GROUP_LABEL[g]+'</span><span class="gsum" id="gsum-'+g+'"></span></div>');
+
+    groups[g].forEach(s => {
+      groupHtml.push('<div class="store">');
+      const nameTag = s.fixed ? ' <span class="fix-tag">固定</span>' :
+                       s.prices.some(p => p.noData) ? ' <span class="nodata-tag">前日残=0</span>' : '';
+      groupHtml.push('<div class="store-name"><span>'+shortName(s.name)+nameTag+'</span></div>');
+
+      if(g === 'others'){
+        s.prices.forEach(p => {
+          const val = getShippingValue(p);
+          const cls = (p.edited !== null && p.edited !== undefined) ? ' manual' : '';
+          groupHtml.push('<div class="fxbox"><div class="pr-label">'+priceLabel(p.price)+'</div>');
+          groupHtml.push('<input type="number" min="0" class="'+cls.trim()+'" value="'+val+'" onchange="onEdit(\''+escName(s.name)+'\', \''+p.price+'\', this)" onblur="this.value=Math.max(0,parseInt(this.value)||0)"></div>');
+          groupTotal += val;
+          if(!priceTotals[p.price]) priceTotals[p.price]=0;
+          priceTotals[p.price] += val;
+        });
+      } else {
+        groupHtml.push('<div class="price-head"><div>価格</div><div>計算根拠</div><div>前日残</div><div>出荷数</div></div>');
+        s.prices.forEach(p => {
+          const val = getShippingValue(p);
+          const cls = (p.edited !== null && p.edited !== undefined) ? ' manual' : '';
+          const calcBreakdown = (p.base!=null)
+            ? '基'+p.base+'×月'+p.monthCoef.toFixed(2)+'×曜'+p.weekCoef.toFixed(2)+'×天'+p.weatherCoef.toFixed(2)+'×特'+p.eventCoef.toFixed(2)+'<strong>='+p.calc+'</strong>'
+            : '<strong>'+p.calc+'</strong>';
+          const zan = (p.zanZaiko==null) ? '—' : p.zanZaiko;
+          groupHtml.push('<div class="price-row"><div class="pr-label">¥'+p.price+'</div>');
+          groupHtml.push('<div class="pr-calc">'+calcBreakdown+'</div>');
+          groupHtml.push('<div class="pr-zan">'+zan+'</div>');
+          groupHtml.push('<div class="pr-ship"><input type="number" min="0" class="'+cls.trim()+'" value="'+val+'" onchange="onEdit(\''+escName(s.name)+'\', '+p.price+', this)" onblur="this.value=Math.max(0,parseInt(this.value)||0)"></div>');
+          groupHtml.push('</div>');
+          groupTotal += val;
+          if(!priceTotals[p.price]) priceTotals[p.price]=0;
+          priceTotals[p.price] += val;
+        });
+      }
+
+      groupHtml.push('</div>'); // .store
+    });
+
+    // 商品別合計行
+    const totalCells = Object.keys(priceTotals).sort((a,b)=>parseInt(a)-parseInt(b)).map(p => {
+      return '<div class="gt-cell">'+priceTotals[p]+'<small>¥'+p+'</small></div>';
+    }).join('');
+    if(g !== 'others'){
+      groupHtml.push('<div class="group-total"><div class="gt-label">商品別計</div>'+
+        (Object.keys(priceTotals).length===1 ? totalCells+'<div></div><div></div>' :
+         Object.keys(priceTotals).length===2 ? totalCells+'<div></div>' :
+         Object.keys(priceTotals).length===3 ? totalCells :
+         Object.keys(priceTotals).slice(0,3).map(p=>'<div class="gt-cell">'+priceTotals[p]+'<small>¥'+p+'</small></div>').join(''))+
+        '</div>');
+    }
+    groupHtml.push('</div>'); // .group
+
+    routeTotal += groupTotal;
+    out.push(groupHtml.join(''));
+    // group sum はあとで埋める
+  });
+
+  document.getElementById('content').innerHTML = out.join('');
+  document.getElementById('total-label').textContent = routeKey+'ルート 出荷合計';
+  document.getElementById('route-total').textContent = routeTotal + ' 袋';
+
+  // group sumを埋める
+  GROUP_ORDER.forEach(g => {
+    if(groups[g].length === 0) return;
+    let sum = 0;
+    groups[g].forEach(s => s.prices.forEach(p => sum += getShippingValue(p)));
+    const el = document.getElementById('gsum-'+g);
+    if(el) el.textContent = sum + '袋';
+  });
+}
+
+function renderPrevTab(){
+  // 全店舗の前日残在庫を一覧表示。ルート別に色分け、yaokoは10以上強調。
+  const byRoute = {小川:[], 籠原:[], 坂戸:[]};
+  CURRENT.stores.forEach(s => {
+    if(byRoute[s.route]) byRoute[s.route].push(s);
+  });
+
+  const colorOf = {小川:'r-ogawa', 籠原:'r-kago', 坂戸:'r-saka'};
+
+  const out = [];
+  ['小川','籠原','坂戸'].forEach(route => {
+    out.push('<div class="prev-section"><div class="prev-route-hdr '+colorOf[route]+'">'+route+'ルート</div>');
+    byRoute[route].forEach(s => {
+      // others / fixed は前日残無し
+      if(s.group === 'others') return;
+      const items = s.prices.filter(p => p.zanZaiko !== null && p.zanZaiko !== undefined);
+      if(items.length === 0) return;
+      const cells = items.map(p => {
+        const v = p.zanZaiko;
+        const warn = (s.group === 'yaoko' && v >= 10);
+        return '<span class="pp'+(warn?' warn':'')+'">¥'+p.price+'<strong>'+v+'</strong></span>';
+      }).join('');
+      out.push('<div class="prev-store"><div class="prev-store-name">'+shortName(s.name)+'</div><div class="prev-prices">'+cells+'</div></div>');
+    });
+    out.push('</div>');
+  });
+  document.getElementById('content').innerHTML = out.join('');
+  document.getElementById('total-label').textContent = '前日残在庫一覧';
+  document.getElementById('route-total').textContent = '—';
+}
+
+function escName(s){ return s.replace(/'/g, "\\'"); }
+
+// ============================================================
+// 編集ハンドラ
+// ============================================================
+function onEdit(storeName, price, el){
+  const qty = Math.max(0, parseInt(el.value)||0);
+  el.value = qty;
+  // ローカル状態を更新
+  const store = CURRENT.stores.find(s => s.name === storeName);
+  if(store){
+    const p = store.prices.find(p => String(p.price) === String(price));
+    if(p){
+      p.edited = qty;
+      el.classList.add('manual');
+    }
+  }
+  setStatus('保存中…', 'saving');
+  jsonp({action:'saveEdit', date:DATE_STR, store:storeName, price:price, qty:qty}, () => {
+    setStatus('保存しました', 'ok');
+    render(); // 合計を更新
+  }, e => setStatus('保存失敗: '+e.message, 'err'));
+}
+
+function onCoefChange(){
+  if(!CURRENT) return;
+  const w = document.getElementById('weather').value;
+  const ev = document.getElementById('event').value;
+  const memoInput = document.getElementById('route-memo-input');
+  const memos = CURRENT.memo || {};
+  if(CURRENT_TAB !== '前日残') memos[CURRENT_TAB] = memoInput.value;
+
+  setStatus('保存中…', 'saving');
+  jsonp({
+    action:'saveCoef', date:DATE_STR, weather:w, event:ev,
+    memo_ogawa: memos.小川 || '', memo_kagohara: memos.籠原 || '', memo_sakado: memos.坂戸 || ''
+  }, () => {
+    setStatus('保存しました（再計算は更新ボタン）', 'ok');
+    reload(); // 係数変更は出荷数に直接影響するので再計算
+  }, e => setStatus('保存失敗: '+e.message, 'err'));
+}
+
+function resetEdits(){
+  if(CURRENT_TAB === '前日残') return;
+  if(!confirm(CURRENT_TAB+'ルートの手動編集を全てリセットしますか？')) return;
+  const stores = CURRENT.stores.filter(s => s.route === CURRENT_TAB);
+  setStatus('リセット中…', 'saving');
+  const todo = [];
+  stores.forEach(s => s.prices.forEach(p => {
+    if(p.edited !== null && p.edited !== undefined){
+      todo.push({store:s.name, price:p.price});
+    }
+  }));
+  if(todo.length === 0){ setStatus('編集なし', 'ok'); return; }
+  let done = 0;
+  todo.forEach(t => {
+    jsonp({action:'clearEdit', date:DATE_STR, store:t.store, price:t.price}, () => {
+      done++;
+      if(done === todo.length){
+        setStatus('リセット完了', 'ok');
+        reload();
+      }
+    });
+  });
+}
+
+window.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
