@@ -192,7 +192,25 @@ window.onload=function(){
 
 function showReport(date){
   if(!date||!CACHED) return;
-  render(date, CACHED[date]||{});
+  if(CACHED[date]) { render(date, CACHED[date]); return; }
+  // 直近14日外: getDayDataで個別取得（GAS側で5分キャッシュ）
+  document.getElementById('error').style.display='none';
+  document.getElementById('report').innerHTML='';
+  document.getElementById('loading').innerHTML='<div class="spinner"></div><br>過去日データを取得中...';
+  document.getElementById('loading').style.display='block';
+  jsonp(API_URL+'?action=getDayData&date='+encodeURIComponent(date),
+    function(d){
+      document.getElementById('loading').style.display='none';
+      var stores=(d&&d.stores)||{};
+      CACHED[date]=stores;
+      render(date, stores);
+    },
+    function(){
+      document.getElementById('loading').style.display='none';
+      document.getElementById('error').innerHTML='過去日データの取得に失敗しました。';
+      document.getElementById('error').style.display='block';
+    }
+  );
 }
 
 function parseSecs(sd){
@@ -265,7 +283,7 @@ function render(date,dayData){
 function renderInvTable(store,secs,isY,items){
   var prices=store.prices,sn=store.name;
   var chin=getChin(secs,prices,isY);
-  var tc=0,ts=0,tt=0,totalZan=0,hasAnySales=false;
+  var tc=0,ts=0,tt=0,totalZan=0,totalSales=0,hasAnySales=false;
 
   // 価格列は常に表示
   var showPrice=true;
@@ -295,7 +313,7 @@ function renderInvTable(store,secs,isY,items){
     }
 
     var zan=salesVal!==''?Math.max(tenpo-(parseInt(salesVal)||0),0):'';
-    if(salesVal!==''){hasAnySales=true;totalZan+=zan;}
+    if(salesVal!==''){hasAnySales=true;totalZan+=zan;totalSales+=parseInt(salesVal)||0;}
     else totalZan+=tenpo;
 
     html+='<tr>';
@@ -312,7 +330,8 @@ function renderInvTable(store,secs,isY,items){
   if(showPrice) html+='<td>合計</td>';
   html+='<td><span class="iv iv-chin">'+tc+'</span></td>';
   if(isY) html+='<td><span class="iv iv-sosei">'+ts+'</span></td>';
-  html+='<td><span class="iv iv-tenpo">'+tt+'</span></td><td></td>';
+  html+='<td><span class="iv iv-tenpo">'+tt+'</span></td>';
+  html+='<td><span class="iv iv-sales">'+(hasAnySales?String(totalSales):'-')+'</span></td>';
   html+='<td><span class="iv iv-zan">'+(hasAnySales?String(totalZan):'-')+'</span></td></tr>';
 
   html+='</tbody></table></div>';
