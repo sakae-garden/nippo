@@ -60,6 +60,20 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .frow input:focus{outline:none;border-color:var(--ink);background:#fff}
 .frow textarea{width:100%;border:1.5px solid var(--border);border-radius:10px;padding:8px 10px;font-size:14px;font-family:inherit;color:var(--ink);background:#fafafa;resize:vertical;min-height:70px}
 .frow textarea:focus{outline:none;border-color:var(--ink);background:#fff}.frow-unit{font-size:11px;color:var(--sub)}
+.frow.extra{background:var(--yellow-bg)}
+.frow.extra .frow-lbl{color:var(--orange);font-weight:600}
+.extra-mgr{background:#fffde7;border:1.5px dashed #f9a825;border-radius:var(--r);margin-bottom:10px;overflow:hidden;box-shadow:var(--shadow)}
+.extra-mgr-hdr{padding:10px 14px;background:#fff8e1;color:#e65100;font-size:11px;font-weight:700;letter-spacing:.08em;display:flex;align-items:center;justify-content:space-between}
+.extra-mgr-add{background:#e65100;color:#fff;border:none;border-radius:8px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;transition:opacity .15s}
+.extra-mgr-add:active{opacity:.7}
+.extra-mgr-body{padding:9px 14px}
+.extra-mgr-empty{font-size:11px;color:#999;font-style:italic}
+.extra-chips{display:flex;flex-wrap:wrap;gap:6px}
+.extra-chip{display:inline-flex;align-items:center;gap:4px;background:#fff;border:1.5px solid #f9a825;border-radius:20px;padding:4px 6px 4px 12px;font-size:13px;font-weight:700;color:#e65100}
+.extra-chip-del{background:none;border:none;color:#bbb;cursor:pointer;font-size:18px;line-height:1;padding:0 4px;font-family:inherit}
+.extra-chip-del:hover{color:#e65100}
+.chin-row.extra{background:#fff8e1}
+.chin-row.extra .chin-lbl{color:#e65100;font-weight:700}
 .chin-sec{background:var(--yellow-bg);border:2px solid #f9a825;border-radius:var(--r);margin-bottom:10px;overflow:hidden;box-shadow:var(--shadow)}
 .chin-hdr{padding:10px 14px;background:#f9a825;color:#fff;font-size:11px;font-weight:700;letter-spacing:.08em}
 .chin-row{display:flex;align-items:center;padding:9px 14px;border-bottom:1px solid #fff9c4}
@@ -160,7 +174,7 @@ var STORE_DEFS = {
   higashimatsuyama_shinjuku: { name:'ヤオコー東松山新宿店',  cls:'yaoko',  icon:'🏪', type:'yaoko',        prices:['¥99','¥198','¥398','¥598'] }
 };
 
-var state = { screen:'home', route:0, store:null, formData:{}, staff:'', config:null };
+var state = { screen:'home', route:0, store:null, formData:{}, staff:'', config:null, extraPrices:[] };
 var today = new Date();
 var DAYS = ['日','月','火','水','木','金','土'];
 var todayStr = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
@@ -226,7 +240,7 @@ function renderHome() {
 }
 
 function openStore(id) {
-  state.store=STORE_DEFS[id]; state.formData={}; state.staff=''; state.screen='form';
+  state.store=STORE_DEFS[id]; state.formData={}; state.staff=''; state.extraPrices=[]; state.screen='form';
   setHeader(state.store.name,true,false); renderForm();
 }
 
@@ -240,6 +254,7 @@ function renderForm() {
   html+='<div class="staff-sec"><div class="staff-lbl">担当者</div><div class="staff-btns">';
   (cfg.staff||['八島','青柳','杉','その他']).forEach(function(n){ html+='<button class="sbtn'+(state.staff===n?' sel':'')+'" onclick="selStaff(\''+n+'\')">'+n+'</button>'; });
   html+='</div></div>';
+  if(s.type==='yaoko') html+=bExtraMgr();
   if(s.type==='yaoko'||s.type==='yaoko_simple') {
     html+=bChin(p);
     html+=bNouhin(p);
@@ -250,6 +265,7 @@ function renderForm() {
     if(s.type==='yaoko') html+=bSec('🟪 蘇生庫へ','purple','蘇生庫',p);
     if(s.type==='yaoko') html+=bSec('🟥 値引き','yellow','値引き',p,'※C品陳列数には含めない');
     html+=bSec('🟧 持ち帰り','yellow','持ち帰り',p);
+    if(s.type==='yaoko' && state.extraPrices.length>0) html+=bExtraSales();
   } else if(s.type==='choku') {
     html+=bChinChoku(p);
     html+=bSec('🟩 納品数','green','納品',p);
@@ -266,16 +282,22 @@ function renderForm() {
 function bNouhin(prices) {
   var h='<div class="fsec" id="secNouhin"><div class="fsec-hdr green"><span>🟩 納品数</span><button class="apply-btn" onclick="applyToS()">→ S品に反映</button></div><div>';
   prices.forEach(function(p){h+=frow(p,'納品_'+p);});
+  if(state.store.type==='yaoko') state.extraPrices.forEach(function(p){h+=frow('⚡'+p,'納品_臨#'+p,true);});
   return h+'</div></div>';
 }
 function bSec(title,color,key,prices,note) {
   var h='<div class="fsec" id="sec_'+esc(key)+'"><div class="fsec-hdr '+color+'"><span>'+title+'</span>'+(note?'<span class="note">'+note+'</span>':'')+'</div><div>';
   prices.forEach(function(p){h+=frow(p,key+'_'+p);});
+  if(state.store.type==='yaoko') state.extraPrices.forEach(function(p){h+=frow('⚡'+p,key+'_臨#'+p,true);});
   return h+'</div></div>';
 }
 function bChin(prices) {
   var h='<div class="chin-sec"><div class="chin-hdr">🟦 陳列数（S品＋A品＋B品＋C品 自動計算）</div>';
   prices.forEach(function(p){ h+='<div class="chin-row"><span class="chin-lbl">'+p+'</span><span class="chin-val" id="cv_'+esc(p)+'">'+cY(p)+'</span><span class="chin-unit">個</span></div>'; });
+  if(state.store.type==='yaoko') state.extraPrices.forEach(function(p){
+    var k='臨#'+p;
+    h+='<div class="chin-row extra"><span class="chin-lbl">⚡'+p+'</span><span class="chin-val" id="cv_'+esc(k)+'">'+cY(k)+'</span><span class="chin-unit">個</span></div>';
+  });
   return h+'</div>';
 }
 function bChinChoku(prices) {
@@ -283,10 +305,51 @@ function bChinChoku(prices) {
   prices.forEach(function(p){ var t=(parseInt(state.formData['納品_'+p])||0)+(parseInt(state.formData['前日在庫_'+p])||0); h+='<div class="chin-row"><span class="chin-lbl">'+p+'</span><span class="chin-val" id="cv_'+esc(p)+'">'+t+'</span><span class="chin-unit">個</span></div>'; });
   return h+'</div>';
 }
-function frow(label,key) {
+function bExtraMgr() {
+  var h='<div class="extra-mgr"><div class="extra-mgr-hdr"><span>⚡ 臨時価格（チラシ対応）</span><button class="extra-mgr-add" onclick="addExtraPrice()">＋ 追加</button></div><div class="extra-mgr-body">';
+  if(state.extraPrices.length===0){
+    h+='<div class="extra-mgr-empty">チラシで価格が変わる場合に追加してください（例：198→158）</div>';
+  } else {
+    h+='<div class="extra-chips">';
+    state.extraPrices.forEach(function(p,i){
+      h+='<span class="extra-chip">⚡'+eH(p)+'<button class="extra-chip-del" onclick="rmExtraPrice('+i+')" aria-label="削除">×</button></span>';
+    });
+    h+='</div>';
+  }
+  return h+'</div></div>';
+}
+function bExtraSales() {
+  var h='<div class="fsec"><div class="fsec-hdr" style="background:#fff3e0;color:#e65100"><span>⚡ 販売数（臨時価格・手入力）</span><span class="note">通常価格は自動取得</span></div><div>';
+  state.extraPrices.forEach(function(p){h+=frow('⚡'+p,'販売数_臨#'+p,true);});
+  return h+'</div></div>';
+}
+function frow(label,key,isExtra) {
   var v=state.formData[key]||'';
   var unit=(state.store.units&&state.store.units[label])?state.store.units[label]:'個';
-  return '<div class="frow"><span class="frow-lbl">'+label+'</span><div class="frow-inp"><input type="number" min="0" inputmode="numeric" placeholder="0" value="'+eA(v)+'" oninput="upd(\''+eA(key)+'\',this.value)"><span class="frow-unit">'+unit+'</span></div></div>';
+  return '<div class="frow'+(isExtra?' extra':'')+'"><span class="frow-lbl">'+label+'</span><div class="frow-inp"><input type="number" min="0" inputmode="numeric" placeholder="0" value="'+eA(v)+'" oninput="upd(\''+eA(key)+'\',this.value)"><span class="frow-unit">'+unit+'</span></div></div>';
+}
+function addExtraPrice() {
+  var v=prompt('臨時価格を入力してください（円・税抜）\n例：158');
+  if(v===null) return;
+  v=String(v).trim().replace(/[¥￥]/g,'').replace(/[,，]/g,'');
+  var n=parseInt(v,10);
+  if(!n||n<=0||isNaN(n)){alert('正の整数を入力してください');return;}
+  var label='¥'+n;
+  if(state.extraPrices.indexOf(label)>-1){alert(label+'は既に追加されています');return;}
+  if((state.store.prices||[]).indexOf(label)>-1){alert('通常価格('+label+')と同じです。臨時価格として追加できません。');return;}
+  state.extraPrices.push(label);
+  state.extraPrices.sort(function(a,b){return parseInt(a.replace('¥',''),10)-parseInt(b.replace('¥',''),10);});
+  renderForm();
+}
+function rmExtraPrice(idx) {
+  var p=state.extraPrices[idx];
+  if(!p) return;
+  if(!confirm('⚡'+p+' の臨時価格行を削除しますか？\n入力したデータも消えます。')) return;
+  Object.keys(state.formData).forEach(function(k){
+    if(k.indexOf('_臨#'+p)>-1) delete state.formData[k];
+  });
+  state.extraPrices.splice(idx,1);
+  renderForm();
 }
 function esc(s){return String(s).replace(/[^a-zA-Z0-9]/g,'_');}
 function eA(s){return String(s||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
@@ -301,54 +364,96 @@ function updateChin() {
     if(s.type==='yaoko'||s.type==='yaoko_simple') el.textContent=cY(p);
     else if(s.type==='choku') el.textContent=(parseInt(state.formData['納品_'+p])||0)+(parseInt(state.formData['前日在庫_'+p])||0);
   });
+  if(s.type==='yaoko'){
+    state.extraPrices.forEach(function(p){
+      var k='臨#'+p;
+      var el=document.getElementById('cv_'+esc(k));
+      if(el) el.textContent=cY(k);
+    });
+  }
 }
 function cY(p){return(parseInt(state.formData['S品_'+p])||0)+(parseInt(state.formData['A品_'+p])||0)+(parseInt(state.formData['B品_'+p])||0)+(parseInt(state.formData['C品_'+p])||0);}
 function applyToS() {
   state.store.prices.forEach(function(p){state.formData['S品_'+p]=state.formData['納品_'+p]||'0';});
+  if(state.store.type==='yaoko'){
+    state.extraPrices.forEach(function(p){state.formData['S品_臨#'+p]=state.formData['納品_臨#'+p]||'0';});
+  }
   renderForm();
   setTimeout(function(){var el=document.getElementById('sec_S品');if(el){el.classList.add('flashed');setTimeout(function(){el.classList.remove('flashed');},700);}updateChin();},50);
 }
 function loadSavedData() {
   var btn = document.getElementById('loadBtn');
   if (btn) { btn.disabled = true; btn.textContent = '📥 読み込み中...'; }
+  tryLoadDate(todayStr, false);
+}
 
+function shiftDate(ds, days) {
+  var d = new Date(ds+'T00:00:00');
+  d.setDate(d.getDate()+days);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+
+function tryLoadDate(date, isFallback) {
+  var btn = document.getElementById('loadBtn');
   var url = API_URL
     + '?action=getStoreData'
     + '&store=' + encodeURIComponent(state.store.name)
-    + '&date=' + todayStr;
+    + '&date=' + date;
 
   jsonp(url, 'cb_load', function(res) {
     if (!res.success) {
-      alert('本日の保存データはありません。');
+      if (!isFallback) {
+        // 今日のデータが無ければ前日を試す（前日値引き継ぎ）
+        tryLoadDate(shiftDate(todayStr, -1), true);
+        return;
+      }
+      alert('本日・前日の保存データはありません。');
       if (btn) { btn.disabled = false; btn.textContent = '📥 保存済みデータを読み込む'; }
       return;
     }
-    // 担当者をセット
-    if (res.staff) state.staff = res.staff;
-    // 各項目をformDataにセット
+    // 担当者は今日のデータからのみ反映（前日fallback時は触らない）
+    if (res.staff && !isFallback) state.staff = res.staff;
+
+    // formData / extraPrices をリセット
+    state.formData = {};
+    state.extraPrices = [];
+
     // GASのキー形式（例: "S品_¥99（個）"）→ アプリのキー形式（"S品_¥99"）に変換
     if (res.items) {
       Object.keys(res.items).forEach(function(key) {
-        // "（個）"を除去してフォームデータのキーに合わせる
         var cleanKey = key.replace('（個）', '').replace('（kg）', '');
         state.formData[cleanKey] = res.items[key];
-        // 元のキーそのままも試す
+        // 元のキーそのままも保持（互換性）
         state.formData[key] = res.items[key];
+        // 臨時価格をキーから抽出
+        var m = cleanKey.match(/_臨#(¥\d+)/);
+        if (m && state.extraPrices.indexOf(m[1])<0) state.extraPrices.push(m[1]);
       });
     }
+    state.extraPrices.sort(function(a,b){return parseInt(a.replace('¥',''),10)-parseInt(b.replace('¥',''),10);});
+
     // フォームを再描画
     renderForm();
     // 読み込み完了メッセージ
-    if (btn) {
-      btn.style.background = '#edf7f1';
-      btn.style.color = '#2d7a4f';
-      btn.style.borderColor = '#2d7a4f';
-      btn.textContent = '✅ 読み込み完了';
-      btn.disabled = true;
+    var newBtn = document.getElementById('loadBtn');
+    if (newBtn) {
+      if (isFallback) {
+        newBtn.style.background = '#fff3e0';
+        newBtn.style.color = '#e65100';
+        newBtn.style.borderColor = '#e65100';
+        newBtn.textContent = '⚡ '+date.slice(5).replace('-','/')+'(前日)を読込';
+      } else {
+        newBtn.style.background = '#edf7f1';
+        newBtn.style.color = '#2d7a4f';
+        newBtn.style.borderColor = '#2d7a4f';
+        newBtn.textContent = '✅ 読み込み完了';
+      }
+      newBtn.disabled = true;
     }
   }, function() {
     alert('データの取得に失敗しました。');
-    if (btn) { btn.disabled = false; btn.textContent = '📥 保存済みデータを読み込む'; }
+    var newBtn = document.getElementById('loadBtn');
+    if (newBtn) { newBtn.disabled = false; newBtn.textContent = '📥 保存済みデータを読み込む'; }
   });
 }
 

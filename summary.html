@@ -54,6 +54,11 @@ body{font-family:'Noto Sans JP',sans-serif;background:#e8e0d0;min-height:100vh;p
 .iv-zan{color:var(--green)}
 .iv-total{background:var(--yellow-bg);font-weight:700;border-top:2px solid var(--yellow-bd)!important}
 .iv-sales{font-size:15px;font-weight:700;color:#c0392b}
+.iv-extra{background:#fff8e1}
+.iv-extra td:first-child{color:#e65100;font-weight:700}
+.dsec-hdr.orange{background:#fff3e0;color:#e65100}
+.drow.extra{background:#fff8e1}
+.drow.extra .dlbl{color:#e65100;font-weight:700}
 
 /* 詳細アコーディオン */
 .dtoggle{display:flex;align-items:center;gap:6px;padding:8px 14px;cursor:pointer;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);background:#f5f3ee;font-size:11px;font-weight:700;color:#777;letter-spacing:.08em;user-select:none}
@@ -228,9 +233,34 @@ function parseSecs(sd){
 }
 
 function getRaw(sec,price){
+  // 通常価格: 「臨#」を含む臨時行を除外して、価格を含むラベルを合算
   if(!sec) return 0;
-  var t=0;sec.items.forEach(function(it){if(it.label.indexOf(price)>-1)t+=parseInt(it.value)||0;});
+  var t=0;sec.items.forEach(function(it){
+    if(it.label.indexOf('臨#')>-1) return;
+    if(it.label.indexOf(price)>-1) t+=parseInt(it.value)||0;
+  });
   return t;
+}
+
+function getRawExtra(sec,price){
+  // 臨時価格: ラベルに「_臨#¥158」を含むものを合算
+  if(!sec) return 0;
+  var needle='_臨#'+price;
+  var t=0;sec.items.forEach(function(it){
+    if(it.label.indexOf(needle)>-1) t+=parseInt(it.value)||0;
+  });
+  return t;
+}
+
+function extractExtraPrices(items){
+  if(!items) return [];
+  var seen={}, out=[];
+  items.forEach(function(it){
+    var m=String(it.label||'').match(/_臨#(¥\d+)/);
+    if(m && !seen[m[1]]){seen[m[1]]=1;out.push(m[1]);}
+  });
+  out.sort(function(a,b){return parseInt(a.replace('¥',''),10)-parseInt(b.replace('¥',''),10);});
+  return out;
 }
 
 function getChin(secs,prices,isYaoko){
@@ -288,6 +318,9 @@ function renderInvTable(store,secs,isY,items){
   // 価格列は常に表示
   var showPrice=true;
 
+  // 臨時価格はヤオコー店舗のみ対応
+  var extraPrices = isY ? extractExtraPrices(items) : [];
+
   var html='<div class="inv-wrap"><table class="inv-table"><thead><tr>';
   if(showPrice) html+='<th>価格</th>';
   html+=isY?'<th>陳列数</th>':'<th>納品数</th>';
@@ -325,6 +358,34 @@ function renderInvTable(store,secs,isY,items){
     html+='<td><span class="iv iv-zan">'+(zan===''?'-':zan)+'</span></td></tr>';
   });
 
+  // 臨時価格行（ヤオコー専用）
+  extraPrices.forEach(function(p){
+    var c = getRawExtra(secs.zaikoS,p)+getRawExtra(secs.zaikoA,p)+getRawExtra(secs.zaikoB,p)+getRawExtra(secs.zaikoC,p);
+    var sv = getRawExtra(secs.sosei,p);
+    var tenpo = c+sv;
+    tc+=c; ts+=sv; tt+=tenpo;
+
+    var salesVal='';
+    if(items){
+      items.forEach(function(it){
+        if(it.label==='販売数_臨#'+p && it.value!==''&&it.value!==null&&it.value!==undefined){
+          salesVal=String(it.value);
+        }
+      });
+    }
+    var zan = salesVal!==''?Math.max(tenpo-(parseInt(salesVal)||0),0):'';
+    if(salesVal!==''){hasAnySales=true;totalZan+=zan;totalSales+=parseInt(salesVal)||0;}
+    else totalZan+=tenpo;
+
+    html+='<tr class="iv-extra">';
+    if(showPrice) html+='<td>⚡'+eH(p)+'</td>';
+    html+='<td><span class="iv iv-chin">'+c+'</span></td>';
+    if(isY) html+='<td><span class="iv iv-sosei">'+sv+'</span></td>';
+    html+='<td><span class="iv iv-tenpo">'+tenpo+'</span></td>';
+    html+='<td><span class="iv iv-sales">'+eH(salesVal!==''?salesVal:'-')+'</span></td>';
+    html+='<td><span class="iv iv-zan">'+(zan===''?'-':zan)+'</span></td></tr>';
+  });
+
   // 合計行
   html+='<tr class="iv-total">';
   if(showPrice) html+='<td>合計</td>';
@@ -355,7 +416,9 @@ function renderAccordion(store,secs,isY){
         var lbl=it.label.replace(/納品\s?/,'').replace(/[SABC]品\s?/,'').replace(/在庫[SABC]\s?/,'')
           .replace(/前日在庫\s?/,'').replace(/蘇生庫\s?/,'').replace(/値引き\s?/,'')
           .replace(/持ち帰り\s?/,'').replace('（個）','').replace(/^_/,'');
-        html+='<div class="drow"><span class="dlbl">'+eH(lbl)+'</span><span class="dval">'+eH(it.value)+'</span><span class="dunit">個</span></div>';
+        var isExtra = lbl.indexOf('臨#')>-1;
+        lbl = lbl.replace(/^臨#/,'⚡').replace(/_臨#/,'_⚡');
+        html+='<div class="drow'+(isExtra?' extra':'')+'"><span class="dlbl">'+eH(lbl)+'</span><span class="dval">'+eH(it.value)+'</span><span class="dunit">個</span></div>';
       });
     }
     html+='</div>';
