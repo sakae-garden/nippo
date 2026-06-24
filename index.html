@@ -126,8 +126,8 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
   </div>
   <div class="hdr-date" id="hDate"></div>
   <div class="route-tabs" id="routeTabs">
-    <button class="rtab active" id="tab0" onclick="switchRoute(0)">小川ルート</button>
-    <button class="rtab" id="tab1" onclick="switchRoute(1)">籠原ルート</button>
+    <button class="rtab active" id="tab0" onclick="switchRoute(0)">籠原ルート</button>
+    <button class="rtab" id="tab1" onclick="switchRoute(1)">皆野ルート</button>
     <button class="rtab" id="tab2" onclick="switchRoute(2)">坂戸ルート</button>
   </div>
 </div>
@@ -136,17 +136,17 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 var API_URL = 'https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkVvYc7V77OJrh7h_PZCqtuV4aUL7NYz83VsNc5lY6sXONw/exec';
 
 var ROUTES = [
-  { id:'ogawa', label:'小川ルート', groups:[
-    { label:'ヤオコー', stores:['yorii','midori'] },
-    { label:'農産物直売所', stores:['obusuma','kawamoto'] },
-    { label:'その他', stores:['hazu','fukaya','tamaya','nourin','michieki'] }
-  ]},
   { id:'kagohara', label:'籠原ルート', groups:[
-    { label:'ヤオコー', stores:['minano','kagohara_s','honjo','kamisato','kodama'] },
+    { label:'ヤオコー', stores:['kagohara_s','yorii','midori'] },
+    { label:'農産物直売所', stores:['obusuma','kawamoto'] },
+    { label:'その他', stores:['michieki','nourin','tamaya'] }
+  ]},
+  { id:'minano', label:'皆野ルート', groups:[
+    { label:'ヤオコー', stores:['minano','kodama','kamisato','honjo'] },
     { label:'直売所', stores:['okabe'] }
   ]},
   { id:'sakado', label:'坂戸ルート', groups:[
-    { label:'ヤオコー', stores:['nagase','ipponmatsu','wakaba','sakado_chiyoda','sakado_izumi','higashimatsuyama_shinjuku'] }
+    { label:'ヤオコー', stores:['higashimatsuyama_shinjuku','sakado_izumi','sakado_chiyoda','wakaba','ipponmatsu','nagase'] }
   ]}
 ];
 
@@ -155,8 +155,6 @@ var STORE_DEFS = {
   midori:         { name:'ヤオコーみどりが丘店',            cls:'yaoko',  icon:'🏪', type:'yaoko',        prices:['¥99','¥198','¥398','¥598'] },
   obusuma:        { name:'男衾農産物直売所',                cls:'choku',  icon:'🌿', type:'choku',        prices:['¥180','¥200','¥380','¥540'] },
   kawamoto:       { name:'川本農産物直売所',                cls:'choku',  icon:'🌿', type:'choku',        prices:['¥180','¥200','¥380','¥540'] },
-  hazu:           { name:'ハーズ',                          cls:'others', icon:'🛒', type:'oroshi',       prices:['¥315','¥158'] },
-  fukaya:         { name:'深谷ベジタブルコミュニケーション',cls:'others', icon:'🥬', type:'oroshi',       prices:['¥95（姫）','¥95（小）','¥350','レストラン用'], units:{'レストラン用':'kg'} },
   tamaya:         { name:'たまや',                          cls:'others', icon:'🏬', type:'choku',        prices:['¥220（税込）','¥450（税込）'] },
   nourin:         { name:'農林公園',                        cls:'others', icon:'🌳', type:'choku',        prices:['¥180','¥200','¥380','¥500'] },
   michieki:       { name:'道の駅おがわまち',                cls:'others', icon:'🚗', type:'choku',        prices:['¥210','¥420'] },
@@ -191,7 +189,6 @@ function getDefaultConfig() {
   var c = {};
   Object.keys(STORE_DEFS).forEach(function(k){ c[STORE_DEFS[k].name]=''; });
   c['ヤオコー寄居店']='河野さん・竹山さん'; c['ヤオコーみどりが丘店']='杉田さん・川野さん';
-  c['ハーズ']='五十嵐さん・加藤さん'; c['深谷ベジタブルコミュニケーション']='田島さん';
   return { staff:['八島','青柳','杉','その他'], storeContacts:c };
 }
 

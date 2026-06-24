@@ -89,8 +89,8 @@ body{font-family:'Noto Sans JP',sans-serif;background:#e8e0d0;min-height:100vh;p
   </div>
 </div>
 <div class="route-tabs">
-  <button class="rtab active" id="rtab0" onclick="switchRoute(0)">小川ルート</button>
-  <button class="rtab" id="rtab1" onclick="switchRoute(1)">籠原ルート</button>
+  <button class="rtab active" id="rtab0" onclick="switchRoute(0)">籠原ルート</button>
+  <button class="rtab" id="rtab1" onclick="switchRoute(1)">皆野ルート</button>
   <button class="rtab" id="rtab2" onclick="switchRoute(2)">坂戸ルート</button>
 </div>
 <div id="loading"><div class="spinner"></div><br>データを読み込んでいます...<br><small>初回のみ時間がかかります</small></div>
@@ -103,32 +103,30 @@ var API_URL='https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkVvY
 var CACHED=null, currentRoute=0;
 
 var ROUTE_GROUPS=[
-  {label:'小川ルート',stores:[
+  {label:'籠原ルート',stores:[
+    {name:'ヤオコー籠原店',                  cls:'yaoko',  sub:'', type:'yaoko', prices:['¥99','¥198','¥398','¥598']},
     {name:'ヤオコー寄居店',                  cls:'yaoko',  sub:'河野さん・竹山さん', type:'yaoko', prices:['¥99','¥198','¥398','¥598']},
     {name:'ヤオコーみどりが丘店',            cls:'yaoko',  sub:'杉田さん・川野さん', type:'yaoko', prices:['¥99','¥198','¥398','¥598']},
     {name:'男衾農産物直売所',                cls:'choku',  sub:'', type:'choku', prices:['¥180','¥200','¥380','¥540']},
     {name:'川本農産物直売所',                cls:'choku',  sub:'', type:'choku', prices:['¥180','¥200','¥380','¥540']},
-    {name:'ハーズ',                          cls:'others', sub:'五十嵐さん・加藤さん', type:'oroshi', prices:['¥315','¥158']},
-    {name:'深谷ベジタブルコミュニケーション', cls:'others', sub:'田島さん', type:'oroshi', prices:['¥95（姫）','¥95（小）','¥350','レストラン用'], units:{'レストラン用':'kg'}},
-    {name:'たまや',                          cls:'choku',  sub:'', type:'choku', prices:['¥220（税込）','¥450（税込）']},
-    {name:'農林公園',                        cls:'choku',  sub:'', type:'choku', prices:['¥180','¥200','¥380','¥500']},
     {name:'道の駅おがわまち',                cls:'choku',  sub:'', type:'choku', prices:['¥210','¥420']},
+    {name:'農林公園',                        cls:'choku',  sub:'', type:'choku', prices:['¥180','¥200','¥380','¥500']},
+    {name:'たまや',                          cls:'choku',  sub:'', type:'choku', prices:['¥220（税込）','¥450（税込）']},
   ]},
-  {label:'籠原ルート',stores:[
+  {label:'皆野ルート',stores:[
     {name:'ヤオコー皆野店',         cls:'yaoko',sub:'',type:'yaoko',prices:['¥99','¥198','¥398','¥598']},
-    {name:'ヤオコー籠原店',         cls:'yaoko',sub:'',type:'yaoko',prices:['¥99','¥198','¥398','¥598']},
-    {name:'道の駅おかべ',           cls:'choku',sub:'',type:'choku',prices:['¥200','¥216','¥380','¥420']},
-    {name:'ヤオコー本庄中央店',     cls:'yaoko',sub:'',type:'yaoko',prices:['¥99','¥198','¥398','¥598']},
-    {name:'ヤオコー上里店',         cls:'yaoko',sub:'',type:'yaoko',prices:['¥99','¥198','¥398','¥598']},
     {name:'ヤオコー児玉バイパス店', cls:'yaoko',sub:'',type:'yaoko',prices:['¥99','¥198','¥398','¥598']},
+    {name:'ヤオコー上里店',         cls:'yaoko',sub:'',type:'yaoko',prices:['¥99','¥198','¥398','¥598']},
+    {name:'ヤオコー本庄中央店',     cls:'yaoko',sub:'',type:'yaoko',prices:['¥99','¥198','¥398','¥598']},
+    {name:'道の駅おかべ',           cls:'choku',sub:'',type:'choku',prices:['¥200','¥216','¥380','¥420']},
   ]},
   {label:'坂戸ルート',stores:[
-    {name:'ヤオコー長瀬店',          cls:'yaoko',sub:'',type:'yaoko',prices:['¥99','¥198','¥398','¥598']},
-    {name:'ヤオコー一本松南店',      cls:'yaoko',sub:'',type:'yaoko',prices:['¥99','¥198','¥398','¥598']},
-    {name:'ヤオコーワカバウォーク店', cls:'yaoko',sub:'',type:'yaoko',prices:['¥99','¥198','¥398','¥598']},
-    {name:'ヤオコー坂戸千代田店',    cls:'yaoko',sub:'',type:'yaoko',prices:['¥99','¥198','¥398','¥598']},
-    {name:'ヤオコー坂戸泉店',        cls:'yaoko',sub:'',type:'yaoko',prices:['¥99','¥198','¥398','¥598']},
     {name:'ヤオコー東松山新宿店',    cls:'yaoko',sub:'',type:'yaoko',prices:['¥99','¥198','¥398','¥598']},
+    {name:'ヤオコー坂戸泉店',        cls:'yaoko',sub:'',type:'yaoko',prices:['¥99','¥198','¥398','¥598']},
+    {name:'ヤオコー坂戸千代田店',    cls:'yaoko',sub:'',type:'yaoko',prices:['¥99','¥198','¥398','¥598']},
+    {name:'ヤオコーワカバウォーク店', cls:'yaoko',sub:'',type:'yaoko',prices:['¥99','¥198','¥398','¥598']},
+    {name:'ヤオコー一本松南店',      cls:'yaoko',sub:'',type:'yaoko',prices:['¥99','¥198','¥398','¥598']},
+    {name:'ヤオコー長瀬店',          cls:'yaoko',sub:'',type:'yaoko',prices:['¥99','¥198','¥398','¥598']},
   ]}
 ];
 var STORES=[]; ROUTE_GROUPS.forEach(function(g){STORES=STORES.concat(g.stores);});
