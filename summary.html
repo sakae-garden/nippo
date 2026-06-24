@@ -241,7 +241,7 @@ function getRaw(sec,price){
 }
 
 function getRawExtra(sec,price){
-  // 臨時価格: ラベルに「_臨#¥158」を含むものを合算
+  // 追加商品（内部識別子: 臨#）: ラベルに「_臨#¥158」を含むものを合算
   if(!sec) return 0;
   var needle='_臨#'+price;
   var t=0;sec.items.forEach(function(it){
@@ -316,7 +316,7 @@ function renderInvTable(store,secs,isY,items){
   // 価格列は常に表示
   var showPrice=true;
 
-  // 臨時価格はヤオコー店舗のみ対応
+  // 追加商品はヤオコー店舗のみ対応
   var extraPrices = isY ? extractExtraPrices(items) : [];
 
   var html='<div class="inv-wrap"><table class="inv-table"><thead><tr>';
@@ -356,7 +356,7 @@ function renderInvTable(store,secs,isY,items){
     html+='<td><span class="iv iv-zan">'+(zan===''?'-':zan)+'</span></td></tr>';
   });
 
-  // 臨時価格行（ヤオコー専用）
+  // 追加商品行（ヤオコー専用）
   extraPrices.forEach(function(p){
     var c = getRawExtra(secs.zaikoS,p)+getRawExtra(secs.zaikoA,p)+getRawExtra(secs.zaikoB,p)+getRawExtra(secs.zaikoC,p);
     var sv = getRawExtra(secs.sosei,p);
@@ -376,7 +376,7 @@ function renderInvTable(store,secs,isY,items){
     else totalZan+=tenpo;
 
     html+='<tr class="iv-extra">';
-    if(showPrice) html+='<td>⚡'+eH(p)+'</td>';
+    if(showPrice) html+='<td>➕'+eH(p)+'</td>';
     html+='<td><span class="iv iv-chin">'+c+'</span></td>';
     if(isY) html+='<td><span class="iv iv-sosei">'+sv+'</span></td>';
     html+='<td><span class="iv iv-tenpo">'+tenpo+'</span></td>';
@@ -415,7 +415,7 @@ function renderAccordion(store,secs,isY){
           .replace(/前日在庫\s?/,'').replace(/蘇生庫\s?/,'').replace(/値引き\s?/,'')
           .replace(/持ち帰り\s?/,'').replace('（個）','').replace(/^_/,'');
         var isExtra = lbl.indexOf('臨#')>-1;
-        lbl = lbl.replace(/^臨#/,'⚡').replace(/_臨#/,'_⚡');
+        lbl = lbl.replace(/^臨#/,'➕').replace(/_臨#/,'_➕');
         html+='<div class="drow'+(isExtra?' extra':'')+'"><span class="dlbl">'+eH(lbl)+'</span><span class="dval">'+eH(it.value)+'</span><span class="dunit">個</span></div>';
       });
     }

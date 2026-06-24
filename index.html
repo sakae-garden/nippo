@@ -279,13 +279,13 @@ function renderForm() {
 function bNouhin(prices) {
   var h='<div class="fsec" id="secNouhin"><div class="fsec-hdr green"><span>🟩 納品数</span><button class="apply-btn" onclick="applyToS()">→ S品に反映</button></div><div>';
   prices.forEach(function(p){h+=frow(p,'納品_'+p);});
-  if(state.store.type==='yaoko') state.extraPrices.forEach(function(p){h+=frow('⚡'+p,'納品_臨#'+p,true);});
+  if(state.store.type==='yaoko') state.extraPrices.forEach(function(p){h+=frow('➕'+p,'納品_臨#'+p,true);});
   return h+'</div></div>';
 }
 function bSec(title,color,key,prices,note) {
   var h='<div class="fsec" id="sec_'+esc(key)+'"><div class="fsec-hdr '+color+'"><span>'+title+'</span>'+(note?'<span class="note">'+note+'</span>':'')+'</div><div>';
   prices.forEach(function(p){h+=frow(p,key+'_'+p);});
-  if(state.store.type==='yaoko') state.extraPrices.forEach(function(p){h+=frow('⚡'+p,key+'_臨#'+p,true);});
+  if(state.store.type==='yaoko') state.extraPrices.forEach(function(p){h+=frow('➕'+p,key+'_臨#'+p,true);});
   return h+'</div></div>';
 }
 function bChin(prices) {
@@ -293,7 +293,7 @@ function bChin(prices) {
   prices.forEach(function(p){ h+='<div class="chin-row"><span class="chin-lbl">'+p+'</span><span class="chin-val" id="cv_'+esc(p)+'">'+cY(p)+'</span><span class="chin-unit">個</span></div>'; });
   if(state.store.type==='yaoko') state.extraPrices.forEach(function(p){
     var k='臨#'+p;
-    h+='<div class="chin-row extra"><span class="chin-lbl">⚡'+p+'</span><span class="chin-val" id="cv_'+esc(k)+'">'+cY(k)+'</span><span class="chin-unit">個</span></div>';
+    h+='<div class="chin-row extra"><span class="chin-lbl">➕'+p+'</span><span class="chin-val" id="cv_'+esc(k)+'">'+cY(k)+'</span><span class="chin-unit">個</span></div>';
   });
   return h+'</div>';
 }
@@ -303,21 +303,21 @@ function bChinChoku(prices) {
   return h+'</div>';
 }
 function bExtraMgr() {
-  var h='<div class="extra-mgr"><div class="extra-mgr-hdr"><span>⚡ 臨時価格（チラシ対応）</span><button class="extra-mgr-add" onclick="addExtraPrice()">＋ 追加</button></div><div class="extra-mgr-body">';
+  var h='<div class="extra-mgr"><div class="extra-mgr-hdr"><span>➕ 商品追加</span><button class="extra-mgr-add" onclick="addExtraPrice()">＋ 追加</button></div><div class="extra-mgr-body">';
   if(state.extraPrices.length===0){
-    h+='<div class="extra-mgr-empty">チラシで価格が変わる場合に追加してください（例：198→158）</div>';
+    h+='<div class="extra-mgr-empty">定番外の商品を追加できます（例：158円の特売品）</div>';
   } else {
     h+='<div class="extra-chips">';
     state.extraPrices.forEach(function(p,i){
-      h+='<span class="extra-chip">⚡'+eH(p)+'<button class="extra-chip-del" onclick="rmExtraPrice('+i+')" aria-label="削除">×</button></span>';
+      h+='<span class="extra-chip">➕'+eH(p)+'<button class="extra-chip-del" onclick="rmExtraPrice('+i+')" aria-label="削除">×</button></span>';
     });
     h+='</div>';
   }
   return h+'</div></div>';
 }
 function bExtraSales() {
-  var h='<div class="fsec"><div class="fsec-hdr" style="background:#fff3e0;color:#e65100"><span>⚡ 販売数（臨時価格・手入力）</span><span class="note">通常価格は自動取得</span></div><div>';
-  state.extraPrices.forEach(function(p){h+=frow('⚡'+p,'販売数_臨#'+p,true);});
+  var h='<div class="fsec"><div class="fsec-hdr" style="background:#fff3e0;color:#e65100"><span>➕ 販売数（追加商品・手入力）</span><span class="note">通常価格は自動取得</span></div><div>';
+  state.extraPrices.forEach(function(p){h+=frow('➕'+p,'販売数_臨#'+p,true);});
   return h+'</div></div>';
 }
 function frow(label,key,isExtra) {
@@ -326,14 +326,14 @@ function frow(label,key,isExtra) {
   return '<div class="frow'+(isExtra?' extra':'')+'"><span class="frow-lbl">'+label+'</span><div class="frow-inp"><input type="number" min="0" inputmode="numeric" placeholder="0" value="'+eA(v)+'" oninput="upd(\''+eA(key)+'\',this.value)"><span class="frow-unit">'+unit+'</span></div></div>';
 }
 function addExtraPrice() {
-  var v=prompt('臨時価格を入力してください（円・税抜）\n例：158');
+  var v=prompt('追加する商品の価格を入力してください（円・税抜）\n例：158');
   if(v===null) return;
   v=String(v).trim().replace(/[¥￥]/g,'').replace(/[,，]/g,'');
   var n=parseInt(v,10);
   if(!n||n<=0||isNaN(n)){alert('正の整数を入力してください');return;}
   var label='¥'+n;
   if(state.extraPrices.indexOf(label)>-1){alert(label+'は既に追加されています');return;}
-  if((state.store.prices||[]).indexOf(label)>-1){alert('通常価格('+label+')と同じです。臨時価格として追加できません。');return;}
+  if((state.store.prices||[]).indexOf(label)>-1){alert('既存価格('+label+')と同じです。追加できません。');return;}
   state.extraPrices.push(label);
   state.extraPrices.sort(function(a,b){return parseInt(a.replace('¥',''),10)-parseInt(b.replace('¥',''),10);});
   renderForm();
@@ -341,7 +341,7 @@ function addExtraPrice() {
 function rmExtraPrice(idx) {
   var p=state.extraPrices[idx];
   if(!p) return;
-  if(!confirm('⚡'+p+' の臨時価格行を削除しますか？\n入力したデータも消えます。')) return;
+  if(!confirm(p+' の追加商品を削除しますか？\n入力したデータも消えます。')) return;
   Object.keys(state.formData).forEach(function(k){
     if(k.indexOf('_臨#'+p)>-1) delete state.formData[k];
   });
@@ -422,7 +422,7 @@ function tryLoadDate(date, isFallback) {
         state.formData[cleanKey] = res.items[key];
         // 元のキーそのままも保持（互換性）
         state.formData[key] = res.items[key];
-        // 臨時価格をキーから抽出
+        // 追加商品（内部識別子: 臨#）をキーから抽出
         var m = cleanKey.match(/_臨#(¥\d+)/);
         if (m && state.extraPrices.indexOf(m[1])<0) state.extraPrices.push(m[1]);
       });
@@ -438,7 +438,7 @@ function tryLoadDate(date, isFallback) {
         newBtn.style.background = '#fff3e0';
         newBtn.style.color = '#e65100';
         newBtn.style.borderColor = '#e65100';
-        newBtn.textContent = '⚡ '+date.slice(5).replace('-','/')+'(前日)を読込';
+        newBtn.textContent = '📥 '+date.slice(5).replace('-','/')+'(前日)を読込';
       } else {
         newBtn.style.background = '#edf7f1';
         newBtn.style.color = '#2d7a4f';
