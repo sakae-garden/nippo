@@ -90,6 +90,21 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .done-screen{text-align:center;padding:60px 20px}.done-icon{font-size:64px;margin-bottom:16px}
 .done-title{font-size:22px;font-weight:700;margin-bottom:8px}.done-sub{font-size:14px;color:var(--sub);margin-bottom:32px;line-height:1.7}
 .home-btn{background:var(--ink);color:#fff;border:none;border-radius:var(--r);padding:14px 32px;font-family:inherit;font-size:15px;font-weight:600;cursor:pointer}
+.done-confirm-wrap{margin:8px 0 28px;text-align:left}
+.done-confirm-title{font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.08em;margin-bottom:8px;text-align:center}
+.dc-table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;box-shadow:var(--shadow)}
+.dc-table th{padding:6px 6px;background:#f5f3ee;font-size:10px;font-weight:700;color:#666;letter-spacing:.06em;text-align:center;border-bottom:2px solid var(--border)}
+.dc-table th:first-child{text-align:left;padding-left:12px}
+.dc-table td{padding:7px 6px;border-bottom:1px dotted #e0d9cc;text-align:center;vertical-align:middle}
+.dc-table td:first-child{text-align:left;padding-left:12px;color:#555;font-size:12px;white-space:nowrap}
+.dc-table tr:last-child td{border-bottom:none}
+.dc-chin{font-size:15px;font-weight:700;color:var(--yellow)}
+.dc-sosei{font-size:15px;font-weight:700;color:var(--purple)}
+.dc-tenpo{font-size:15px;font-weight:700;color:var(--blue)}
+.dc-extra{background:#fff8e1}
+.dc-extra td:first-child{color:var(--orange);font-weight:700}
+.dc-total{background:var(--yellow-bg);border-top:2px solid #f9a825!important}
+.dc-total td:first-child{font-weight:700;color:var(--ink)}
 .manual{padding:16px}.manual h2{font-size:16px;font-weight:700;margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid var(--border)}
 .manual h3{font-size:14px;font-weight:700;margin:16px 0 6px}.manual p{font-size:13px;color:#444;line-height:1.8;margin-bottom:6px}
 .manual-badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700;margin-bottom:4px}
@@ -480,7 +495,57 @@ function doSubmit() {
 }
 function renderDone() {
   state.screen='done';setHeader('送信完了',false,false);
-  document.getElementById('app').innerHTML='<div class="done-screen"><div class="done-icon">✅</div><div class="done-title">送信完了！</div><div class="done-sub">お疲れ様でした。<br>'+state.store.name+'の日報を送信しました。<br><br>'+todayStr.replace(/-/g,'/')+'　担当：'+state.staff+'</div><button class="home-btn" onclick="renderHome()">← 店舗一覧に戻る</button></div>';
+  var s=state.store;
+  var confirm=renderDoneConfirm(s);
+  document.getElementById('app').innerHTML='<div class="done-screen"><div class="done-icon">✅</div><div class="done-title">送信完了！</div><div class="done-sub">お疲れ様でした。<br>'+s.name+'の日報を送信しました。<br><br>'+todayStr.replace(/-/g,'/')+'　担当：'+state.staff+'</div>'+confirm+'<button class="home-btn" onclick="renderHome()">← 店舗一覧に戻る</button></div>';
+}
+function renderDoneConfirm(s) {
+  if(!s) return '';
+  var isY=(s.type==='yaoko'||s.type==='yaoko_simple');
+  var isC=(s.type==='choku');
+  if(!isY&&!isC) return '';
+  var p=s.prices||[];
+  var h='<div class="done-confirm-wrap"><div class="done-confirm-title">📋 入力内容の確認</div>';
+  h+='<table class="dc-table"><thead><tr><th>価格</th>';
+  h+=isY?'<th>陳列数</th><th>蘇生庫</th><th>店頭在庫</th>':'<th>納品数</th><th>店頭在庫</th>';
+  h+='</tr></thead><tbody>';
+  var tc=0,ts=0,tt=0;
+  p.forEach(function(pp){
+    var c,sv,tenpo;
+    if(isY){
+      c=cY(pp);
+      sv=parseInt(state.formData['蘇生庫_'+pp])||0;
+      tenpo=c+sv;
+    }else{
+      c=parseInt(state.formData['納品_'+pp])||0;
+      sv=0;
+      tenpo=c+(parseInt(state.formData['前日在庫_'+pp])||0);
+    }
+    tc+=c;ts+=sv;tt+=tenpo;
+    h+='<tr><td>'+eH(pp)+'</td>';
+    h+='<td><span class="dc-chin">'+c+'</span></td>';
+    if(isY) h+='<td><span class="dc-sosei">'+sv+'</span></td>';
+    h+='<td><span class="dc-tenpo">'+tenpo+'</span></td></tr>';
+  });
+  if(s.type==='yaoko'){
+    (state.extraPrices||[]).forEach(function(pp){
+      var k='臨#'+pp;
+      var c=cY(k);
+      var sv=parseInt(state.formData['蘇生庫_'+k])||0;
+      var tenpo=c+sv;
+      tc+=c;ts+=sv;tt+=tenpo;
+      h+='<tr class="dc-extra"><td>➕'+eH(pp)+'</td>';
+      h+='<td><span class="dc-chin">'+c+'</span></td>';
+      h+='<td><span class="dc-sosei">'+sv+'</span></td>';
+      h+='<td><span class="dc-tenpo">'+tenpo+'</span></td></tr>';
+    });
+  }
+  h+='<tr class="dc-total"><td>合計</td>';
+  h+='<td><span class="dc-chin">'+tc+'</span></td>';
+  if(isY) h+='<td><span class="dc-sosei">'+ts+'</span></td>';
+  h+='<td><span class="dc-tenpo">'+tt+'</span></td></tr>';
+  h+='</tbody></table></div>';
+  return h;
 }
 
 function renderManual() {
