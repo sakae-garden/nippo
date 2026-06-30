@@ -64,7 +64,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .cm-hdr{display:flex;align-items:center;gap:8px;padding:10px 14px;background:#fafaf6;border-bottom:1px solid var(--border)}
 .cm-icon{font-size:18px}.cm-name{font-size:14px;font-weight:700;color:var(--ink);flex:1}
 .cm-body{padding:10px 14px}
-.cm-body textarea{width:100%;min-height:60px;font-family:inherit;font-size:13px;border:1.5px solid var(--border);border-radius:8px;padding:8px 10px;background:#fff;color:var(--ink);resize:vertical;line-height:1.6}
+.cm-body textarea{width:100%;min-height:38px;font-family:inherit;font-size:13px;border:1.5px solid var(--border);border-radius:8px;padding:8px 10px;background:#fff;color:var(--ink);resize:none;overflow:hidden;line-height:1.6;display:block;box-sizing:border-box}
 .cm-body textarea:focus{outline:none;border-color:var(--blue)}
 .cm-body textarea:read-only{background:#f7f4ec;border-color:transparent}
 .cm-empty{font-size:12px;color:#aaa;font-style:italic;padding:6px 0}
@@ -208,6 +208,16 @@ function updComment(storeName, val){
   if(!state.data[storeName]) state.data[storeName]={};
   state.data[storeName].comment = val;
   state.dirty = true;
+}
+// textarea を内容に合わせて自動リサイズ（スクロールなし・全文表示）
+function autoResizeTa(el){
+  if(!el) return;
+  el.style.height='auto';
+  el.style.height=(el.scrollHeight + 2)+'px';
+}
+function resizeAllComments(){
+  var els = document.querySelectorAll('.cm-body textarea');
+  for(var i=0;i<els.length;i++) autoResizeTa(els[i]);
 }
 
 // ============ 計算 ============
@@ -428,7 +438,7 @@ function _renderRouteUnsafe(){
       if(state.mode==='view' && !v){
         html += '<div class="cm-empty">（コメント未入力）</div>';
       } else {
-        html += '<textarea placeholder="コメント・特記事項を入力" '+ro+' oninput="updComment(\''+eA(nm)+'\',this.value)">'+eH(v)+'</textarea>';
+        html += '<textarea placeholder="コメント・特記事項を入力" rows="1" '+ro+' oninput="updComment(\''+eA(nm)+'\',this.value);autoResizeTa(this)">'+eH(v)+'</textarea>';
       }
       html += '</div></div>';
     });
@@ -438,32 +448,44 @@ function _renderRouteUnsafe(){
     html += '<div class="save-bar"><button class="save-btn" onclick="doSave()">💾 保存する</button></div>';
   }
   document.getElementById('app').innerHTML = html;
+  // 既存コメントを内容に合わせて自動展開（スクロールなし・全文表示）
+  setTimeout(resizeAllComments, 0);
 }
 
 // ============ 保存 ============
-function doSave(){
-  showLoading('保存中...');
-  // payload は { 店舗名: {prices:{...}} or {comment:""} } 形式
+// saveHaitatsu は Apps Script 連続呼出で 2回目 404 になることがあるため
+// 失敗時に 2 秒待って 1 回だけ自動リトライする。
+function doSave(){ _doSaveAttempt(0); }
+function _doSaveAttempt(attempt){
+  showLoading(attempt>0 ? '再送信中...' : '保存中...');
   var payload = state.data || {};
   var dataStr = encodeURIComponent(JSON.stringify(payload));
   var url = API_URL+'?action=saveHaitatsu&date='+encodeURIComponent(todayStr)+'&data='+dataStr;
-  jsonp(url,'cb_save',function(res){
+  jsonp(url, attempt>0?'cb_save_retry':'cb_save', function(res){
     hideLoading();
     if(res && res.success){
       state.dirty = false;
       state.origData = JSON.parse(JSON.stringify(payload));
       try { localStorage.setItem('haitatsu_'+todayStr, JSON.stringify(payload)); } catch(e){}
-      // 保存直後の現在時刻を最終更新としてセット（次回 getHaitatsu で正確な値に置換される）
       var nd=new Date();
       state.lastUpdated = nd.getFullYear()+'-'+String(nd.getMonth()+1).padStart(2,'0')+'-'+String(nd.getDate()).padStart(2,'0')+' '+String(nd.getHours()).padStart(2,'0')+':'+String(nd.getMinutes()).padStart(2,'0')+':'+String(nd.getSeconds()).padStart(2,'0');
       renderRoute();
-      showToast('✅ 保存しました（'+res.saved+'件）');
+      showToast(attempt>0 ? '✅ 保存しました（再送信で成功）' : '✅ 保存しました（'+res.saved+'件）');
     } else {
-      alert('保存に失敗しました\n'+((res&&res.error)||''));
+      if(attempt===0){
+        setTimeout(function(){ _doSaveAttempt(1); }, 2000);
+      } else {
+        alert('保存に失敗しました\n'+((res&&res.error)||'')+'\nもう一度お試しください。');
+      }
     }
-  },function(){
+  }, function(){
     hideLoading();
-    alert('通信エラーで保存できませんでした。\nインターネット接続を確認してから再度お試しください。');
+    if(attempt===0){
+      // 通信失敗を1回だけ自動リトライ
+      setTimeout(function(){ _doSaveAttempt(1); }, 2000);
+    } else {
+      alert('通信エラーで保存できませんでした。\nインターネット接続を確認して再度お試しください。');
+    }
   });
 }
 
