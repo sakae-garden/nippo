@@ -52,7 +52,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .ya-body{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-top:1px solid #f0ebe0}
 .ya-cell{padding:10px 6px;border-right:1px dotted #ede5d3;text-align:center}
 .ya-cell:last-child{border-right:none}
-.ya-cell-p{font-size:11px;color:var(--sub);font-weight:600;margin-bottom:4px}
+.ya-cell-p{font-size:15px;color:var(--ink);font-weight:700;margin-bottom:6px;font-family:'Inter','Noto Sans JP',sans-serif;letter-spacing:.02em}
 .ya-cell input{width:100%;font-family:'Inter','Noto Sans JP',sans-serif;font-size:17px;font-weight:700;text-align:center;border:1.5px solid var(--border);border-radius:8px;padding:6px 4px;background:#fff;color:var(--green)}
 .ya-cell input:focus{outline:none;border-color:var(--green)}
 .ya-cell input:read-only{background:#f7f4ec;border-color:transparent;color:var(--ink)}
@@ -79,19 +79,32 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 /* ヤオコー統合表（閲覧モード） */
 .ya-tbl-wrap{background:#fff;border:1px solid var(--border);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow);margin-bottom:14px}
 .ya-tbl{width:100%;border-collapse:collapse;font-size:13px}
-.ya-tbl th{background:#f5f3ee;color:#666;font-weight:700;font-size:11px;padding:8px 4px;text-align:center;border-bottom:2px solid var(--border);letter-spacing:.04em}
-.ya-tbl th:first-child{text-align:left;padding-left:12px}
+.ya-tbl th{background:#f5f3ee;color:var(--ink);font-weight:700;font-size:15px;padding:10px 4px;text-align:center;border-bottom:2px solid var(--border);letter-spacing:.02em;font-family:'Inter','Noto Sans JP',sans-serif}
+.ya-tbl th:first-child{text-align:left;padding-left:12px;font-size:12px;color:#666;letter-spacing:.04em}
 .ya-tbl td{padding:8px 4px;text-align:center;border-bottom:1px dotted #ede5d3;vertical-align:middle}
 .ya-tbl td:first-child{text-align:left;padding-left:12px;color:#333;font-size:12px;font-weight:600;white-space:nowrap}
 .ya-tbl tr.total-row{background:var(--green-bg);border-top:2px solid #66bb6a}
 .ya-tbl tr.total-row td:first-child{color:var(--green);font-weight:700}
 .ya-tbl tr:last-child td{border-bottom:none}
-.nh-val{font-size:16px;font-weight:700;color:var(--green);font-family:'Inter','Noto Sans JP',sans-serif;line-height:1.1}
+.nh-val{font-size:17px;font-weight:700;color:var(--green);font-family:'Inter','Noto Sans JP',sans-serif;line-height:1.1}
 .nh-val.zero{color:#bbb}
-.zan-val{font-size:10px;color:var(--orange);margin-top:2px;line-height:1;letter-spacing:.02em}
-.zan-val.none{color:#ccc}
-.zan-mini{font-size:10px;color:var(--orange);font-weight:600;background:#fff3e0;border-radius:4px;padding:2px 6px;display:inline-block;margin-left:6px}
+.zan-mini{font-size:11px;color:var(--orange);font-weight:600;background:#fff3e0;border-radius:4px;padding:2px 6px;display:inline-block;margin-left:6px;vertical-align:middle}
 .zan-mini.none{background:#f2f2f2;color:#aaa}
+
+/* 全ルート総合計（編集モード最上段） */
+.all-total{background:#fff;border:1px solid var(--border);border-left:4px solid var(--green);border-radius:10px;padding:12px 14px;margin-bottom:14px;box-shadow:var(--shadow)}
+.all-total-ttl{font-size:11px;font-weight:700;color:var(--green);letter-spacing:.08em;margin-bottom:8px}
+.all-total-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.all-total-cell{text-align:center;background:var(--green-bg);border-radius:8px;padding:8px 4px}
+.all-total-cell .at-p{font-size:14px;color:var(--green);font-weight:700;margin-bottom:2px;font-family:'Inter','Noto Sans JP',sans-serif}
+.all-total-cell .at-v{font-size:20px;color:var(--green);font-weight:700;font-family:'Inter','Noto Sans JP',sans-serif;line-height:1.1}
+.all-total-cell .at-u{font-size:10px;color:#888;margin-left:2px}
+
+/* エラー・再試行UI */
+.err-box{background:#fff;border:1px solid #ffb74d;border-left:4px solid #d32f2f;border-radius:10px;padding:14px 16px;margin:16px 0;text-align:center;color:#b71c1c;font-size:13px;line-height:1.6;box-shadow:var(--shadow)}
+.err-box .retry-btn{margin-top:10px;background:var(--ink);color:#fff;border:none;border-radius:8px;padding:10px 22px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.loading-retry{margin-top:14px;font-size:12px;color:#999}
+.loading-retry button{background:none;border:1px solid #ccc;border-radius:6px;padding:6px 14px;font-family:inherit;font-size:12px;color:#666;cursor:pointer;margin-left:4px}
 
 /* ローディング・トースト */
 #loading{text-align:center;padding:40px 0;color:#888;font-size:13px}
@@ -135,13 +148,24 @@ var todayStr = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0'
 document.getElementById('hDate').textContent = today.getFullYear()+'年'+(today.getMonth()+1)+'月'+today.getDate()+'日（'+DAYS[today.getDay()]+'）';
 
 // ============ jsonp ============
+// 強化: script.onload で「スクリプトはロードされたがコールバック未呼出」
+//       （Drive 404 HTML が返ったケース等）を検知して onErr に倒す。
 var cbIdx=0;
 function jsonp(url,base,onOk,onErr){
   var n=base+'_'+(cbIdx++), s=document.createElement('script');
-  var t=setTimeout(function(){cleanup();if(onErr)onErr();},60000);
+  var called=false;
+  var t=setTimeout(function(){cleanup();if(!called){called=true;if(onErr)onErr();}},30000);
   function cleanup(){clearTimeout(t);delete window[n];if(s.parentNode)s.parentNode.removeChild(s);}
-  window[n]=function(d){cleanup();onOk(d);};
-  s.onerror=function(){cleanup();if(onErr)onErr();};
+  window[n]=function(d){if(called)return;called=true;cleanup();onOk(d);};
+  s.onload=function(){
+    // script は実行完了したが window[n] が呼ばれていなければ失敗扱い
+    if(called) return;
+    setTimeout(function(){
+      if(called) return;
+      called=true; cleanup(); if(onErr)onErr();
+    },200);
+  };
+  s.onerror=function(){if(called)return;called=true;cleanup();if(onErr)onErr();};
   s.src=url+(url.indexOf('?')>-1?'&':'?')+'callback='+n;
   document.body.appendChild(s);
 }
@@ -174,9 +198,9 @@ function updPrice(storeName, price, val){
   if(!state.data[storeName].prices) state.data[storeName].prices={};
   state.data[storeName].prices[price] = val;
   state.dirty = true;
-  // ルート合計と店舗合計を即時更新
-  updateRouteTotal();
+  // 店舗小計と全ルート総合計を即時更新
   updateStoreSubtotal(storeName);
+  updateAllRoutesTotal();
 }
 function updComment(storeName, val){
   if(!state.data[storeName]) state.data[storeName]={};
@@ -217,6 +241,31 @@ function zanTotalForRoute(routeIdx, price){
     if(z){ t += z.zan||0; any=true; }
   });
   return any ? t : null;
+}
+// 全ルートのヤオコー店舗 ID
+function allYaokoIds(){
+  var ids=[];
+  for(var i=0;i<ROUTES.length;i++){
+    routeYaokoIds(i).forEach(function(id){ if(ids.indexOf(id)<0) ids.push(id); });
+  }
+  return ids;
+}
+// 全ヤオコー店舗の指定価格の納品数合計
+function priceTotalAllRoutes(price){
+  var t=0;
+  allYaokoIds().forEach(function(id){
+    var nm = STORE_DEFS[id].name;
+    var v = state.data[nm] && state.data[nm].prices && state.data[nm].prices[price];
+    t += parseInt(v)||0;
+  });
+  return t;
+}
+// 全ルート総合計の各セルを即時更新（入力ごとに呼ぶ）
+function updateAllRoutesTotal(){
+  YAOKO_PRICES.forEach(function(p){
+    var el = document.getElementById('at_'+esc(p));
+    if(el) el.textContent = priceTotalAllRoutes(p);
+  });
 }
 function updateRouteTotal(){
   YAOKO_PRICES.forEach(function(p){
@@ -264,9 +313,38 @@ function fmtLastUpdated(ts){
 }
 
 function renderRoute(){
+  try { _renderRouteUnsafe(); }
+  catch(e){
+    // 描画失敗時はエラー画面 + 再読込ボタンを表示（「読み込み中」で固まらないように）
+    var msg = (e && e.message) ? e.message : String(e);
+    document.getElementById('app').innerHTML =
+      '<div class="err-box">⚠️ 画面表示でエラーが発生しました<br>'
+      +'<span style="font-size:11px;color:#888">'+eH(msg)+'</span><br>'
+      +'<button class="retry-btn" onclick="location.reload()">🔄 再読み込み</button></div>';
+  }
+}
+
+function _renderRouteUnsafe(){
   if(!state.loaded){
-    document.getElementById('app').innerHTML='<div id="loading"><div class="spinner"></div><br>読み込み中...</div>';
+    // shared-stores.js が未ロード（STORE_DEFS なし）の場合は固有エラーにフォールバック
+    if(typeof STORE_DEFS==='undefined' || typeof ROUTES==='undefined'){
+      throw new Error('店舗定義(shared-stores.js)が読み込めません');
+    }
+    document.getElementById('app').innerHTML =
+      '<div id="loading"><div class="spinner"></div><br>読み込み中...'
+      +'<div class="loading-retry" id="loadingRetry" style="display:none">'
+      +'時間がかかっています。<button onclick="forceReload()">再試行</button></div>'
+      +'</div>';
+    // 5秒以上ロードが続いたら再試行ボタンを表示
+    if(window._loadingTimer) clearTimeout(window._loadingTimer);
+    window._loadingTimer = setTimeout(function(){
+      var el = document.getElementById('loadingRetry');
+      if(el && !state.loaded) el.style.display='block';
+    },5000);
     return;
+  }
+  if(typeof STORE_DEFS==='undefined' || typeof ROUTES==='undefined'){
+    throw new Error('店舗定義(shared-stores.js)が読み込めません');
   }
   var ro = state.mode==='view' ? 'readonly' : '';
   var html = '';
@@ -276,6 +354,16 @@ function renderRoute(){
     html += '<div class="last-upd">🕐 <span>最終更新 '+eH(fmtLastUpdated(state.lastUpdated))+'</span></div>';
   } else {
     html += '<div class="last-upd none">⚠️ <span>本日まだ未更新</span></div>';
+  }
+
+  // 編集モード：最上段に「全ルート総合計」（3ルート全ヤオコー店舗の商品別合計）
+  if(state.mode==='edit'){
+    html += '<div class="all-total"><div class="all-total-ttl">📦 全ルート ヤオコー納品数 総合計</div><div class="all-total-grid">';
+    YAOKO_PRICES.forEach(function(p){
+      var v = priceTotalAllRoutes(p);
+      html += '<div class="all-total-cell"><div class="at-p">'+eH(p)+'</div><div class="at-v" id="at_'+esc(p)+'">'+v+'</div><span class="at-u">個</span></div>';
+    });
+    html += '</div></div>';
   }
 
   var ya = routeYaokoIds(state.route);
@@ -374,6 +462,8 @@ function doSave(){
 }
 
 // ============ 初期読み込み ============
+var _haitatsuRetries = 0;
+function forceReload(){ location.reload(); }
 function loadInitial(){
   // 配達商品情報（必須）
   jsonp(API_URL+'?action=getHaitatsu&date='+encodeURIComponent(todayStr),'cb_get',function(res){
@@ -391,6 +481,13 @@ function loadInitial(){
     state.origData = JSON.parse(JSON.stringify(state.data));
     renderRoute();
   },function(){
+    // 1回だけ自動リトライ（コールドスタート遭遇時の救済）
+    if(_haitatsuRetries===0){
+      _haitatsuRetries++;
+      setTimeout(function(){ loadInitial(); }, 2000);
+      return;
+    }
+    // それでも失敗 → localStorage フォールバック（無くても空表示・「読み込み中」で固まらない）
     state.loaded = true;
     try {
       var raw = localStorage.getItem('haitatsu_'+todayStr);
