@@ -72,9 +72,9 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .save-btn{width:100%;padding:14px;background:var(--green);color:#fff;border:none;border-radius:var(--r);font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;letter-spacing:.04em;box-shadow:0 2px 8px rgba(45,122,79,.3)}
 .save-btn:active{opacity:.85}.save-btn:disabled{opacity:.5;cursor:not-allowed}
 
-/* 最終更新表示 */
-.last-upd{font-size:11px;color:#888;text-align:right;letter-spacing:.02em;padding:2px 4px 8px;margin-top:-4px}
-.last-upd.none{color:#bbb;font-style:italic}
+/* 最終更新表示（目立たせる） */
+.last-upd{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--ink);background:#fff;border:1px solid var(--border);border-left:4px solid var(--green);border-radius:10px;padding:10px 14px;margin-bottom:14px;box-shadow:var(--shadow);letter-spacing:.02em}
+.last-upd.none{color:#b71c1c;border-left-color:#d32f2f;background:#ffebee}
 
 /* ヤオコー統合表（閲覧モード） */
 .ya-tbl-wrap{background:#fff;border:1px solid var(--border);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow);margin-bottom:14px}
@@ -271,34 +271,20 @@ function renderRoute(){
   var ro = state.mode==='view' ? 'readonly' : '';
   var html = '';
 
-  // 最終更新表示
+  // 最終更新表示（目立たせる）
   if(state.lastUpdated){
-    html += '<div class="last-upd">🕐 最終更新：'+eH(fmtLastUpdated(state.lastUpdated))+'</div>';
+    html += '<div class="last-upd">🕐 <span>最終更新 '+eH(fmtLastUpdated(state.lastUpdated))+'</span></div>';
   } else {
-    html += '<div class="last-upd none">🕐 本日まだ未更新</div>';
+    html += '<div class="last-upd none">⚠️ <span>本日まだ未更新</span></div>';
   }
-
-  // モードバナー
-  html += '<div class="mode-banner '+(state.mode==='view'?'view':'edit')+'">'+
-          (state.mode==='view'?'👁 閲覧モード（編集するには右上の「✏️ 編集モード」を押してください）'
-                              :'✏️ 編集モード（変更したら下の「💾 保存する」を押してください）')+
-          '</div>';
-
-  // ルート合計（ヤオコー4価格）
-  html += '<div class="route-total"><div class="route-total-ttl">📦 '+ROUTES[state.route].label+' ヤオコー納品数 合計</div><div class="route-total-grid">';
-  YAOKO_PRICES.forEach(function(p){
-    var v = priceTotalForRoute(state.route, p);
-    html += '<div class="route-total-cell"><div class="rt-p">'+eH(p)+'</div><div class="rt-v" id="rt_'+esc(p)+'">'+v+'</div><span class="rt-u">個</span></div>';
-  });
-  html += '</div></div>';
 
   var ya = routeYaokoIds(state.route);
 
   // ヤオコー
   if(ya.length){
     if(state.mode==='view'){
-      // 閲覧モード：統合表
-      html += '<div class="sec-lbl">🏪 ヤオコー（納品数・残在庫）</div>';
+      // 閲覧モード：統合表（納品数のみ・残在庫は編集モードで参照）
+      html += '<div class="sec-lbl">🏪 ヤオコー 納品数</div>';
       html += '<div class="ya-tbl-wrap"><table class="ya-tbl"><thead><tr><th>店舗</th>';
       YAOKO_PRICES.forEach(function(p){ html+='<th>'+eH(p)+'</th>'; });
       html += '</tr></thead><tbody>';
@@ -308,11 +294,7 @@ function renderRoute(){
         YAOKO_PRICES.forEach(function(p){
           var v = (state.data[nm] && state.data[nm].prices && state.data[nm].prices[p]);
           var nv = parseInt(v); if(isNaN(nv)) nv=0;
-          var z = zanFor(nm, p);
-          html += '<td><div class="nh-val'+(nv===0?' zone':'')+'">'+nv+'</div>';
-          if(z) html += '<div class="zan-val">残:'+z.zan+'</div>';
-          else  html += '<div class="zan-val none">残:-</div>';
-          html += '</td>';
+          html += '<td><div class="nh-val'+(nv===0?' zero':'')+'">'+nv+'</div></td>';
         });
         html += '</tr>';
       });
@@ -320,10 +302,7 @@ function renderRoute(){
       html += '<tr class="total-row"><td>合計</td>';
       YAOKO_PRICES.forEach(function(p){
         var v = priceTotalForRoute(state.route, p);
-        var zt = zanTotalForRoute(state.route, p);
-        html += '<td><div class="nh-val">'+v+'</div>';
-        html += zt===null ? '<div class="zan-val none">残:-</div>' : '<div class="zan-val">残:'+zt+'</div>';
-        html += '</td>';
+        html += '<td><div class="nh-val">'+v+'</div></td>';
       });
       html += '</tr></tbody></table></div>';
     } else {
