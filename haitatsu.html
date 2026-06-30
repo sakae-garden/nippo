@@ -72,6 +72,27 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .save-btn{width:100%;padding:14px;background:var(--green);color:#fff;border:none;border-radius:var(--r);font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;letter-spacing:.04em;box-shadow:0 2px 8px rgba(45,122,79,.3)}
 .save-btn:active{opacity:.85}.save-btn:disabled{opacity:.5;cursor:not-allowed}
 
+/* 最終更新表示 */
+.last-upd{font-size:11px;color:#888;text-align:right;letter-spacing:.02em;padding:2px 4px 8px;margin-top:-4px}
+.last-upd.none{color:#bbb;font-style:italic}
+
+/* ヤオコー統合表（閲覧モード） */
+.ya-tbl-wrap{background:#fff;border:1px solid var(--border);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow);margin-bottom:14px}
+.ya-tbl{width:100%;border-collapse:collapse;font-size:13px}
+.ya-tbl th{background:#f5f3ee;color:#666;font-weight:700;font-size:11px;padding:8px 4px;text-align:center;border-bottom:2px solid var(--border);letter-spacing:.04em}
+.ya-tbl th:first-child{text-align:left;padding-left:12px}
+.ya-tbl td{padding:8px 4px;text-align:center;border-bottom:1px dotted #ede5d3;vertical-align:middle}
+.ya-tbl td:first-child{text-align:left;padding-left:12px;color:#333;font-size:12px;font-weight:600;white-space:nowrap}
+.ya-tbl tr.total-row{background:var(--green-bg);border-top:2px solid #66bb6a}
+.ya-tbl tr.total-row td:first-child{color:var(--green);font-weight:700}
+.ya-tbl tr:last-child td{border-bottom:none}
+.nh-val{font-size:16px;font-weight:700;color:var(--green);font-family:'Inter','Noto Sans JP',sans-serif;line-height:1.1}
+.nh-val.zero{color:#bbb}
+.zan-val{font-size:10px;color:var(--orange);margin-top:2px;line-height:1;letter-spacing:.02em}
+.zan-val.none{color:#ccc}
+.zan-mini{font-size:10px;color:var(--orange);font-weight:600;background:#fff3e0;border-radius:4px;padding:2px 6px;display:inline-block;margin-left:6px}
+.zan-mini.none{background:#f2f2f2;color:#aaa}
+
 /* ローディング・トースト */
 #loading{text-align:center;padding:40px 0;color:#888;font-size:13px}
 .spinner{display:inline-block;width:26px;height:26px;border:3px solid #e0d9cc;border-top-color:var(--ink);border-radius:50%;animation:spin .8s linear infinite;margin-bottom:8px}
@@ -106,7 +127,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 var API_URL = 'https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkVvYc7V77OJrh7h_PZCqtuV4aUL7NYz83VsNc5lY6sXONw/exec';
 var YAOKO_PRICES = ['¥99','¥198','¥398','¥598'];
 
-var state = { mode:'view', route:0, data:{}, dirty:false, loaded:false };
+var state = { mode:'view', route:0, data:{}, zaiko:{}, lastUpdated:'', dirty:false, loaded:false };
 
 var today = new Date();
 var DAYS = ['日','月','火','水','木','金','土'];
@@ -181,6 +202,22 @@ function storeSubtotal(storeName){
   YAOKO_PRICES.forEach(function(p){ t += parseInt(entry.prices[p])||0; });
   return t;
 }
+// 残在庫（店舗×価格）：state.zaiko[storeName][price].zan
+function zanFor(storeName, price){
+  var s = state.zaiko && state.zaiko[storeName];
+  if(!s || !s[price]) return null;
+  return s[price];  // { zan, tenpo, sales, hasSales }
+}
+function zanTotalForRoute(routeIdx, price){
+  var ids = routeYaokoIds(routeIdx);
+  var t=0, any=false;
+  ids.forEach(function(id){
+    var nm = STORE_DEFS[id].name;
+    var z = zanFor(nm, price);
+    if(z){ t += z.zan||0; any=true; }
+  });
+  return any ? t : null;
+}
 function updateRouteTotal(){
   YAOKO_PRICES.forEach(function(p){
     var el = document.getElementById('rt_'+esc(p));
@@ -218,16 +255,34 @@ function toggleMode(){
   renderRoute();
 }
 
+function fmtLastUpdated(ts){
+  // ts 形式: 'yyyy-MM-dd HH:mm:ss'
+  if(!ts) return '';
+  var m = ts.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/);
+  if(!m) return ts;
+  return parseInt(m[2])+'月'+parseInt(m[3])+'日 '+m[4]+':'+m[5];
+}
+
 function renderRoute(){
   if(!state.loaded){
     document.getElementById('app').innerHTML='<div id="loading"><div class="spinner"></div><br>読み込み中...</div>';
     return;
   }
   var ro = state.mode==='view' ? 'readonly' : '';
-  var html = '<div class="mode-banner '+(state.mode==='view'?'view':'edit')+'">'+
-             (state.mode==='view'?'👁 閲覧モード（編集するには右上の「✏️ 編集モード」を押してください）'
-                                 :'✏️ 編集モード（変更したら下の「💾 保存する」を押してください）')+
-             '</div>';
+  var html = '';
+
+  // 最終更新表示
+  if(state.lastUpdated){
+    html += '<div class="last-upd">🕐 最終更新：'+eH(fmtLastUpdated(state.lastUpdated))+'</div>';
+  } else {
+    html += '<div class="last-upd none">🕐 本日まだ未更新</div>';
+  }
+
+  // モードバナー
+  html += '<div class="mode-banner '+(state.mode==='view'?'view':'edit')+'">'+
+          (state.mode==='view'?'👁 閲覧モード（編集するには右上の「✏️ 編集モード」を押してください）'
+                              :'✏️ 編集モード（変更したら下の「💾 保存する」を押してください）')+
+          '</div>';
 
   // ルート合計（ヤオコー4価格）
   html += '<div class="route-total"><div class="route-total-ttl">📦 '+ROUTES[state.route].label+' ヤオコー納品数 合計</div><div class="route-total-grid">';
@@ -237,20 +292,56 @@ function renderRoute(){
   });
   html += '</div></div>';
 
-  // ヤオコー
   var ya = routeYaokoIds(state.route);
+
+  // ヤオコー
   if(ya.length){
-    html += '<div class="sec-lbl">🏪 ヤオコー</div>';
-    ya.forEach(function(id){
-      var d = STORE_DEFS[id], nm=d.name;
-      var sub = storeSubtotal(nm);
-      html += '<div class="ya-card"><div class="ya-hdr"><span class="ya-icon">'+d.icon+'</span><span class="ya-name">'+eH(nm)+'</span><span class="ya-stotal" id="st_'+esc(nm)+'">合計 '+sub+'個</span></div><div class="ya-body">';
-      YAOKO_PRICES.forEach(function(p){
-        var v = (state.data[nm] && state.data[nm].prices && state.data[nm].prices[p]) || '';
-        html += '<div class="ya-cell"><div class="ya-cell-p">'+eH(p)+'</div><input type="number" min="0" inputmode="numeric" placeholder="0" value="'+eA(v)+'" '+ro+' oninput="updPrice(\''+eA(nm)+'\',\''+eA(p)+'\',this.value)"></div>';
+    if(state.mode==='view'){
+      // 閲覧モード：統合表
+      html += '<div class="sec-lbl">🏪 ヤオコー（納品数・残在庫）</div>';
+      html += '<div class="ya-tbl-wrap"><table class="ya-tbl"><thead><tr><th>店舗</th>';
+      YAOKO_PRICES.forEach(function(p){ html+='<th>'+eH(p)+'</th>'; });
+      html += '</tr></thead><tbody>';
+      ya.forEach(function(id){
+        var d = STORE_DEFS[id], nm=d.name;
+        html += '<tr><td>'+eH(nm.replace('ヤオコー','').replace('店',''))+'</td>';
+        YAOKO_PRICES.forEach(function(p){
+          var v = (state.data[nm] && state.data[nm].prices && state.data[nm].prices[p]);
+          var nv = parseInt(v); if(isNaN(nv)) nv=0;
+          var z = zanFor(nm, p);
+          html += '<td><div class="nh-val'+(nv===0?' zone':'')+'">'+nv+'</div>';
+          if(z) html += '<div class="zan-val">残:'+z.zan+'</div>';
+          else  html += '<div class="zan-val none">残:-</div>';
+          html += '</td>';
+        });
+        html += '</tr>';
       });
-      html += '</div></div>';
-    });
+      // 合計行
+      html += '<tr class="total-row"><td>合計</td>';
+      YAOKO_PRICES.forEach(function(p){
+        var v = priceTotalForRoute(state.route, p);
+        var zt = zanTotalForRoute(state.route, p);
+        html += '<td><div class="nh-val">'+v+'</div>';
+        html += zt===null ? '<div class="zan-val none">残:-</div>' : '<div class="zan-val">残:'+zt+'</div>';
+        html += '</td>';
+      });
+      html += '</tr></tbody></table></div>';
+    } else {
+      // 編集モード：店舗ごとカード入力（既存）
+      html += '<div class="sec-lbl">🏪 ヤオコー</div>';
+      ya.forEach(function(id){
+        var d = STORE_DEFS[id], nm=d.name;
+        var sub = storeSubtotal(nm);
+        html += '<div class="ya-card"><div class="ya-hdr"><span class="ya-icon">'+d.icon+'</span><span class="ya-name">'+eH(nm)+'</span><span class="ya-stotal" id="st_'+esc(nm)+'">合計 '+sub+'個</span></div><div class="ya-body">';
+        YAOKO_PRICES.forEach(function(p){
+          var v = (state.data[nm] && state.data[nm].prices && state.data[nm].prices[p]) || '';
+          var z = zanFor(nm, p);
+          var zanLbl = z ? ('残:'+z.zan) : '残:-';
+          html += '<div class="ya-cell"><div class="ya-cell-p">'+eH(p)+'<span class="zan-mini'+(z?'':' none')+'">'+zanLbl+'</span></div><input type="number" min="0" inputmode="numeric" placeholder="0" value="'+eA(v)+'" '+ro+' oninput="updPrice(\''+eA(nm)+'\',\''+eA(p)+'\',this.value)"></div>';
+        });
+        html += '</div></div>';
+      });
+    }
   }
 
   // その他（コメント）
@@ -289,6 +380,10 @@ function doSave(){
       state.dirty = false;
       state.origData = JSON.parse(JSON.stringify(payload));
       try { localStorage.setItem('haitatsu_'+todayStr, JSON.stringify(payload)); } catch(e){}
+      // 保存直後の現在時刻を最終更新としてセット（次回 getHaitatsu で正確な値に置換される）
+      var nd=new Date();
+      state.lastUpdated = nd.getFullYear()+'-'+String(nd.getMonth()+1).padStart(2,'0')+'-'+String(nd.getDate()).padStart(2,'0')+' '+String(nd.getHours()).padStart(2,'0')+':'+String(nd.getMinutes()).padStart(2,'0')+':'+String(nd.getSeconds()).padStart(2,'0');
+      renderRoute();
       showToast('✅ 保存しました（'+res.saved+'件）');
     } else {
       alert('保存に失敗しました\n'+((res&&res.error)||''));
@@ -301,13 +396,14 @@ function doSave(){
 
 // ============ 初期読み込み ============
 function loadInitial(){
+  // 配達商品情報（必須）
   jsonp(API_URL+'?action=getHaitatsu&date='+encodeURIComponent(todayStr),'cb_get',function(res){
     state.loaded = true;
-    if(res && res.success && res.items){
-      state.data = res.items;
-      try { localStorage.setItem('haitatsu_'+todayStr, JSON.stringify(res.items)); } catch(e){}
+    if(res && res.success){
+      state.data = res.items || {};
+      state.lastUpdated = res.lastUpdated || '';
+      try { localStorage.setItem('haitatsu_'+todayStr, JSON.stringify(state.data)); } catch(e){}
     } else {
-      // サーバ未登録だが localStorage にあれば使う
       try {
         var raw = localStorage.getItem('haitatsu_'+todayStr);
         if(raw) state.data = JSON.parse(raw)||{};
@@ -316,7 +412,6 @@ function loadInitial(){
     state.origData = JSON.parse(JSON.stringify(state.data));
     renderRoute();
   },function(){
-    // 通信失敗時は localStorage を試す
     state.loaded = true;
     try {
       var raw = localStorage.getItem('haitatsu_'+todayStr);
@@ -326,6 +421,15 @@ function loadInitial(){
     renderRoute();
     showToast('⚠️ サーバから読込失敗。ローカル保存分を表示中');
   });
+
+  // 残在庫（並列・任意・失敗しても無視）
+  jsonp(API_URL+'?action=getYaokoZaiko&date='+encodeURIComponent(todayStr),'cb_zaiko',function(res){
+    if(res && res.success && res.items){
+      state.zaiko = res.items;
+      // haitatsu が既に描画済みなら再描画して残在庫を反映
+      if(state.loaded) renderRoute();
+    }
+  },function(){});
 }
 
 loadInitial();
