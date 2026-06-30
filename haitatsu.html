@@ -50,10 +50,12 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .ya-name{font-size:14px;font-weight:700;color:var(--ink);flex:1}
 .ya-stotal{font-size:11px;color:var(--sub);background:#eee;border-radius:10px;padding:3px 8px;font-weight:600}
 .ya-body{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-top:1px solid #f0ebe0}
-.ya-cell{padding:10px 6px;border-right:1px dotted #ede5d3;text-align:center}
+.ya-cell{padding:10px 6px;border-right:1px dotted #ede5d3;text-align:center;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0}
 .ya-cell:last-child{border-right:none}
-.ya-cell-p{font-size:15px;color:var(--ink);font-weight:700;margin-bottom:6px;font-family:'Inter','Noto Sans JP',sans-serif;letter-spacing:.02em}
-.ya-cell input{width:100%;font-family:'Inter','Noto Sans JP',sans-serif;font-size:17px;font-weight:700;text-align:center;border:1.5px solid var(--border);border-radius:8px;padding:6px 4px;background:#fff;color:var(--green)}
+.ya-cell-p{font-size:15px;color:var(--ink);font-weight:700;font-family:'Inter','Noto Sans JP',sans-serif;letter-spacing:.02em;line-height:1.1;white-space:nowrap}
+.ya-cell-zan{font-size:11px;color:var(--orange);font-weight:600;background:#fff3e0;border-radius:4px;padding:2px 8px;line-height:1.2;white-space:nowrap}
+.ya-cell-zan.none{background:#f2f2f2;color:#bbb}
+.ya-cell input{width:100%;font-family:'Inter','Noto Sans JP',sans-serif;font-size:17px;font-weight:700;text-align:center;border:1.5px solid var(--border);border-radius:8px;padding:6px 4px;background:#fff;color:var(--green);margin-top:2px}
 .ya-cell input:focus{outline:none;border-color:var(--green)}
 .ya-cell input:read-only{background:#f7f4ec;border-color:transparent;color:var(--ink)}
 
@@ -404,7 +406,11 @@ function _renderRouteUnsafe(){
           var v = (state.data[nm] && state.data[nm].prices && state.data[nm].prices[p]) || '';
           var z = zanFor(nm, p);
           var zanLbl = z ? ('残:'+z.zan) : '残:-';
-          html += '<div class="ya-cell"><div class="ya-cell-p">'+eH(p)+'<span class="zan-mini'+(z?'':' none')+'">'+zanLbl+'</span></div><input type="number" min="0" inputmode="numeric" placeholder="0" value="'+eA(v)+'" '+ro+' oninput="updPrice(\''+eA(nm)+'\',\''+eA(p)+'\',this.value)"></div>';
+          html += '<div class="ya-cell">'
+                + '<div class="ya-cell-p">'+eH(p)+'</div>'
+                + '<div class="ya-cell-zan'+(z?'':' none')+'">'+zanLbl+'</div>'
+                + '<input type="number" min="0" inputmode="numeric" placeholder="0" value="'+eA(v)+'" '+ro+' oninput="updPrice(\''+eA(nm)+'\',\''+eA(p)+'\',this.value)">'
+                + '</div>';
         });
         html += '</div></div>';
       });
