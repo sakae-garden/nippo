@@ -98,6 +98,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .dc-table td{padding:7px 6px;border-bottom:1px dotted #e0d9cc;text-align:center;vertical-align:middle}
 .dc-table td:first-child{text-align:left;padding-left:12px;color:#555;font-size:12px;white-space:nowrap}
 .dc-table tr:last-child td{border-bottom:none}
+.dc-nouhin{font-size:15px;font-weight:700;color:var(--green)}
 .dc-chin{font-size:15px;font-weight:700;color:var(--yellow)}
 .dc-sosei{font-size:15px;font-weight:700;color:var(--purple)}
 .dc-tenpo{font-size:15px;font-weight:700;color:var(--blue)}
@@ -507,42 +508,52 @@ function renderDoneConfirm(s) {
   var p=s.prices||[];
   var h='<div class="done-confirm-wrap"><div class="done-confirm-title">📋 入力内容の確認</div>';
   h+='<table class="dc-table"><thead><tr><th>価格</th>';
-  h+=isY?'<th>陳列数</th><th>蘇生庫</th><th>店頭在庫</th>':'<th>納品数</th><th>店頭在庫</th>';
+  h+=isY?'<th>納品数</th><th>陳列数</th><th>蘇生庫</th><th>店頭在庫</th>':'<th>納品数</th><th>店頭在庫</th>';
   h+='</tr></thead><tbody>';
-  var tc=0,ts=0,tt=0;
+  var tn=0,tc=0,ts=0,tt=0;
   p.forEach(function(pp){
-    var c,sv,tenpo;
+    var n,c,sv,tenpo;
     if(isY){
+      n=parseInt(state.formData['納品_'+pp])||0;
       c=cY(pp);
       sv=parseInt(state.formData['蘇生庫_'+pp])||0;
       tenpo=c+sv;
     }else{
-      c=parseInt(state.formData['納品_'+pp])||0;
+      n=parseInt(state.formData['納品_'+pp])||0;
+      c=n;
       sv=0;
       tenpo=c+(parseInt(state.formData['前日在庫_'+pp])||0);
     }
-    tc+=c;ts+=sv;tt+=tenpo;
+    tn+=n;tc+=c;ts+=sv;tt+=tenpo;
     h+='<tr><td>'+eH(pp)+'</td>';
-    h+='<td><span class="dc-chin">'+c+'</span></td>';
-    if(isY) h+='<td><span class="dc-sosei">'+sv+'</span></td>';
+    h+='<td><span class="dc-nouhin">'+n+'</span></td>';
+    if(isY){
+      h+='<td><span class="dc-chin">'+c+'</span></td>';
+      h+='<td><span class="dc-sosei">'+sv+'</span></td>';
+    }
     h+='<td><span class="dc-tenpo">'+tenpo+'</span></td></tr>';
   });
   if(s.type==='yaoko'){
     (state.extraPrices||[]).forEach(function(pp){
       var k='臨#'+pp;
+      var n=parseInt(state.formData['納品_'+k])||0;
       var c=cY(k);
       var sv=parseInt(state.formData['蘇生庫_'+k])||0;
       var tenpo=c+sv;
-      tc+=c;ts+=sv;tt+=tenpo;
+      tn+=n;tc+=c;ts+=sv;tt+=tenpo;
       h+='<tr class="dc-extra"><td>➕'+eH(pp)+'</td>';
+      h+='<td><span class="dc-nouhin">'+n+'</span></td>';
       h+='<td><span class="dc-chin">'+c+'</span></td>';
       h+='<td><span class="dc-sosei">'+sv+'</span></td>';
       h+='<td><span class="dc-tenpo">'+tenpo+'</span></td></tr>';
     });
   }
   h+='<tr class="dc-total"><td>合計</td>';
-  h+='<td><span class="dc-chin">'+tc+'</span></td>';
-  if(isY) h+='<td><span class="dc-sosei">'+ts+'</span></td>';
+  h+='<td><span class="dc-nouhin">'+tn+'</span></td>';
+  if(isY){
+    h+='<td><span class="dc-chin">'+tc+'</span></td>';
+    h+='<td><span class="dc-sosei">'+ts+'</span></td>';
+  }
   h+='<td><span class="dc-tenpo">'+tt+'</span></td></tr>';
   h+='</tbody></table></div>';
   return h;
