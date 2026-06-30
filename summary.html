@@ -183,7 +183,13 @@ function handleAllDataSuccess(data){
     o.value=d;o.textContent=p[0]+'年'+parseInt(p[1])+'月'+parseInt(p[2])+'日（'+days[new Date(d+'T00:00:00').getDay()]+'）';
     sel.appendChild(o);
   });
-  if(!data.availableDates||!data.availableDates.length) sel.innerHTML='<option value="">データがありません</option>';
+  if(!data.availableDates||!data.availableDates.length){
+    sel.innerHTML='<option value="">データがありません</option>';
+    return;
+  }
+  // 最新日（availableDates[0]、降順なので先頭が最新）を自動選択して即表示
+  sel.value=data.availableDates[0];
+  showReport(data.availableDates[0]);
 }
 
 function fmtTodayLocal(){
