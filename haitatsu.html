@@ -527,13 +527,27 @@ function loadInitial(){
   });
 
   // 残在庫（並列・任意・失敗しても無視）
-  jsonp(API_URL+'?action=getYaokoZaiko&date='+encodeURIComponent(todayStr),'cb_zaiko',function(res){
-    if(res && res.success && res.items){
-      state.zaiko = res.items;
-      // haitatsu が既に描画済みなら再描画して残在庫を反映
-      if(state.loaded) renderRoute();
-    }
-  },function(){});
+  _fetchZaiko(0);
+}
+
+// 残在庫を取得。サーバから _pending（キャッシュ温め中）なら数秒後に
+// 1 回だけ再取得（残在庫は補助情報なのでメイン表示はブロックしない）。
+function _fetchZaiko(attempt){
+  jsonp(API_URL+'?action=getYaokoZaiko&date='+encodeURIComponent(todayStr),
+    attempt>0 ? 'cb_zaiko_retry' : 'cb_zaiko',
+    function(res){
+      if(res && res.success && res.items && !res._pending){
+        state.zaiko = res.items;
+        if(state.loaded) renderRoute();
+        return;
+      }
+      // _pending: サーバが getAllData フル計算中。1 回だけ 4 秒後に再取得。
+      if(attempt===0 && res && res._pending){
+        setTimeout(function(){ _fetchZaiko(1); }, 4000);
+      }
+    },
+    function(){}
+  );
 }
 
 loadInitial();
