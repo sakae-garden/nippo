@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>配達商品情報 | 栄ガーデン</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap');
+:root{
+  --ink:#1c1c1e; --paper:#fdfbf7; --bg:#f5f1e8; --card:#fff; --border:#e8e2d5;
+  --sub:#777; --green:#2d7a4f; --green-bg:#edf7f1; --yellow:#f9a825; --yellow-bg:#fffde7;
+  --blue:#1976d2; --blue-bg:#e3f2fd; --orange:#e65100;
+  --r:14px; --shadow:0 1px 3px rgba(0,0,0,.06);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh;color:var(--ink);padding-bottom:60px}
+.hdr{background:var(--ink);color:#fff;padding:14px 16px 0;box-shadow:0 2px 6px rgba(0,0,0,.1)}
+.hdr-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.hdr-top h1{font-size:17px;letter-spacing:.06em;font-weight:700}
+.mode-btn{background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:18px;padding:6px 14px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer}
+.mode-btn.edit{background:#fff;color:var(--ink);border-color:#fff}
+.hdr-date{font-size:12px;color:rgba(255,255,255,.7);margin-bottom:10px;letter-spacing:.02em}
+.route-tabs{display:flex;gap:6px;padding-bottom:12px}
+.rtab{flex:1;padding:8px 4px;background:rgba(255,255,255,.1);color:rgba(255,255,255,.6);border:none;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;border-radius:8px;transition:all .15s}
+.rtab.active{background:#fff;color:var(--ink)}
+#app{padding:16px}
+.mode-banner{font-size:12px;text-align:center;padding:8px 12px;border-radius:8px;margin-bottom:12px;font-weight:600;letter-spacing:.04em}
+.mode-banner.view{background:#f0f4f8;color:#37474f;border:1px dashed #b0bec5}
+.mode-banner.edit{background:#fff8e1;color:#e65100;border:1px solid #ffb74d}
+
+/* ルート合計 */
+.route-total{background:#fff;border:1px solid var(--border);border-radius:var(--r);padding:12px 14px;margin-bottom:14px;box-shadow:var(--shadow)}
+.route-total-ttl{font-size:11px;color:var(--sub);letter-spacing:.08em;margin-bottom:8px;font-weight:700}
+.route-total-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.route-total-cell{text-align:center;background:var(--green-bg);border-radius:8px;padding:8px 4px}
+.route-total-cell .rt-p{font-size:11px;color:var(--green);font-weight:600;margin-bottom:2px}
+.route-total-cell .rt-v{font-size:18px;color:var(--green);font-weight:700;font-family:'Inter','Noto Sans JP',sans-serif}
+.route-total-cell .rt-u{font-size:10px;color:#999;margin-left:2px}
+
+/* グループラベル */
+.sec-lbl{font-size:11px;color:var(--sub);letter-spacing:.12em;font-weight:700;margin:18px 0 8px;padding-left:4px}
+.sec-lbl:first-child{margin-top:0}
+
+/* ヤオコー店舗カード */
+.ya-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);margin-bottom:10px;overflow:hidden;box-shadow:var(--shadow)}
+.ya-hdr{display:flex;align-items:center;gap:8px;padding:10px 14px;background:#fafaf6;border-bottom:1px solid var(--border)}
+.ya-icon{font-size:18px}
+.ya-name{font-size:14px;font-weight:700;color:var(--ink);flex:1}
+.ya-stotal{font-size:11px;color:var(--sub);background:#eee;border-radius:10px;padding:3px 8px;font-weight:600}
+.ya-body{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-top:1px solid #f0ebe0}
+.ya-cell{padding:10px 6px;border-right:1px dotted #ede5d3;text-align:center}
+.ya-cell:last-child{border-right:none}
+.ya-cell-p{font-size:11px;color:var(--sub);font-weight:600;margin-bottom:4px}
+.ya-cell input{width:100%;font-family:'Inter','Noto Sans JP',sans-serif;font-size:17px;font-weight:700;text-align:center;border:1.5px solid var(--border);border-radius:8px;padding:6px 4px;background:#fff;color:var(--green)}
+.ya-cell input:focus{outline:none;border-color:var(--green)}
+.ya-cell input:read-only{background:#f7f4ec;border-color:transparent;color:var(--ink)}
+
+/* その他（コメント） */
+.cm-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);margin-bottom:10px;overflow:hidden;box-shadow:var(--shadow)}
+.cm-hdr{display:flex;align-items:center;gap:8px;padding:10px 14px;background:#fafaf6;border-bottom:1px solid var(--border)}
+.cm-icon{font-size:18px}.cm-name{font-size:14px;font-weight:700;color:var(--ink);flex:1}
+.cm-body{padding:10px 14px}
+.cm-body textarea{width:100%;min-height:60px;font-family:inherit;font-size:13px;border:1.5px solid var(--border);border-radius:8px;padding:8px 10px;background:#fff;color:var(--ink);resize:vertical;line-height:1.6}
+.cm-body textarea:focus{outline:none;border-color:var(--blue)}
+.cm-body textarea:read-only{background:#f7f4ec;border-color:transparent}
+.cm-empty{font-size:12px;color:#aaa;font-style:italic;padding:6px 0}
+
+/* 保存ボタン */
+.save-bar{position:sticky;bottom:0;background:linear-gradient(to top,rgba(245,241,232,1) 60%,rgba(245,241,232,0));padding:14px 0 4px;margin-top:8px}
+.save-btn{width:100%;padding:14px;background:var(--green);color:#fff;border:none;border-radius:var(--r);font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;letter-spacing:.04em;box-shadow:0 2px 8px rgba(45,122,79,.3)}
+.save-btn:active{opacity:.85}.save-btn:disabled{opacity:.5;cursor:not-allowed}
+
+/* ローディング・トースト */
+#loading{text-align:center;padding:40px 0;color:#888;font-size:13px}
+.spinner{display:inline-block;width:26px;height:26px;border:3px solid #e0d9cc;border-top-color:var(--ink);border-radius:50%;animation:spin .8s linear infinite;margin-bottom:8px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.toast{position:fixed;bottom:70px;left:0;right:0;display:flex;justify-content:center;padding:0 20px;pointer-events:none;z-index:200}
+.toast-inner{background:#1c1c1e;color:#fff;padding:11px 22px;border-radius:10px;font-size:13px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.2);transform:translateY(80px);opacity:0;transition:transform .3s,opacity .3s}
+.toast-inner.show{transform:translateY(0);opacity:1}
+.loading-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:300}
+.loading-box{background:#fff;border-radius:14px;padding:22px 30px;text-align:center;font-size:14px;font-weight:600}
+.footer{position:fixed;bottom:0;left:0;width:100%;height:52px;background:#1c1c1e;display:flex;align-items:center;justify-content:center;z-index:100}
+.footer a{color:#fff;text-decoration:none;font-size:14px;font-weight:500}
+</style>
+</head>
+<body>
+<div class="hdr">
+  <div class="hdr-top">
+    <h1>📦 配達商品情報</h1>
+    <button class="mode-btn" id="modeBtn" onclick="toggleMode()">✏️ 編集モード</button>
+  </div>
+  <div class="hdr-date" id="hDate"></div>
+  <div class="route-tabs">
+    <button class="rtab active" id="tab0" onclick="switchRoute(0)">籠原ルート</button>
+    <button class="rtab" id="tab1" onclick="switchRoute(1)">皆野ルート</button>
+    <button class="rtab" id="tab2" onclick="switchRoute(2)">坂戸ルート</button>
+  </div>
+</div>
+<div id="app"><div id="loading"><div class="spinner"></div><br>読み込み中...</div></div>
+<div class="toast"><div class="toast-inner" id="toast"></div></div>
+<footer class="footer"><a href="https://sakae-garden.github.io/">🏠 ホームに戻る</a></footer>
+<script src="shared-stores.js"></script>
+<script>
+var API_URL = 'https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkVvYc7V77OJrh7h_PZCqtuV4aUL7NYz83VsNc5lY6sXONw/exec';
+var YAOKO_PRICES = ['¥99','¥198','¥398','¥598'];
+
+var state = { mode:'view', route:0, data:{}, dirty:false, loaded:false };
+
+var today = new Date();
+var DAYS = ['日','月','火','水','木','金','土'];
+var todayStr = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
+document.getElementById('hDate').textContent = today.getFullYear()+'年'+(today.getMonth()+1)+'月'+today.getDate()+'日（'+DAYS[today.getDay()]+'）';
+
+// ============ jsonp ============
+var cbIdx=0;
+function jsonp(url,base,onOk,onErr){
+  var n=base+'_'+(cbIdx++), s=document.createElement('script');
+  var t=setTimeout(function(){cleanup();if(onErr)onErr();},60000);
+  function cleanup(){clearTimeout(t);delete window[n];if(s.parentNode)s.parentNode.removeChild(s);}
+  window[n]=function(d){cleanup();onOk(d);};
+  s.onerror=function(){cleanup();if(onErr)onErr();};
+  s.src=url+(url.indexOf('?')>-1?'&':'?')+'callback='+n;
+  document.body.appendChild(s);
+}
+
+// ============ utility ============
+function eH(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function eA(s){return String(s||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+function esc(s){return String(s).replace(/[^a-zA-Z0-9]/g,'_');}
+function showToast(msg){var t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(window._tt);window._tt=setTimeout(function(){t.classList.remove('show');},2500);}
+function showLoading(msg){var el=document.getElementById('lo');if(!el){el=document.createElement('div');el.id='lo';el.className='loading-overlay';el.innerHTML='<div class="loading-box"><div class="spinner"></div><br>'+eH(msg||'保存中...')+'</div>';document.body.appendChild(el);}}
+function hideLoading(){var el=document.getElementById('lo');if(el)el.parentNode.removeChild(el);}
+
+// ============ route ヘルパー ============
+function routeStores(routeIdx){
+  // ROUTES[routeIdx].groups の stores を flat に
+  var ids=[];
+  ROUTES[routeIdx].groups.forEach(function(g){ g.stores.forEach(function(id){ids.push(id);}); });
+  return ids;
+}
+function routeYaokoIds(routeIdx){
+  return routeStores(routeIdx).filter(function(id){ var d=STORE_DEFS[id]; return d && d.type==='yaoko'; });
+}
+function routeOtherIds(routeIdx){
+  return routeStores(routeIdx).filter(function(id){ var d=STORE_DEFS[id]; return d && d.type!=='yaoko'; });
+}
+
+// ============ 入力ハンドラ ============
+function updPrice(storeName, price, val){
+  if(!state.data[storeName]) state.data[storeName]={prices:{}};
+  if(!state.data[storeName].prices) state.data[storeName].prices={};
+  state.data[storeName].prices[price] = val;
+  state.dirty = true;
+  // ルート合計と店舗合計を即時更新
+  updateRouteTotal();
+  updateStoreSubtotal(storeName);
+}
+function updComment(storeName, val){
+  if(!state.data[storeName]) state.data[storeName]={};
+  state.data[storeName].comment = val;
+  state.dirty = true;
+}
+
+// ============ 計算 ============
+function priceTotalForRoute(routeIdx, price){
+  var ids = routeYaokoIds(routeIdx);
+  var t=0;
+  ids.forEach(function(id){
+    var nm = STORE_DEFS[id].name;
+    var v = state.data[nm] && state.data[nm].prices && state.data[nm].prices[price];
+    t += parseInt(v)||0;
+  });
+  return t;
+}
+function storeSubtotal(storeName){
+  var entry = state.data[storeName];
+  if(!entry || !entry.prices) return 0;
+  var t=0;
+  YAOKO_PRICES.forEach(function(p){ t += parseInt(entry.prices[p])||0; });
+  return t;
+}
+function updateRouteTotal(){
+  YAOKO_PRICES.forEach(function(p){
+    var el = document.getElementById('rt_'+esc(p));
+    if(el) el.textContent = priceTotalForRoute(state.route, p);
+  });
+}
+function updateStoreSubtotal(storeName){
+  var el = document.getElementById('st_'+esc(storeName));
+  if(el) el.textContent = '合計 '+storeSubtotal(storeName)+'個';
+}
+
+// ============ 描画 ============
+function switchRoute(i){
+  if(state.dirty && state.mode==='edit'){
+    if(!confirm('編集中の変更があります。タブを切り替えると保存ボタンを押すまで保持されますが、続けますか？')){
+      return;
+    }
+  }
+  state.route=i;
+  for(var j=0;j<3;j++) document.getElementById('tab'+j).classList.toggle('active',j===i);
+  renderRoute();
+}
+function toggleMode(){
+  if(state.mode==='edit' && state.dirty){
+    if(!confirm('未保存の変更があります。閲覧モードに戻すと変更は破棄されます（保存しても戻せます）。続けますか？')){
+      return;
+    }
+    state.data = JSON.parse(JSON.stringify(state.origData||{}));
+    state.dirty = false;
+  }
+  state.mode = (state.mode==='view'?'edit':'view');
+  var b=document.getElementById('modeBtn');
+  if(state.mode==='edit'){ b.textContent='👁 閲覧モードへ'; b.classList.add('edit'); }
+  else                  { b.textContent='✏️ 編集モード';   b.classList.remove('edit'); }
+  renderRoute();
+}
+
+function renderRoute(){
+  if(!state.loaded){
+    document.getElementById('app').innerHTML='<div id="loading"><div class="spinner"></div><br>読み込み中...</div>';
+    return;
+  }
+  var ro = state.mode==='view' ? 'readonly' : '';
+  var html = '<div class="mode-banner '+(state.mode==='view'?'view':'edit')+'">'+
+             (state.mode==='view'?'👁 閲覧モード（編集するには右上の「✏️ 編集モード」を押してください）'
+                                 :'✏️ 編集モード（変更したら下の「💾 保存する」を押してください）')+
+             '</div>';
+
+  // ルート合計（ヤオコー4価格）
+  html += '<div class="route-total"><div class="route-total-ttl">📦 '+ROUTES[state.route].label+' ヤオコー納品数 合計</div><div class="route-total-grid">';
+  YAOKO_PRICES.forEach(function(p){
+    var v = priceTotalForRoute(state.route, p);
+    html += '<div class="route-total-cell"><div class="rt-p">'+eH(p)+'</div><div class="rt-v" id="rt_'+esc(p)+'">'+v+'</div><span class="rt-u">個</span></div>';
+  });
+  html += '</div></div>';
+
+  // ヤオコー
+  var ya = routeYaokoIds(state.route);
+  if(ya.length){
+    html += '<div class="sec-lbl">🏪 ヤオコー</div>';
+    ya.forEach(function(id){
+      var d = STORE_DEFS[id], nm=d.name;
+      var sub = storeSubtotal(nm);
+      html += '<div class="ya-card"><div class="ya-hdr"><span class="ya-icon">'+d.icon+'</span><span class="ya-name">'+eH(nm)+'</span><span class="ya-stotal" id="st_'+esc(nm)+'">合計 '+sub+'個</span></div><div class="ya-body">';
+      YAOKO_PRICES.forEach(function(p){
+        var v = (state.data[nm] && state.data[nm].prices && state.data[nm].prices[p]) || '';
+        html += '<div class="ya-cell"><div class="ya-cell-p">'+eH(p)+'</div><input type="number" min="0" inputmode="numeric" placeholder="0" value="'+eA(v)+'" '+ro+' oninput="updPrice(\''+eA(nm)+'\',\''+eA(p)+'\',this.value)"></div>';
+      });
+      html += '</div></div>';
+    });
+  }
+
+  // その他（コメント）
+  var ot = routeOtherIds(state.route);
+  if(ot.length){
+    html += '<div class="sec-lbl">🌿 その他（直売所・道の駅）</div>';
+    ot.forEach(function(id){
+      var d = STORE_DEFS[id], nm=d.name;
+      var v = (state.data[nm] && state.data[nm].comment) || '';
+      html += '<div class="cm-card"><div class="cm-hdr"><span class="cm-icon">'+d.icon+'</span><span class="cm-name">'+eH(nm)+'</span></div><div class="cm-body">';
+      if(state.mode==='view' && !v){
+        html += '<div class="cm-empty">（コメント未入力）</div>';
+      } else {
+        html += '<textarea placeholder="コメント・特記事項を入力" '+ro+' oninput="updComment(\''+eA(nm)+'\',this.value)">'+eH(v)+'</textarea>';
+      }
+      html += '</div></div>';
+    });
+  }
+
+  if(state.mode==='edit'){
+    html += '<div class="save-bar"><button class="save-btn" onclick="doSave()">💾 保存する</button></div>';
+  }
+  document.getElementById('app').innerHTML = html;
+}
+
+// ============ 保存 ============
+function doSave(){
+  showLoading('保存中...');
+  // payload は { 店舗名: {prices:{...}} or {comment:""} } 形式
+  var payload = state.data || {};
+  var dataStr = encodeURIComponent(JSON.stringify(payload));
+  var url = API_URL+'?action=saveHaitatsu&date='+encodeURIComponent(todayStr)+'&data='+dataStr;
+  jsonp(url,'cb_save',function(res){
+    hideLoading();
+    if(res && res.success){
+      state.dirty = false;
+      state.origData = JSON.parse(JSON.stringify(payload));
+      try { localStorage.setItem('haitatsu_'+todayStr, JSON.stringify(payload)); } catch(e){}
+      showToast('✅ 保存しました（'+res.saved+'件）');
+    } else {
+      alert('保存に失敗しました\n'+((res&&res.error)||''));
+    }
+  },function(){
+    hideLoading();
+    alert('通信エラーで保存できませんでした。\nインターネット接続を確認してから再度お試しください。');
+  });
+}
+
+// ============ 初期読み込み ============
+function loadInitial(){
+  jsonp(API_URL+'?action=getHaitatsu&date='+encodeURIComponent(todayStr),'cb_get',function(res){
+    state.loaded = true;
+    if(res && res.success && res.items){
+      state.data = res.items;
+      try { localStorage.setItem('haitatsu_'+todayStr, JSON.stringify(res.items)); } catch(e){}
+    } else {
+      // サーバ未登録だが localStorage にあれば使う
+      try {
+        var raw = localStorage.getItem('haitatsu_'+todayStr);
+        if(raw) state.data = JSON.parse(raw)||{};
+      } catch(e){ state.data = {}; }
+    }
+    state.origData = JSON.parse(JSON.stringify(state.data));
+    renderRoute();
+  },function(){
+    // 通信失敗時は localStorage を試す
+    state.loaded = true;
+    try {
+      var raw = localStorage.getItem('haitatsu_'+todayStr);
+      state.data = raw ? (JSON.parse(raw)||{}) : {};
+    } catch(e){ state.data = {}; }
+    state.origData = JSON.parse(JSON.stringify(state.data));
+    renderRoute();
+    showToast('⚠️ サーバから読込失敗。ローカル保存分を表示中');
+  });
+}
+
+loadInitial();
+</script>
+</body>
+</html>
