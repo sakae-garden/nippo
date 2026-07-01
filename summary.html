@@ -402,17 +402,21 @@ function renderInvTable(store,secs,isY,items){
         }
       });
     }
-    var zan = salesVal!==''?Math.max(tenpo-(parseInt(salesVal)||0),0):'';
-    if(salesVal!==''){hasAnySales=true;totalZan+=zan;totalSales+=parseInt(salesVal)||0;}
-    else totalZan+=tenpo;
+    // 【臨時価格0件表示修正】この行が描画される＝extraPricesにこの価格が含まれる
+    // ＝店舗が臨時価格を扱っている確定（extractExtraPricesがitems内の_臨#¥XXXから抽出）。
+    // esmarche側は0件時に販売数_臨#¥XXX列を作らない仕様なので、ラベル欠落は
+    // 「0件」として扱う（そもそも使っていない店舗はこの行に来ない）。
+    if(salesVal==='') salesVal='0';
+    var zan = Math.max(tenpo-(parseInt(salesVal)||0),0);
+    hasAnySales=true; totalZan+=zan; totalSales+=parseInt(salesVal)||0;
 
     html+='<tr class="iv-extra">';
     if(showPrice) html+='<td>➕'+eH(p)+'</td>';
     html+='<td><span class="iv iv-chin">'+c+'</span></td>';
     if(isY) html+='<td><span class="iv iv-sosei">'+sv+'</span></td>';
     html+='<td><span class="iv iv-tenpo">'+tenpo+'</span></td>';
-    html+='<td><span class="iv iv-sales">'+eH(salesVal!==''?salesVal:'-')+'</span></td>';
-    html+='<td><span class="iv iv-zan">'+(zan===''?'-':zan)+'</span></td></tr>';
+    html+='<td><span class="iv iv-sales">'+eH(salesVal)+'</span></td>';
+    html+='<td><span class="iv iv-zan">'+zan+'</span></td></tr>';
   });
 
   // 合計行
