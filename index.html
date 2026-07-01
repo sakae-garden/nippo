@@ -233,7 +233,7 @@ function applyHaitatsuDefault(id) {
   try {
     var def = STORE_DEFS[id];
     if(!def) return;
-    var raw = localStorage.getItem('haitatsu_'+todayStr);
+    var raw = localStorage.getItem('haitatsu_latest');
     if(!raw) return;
     var all = JSON.parse(raw);
     var entry = all && all[def.name];
@@ -249,10 +249,11 @@ var _haitatsuBgInflight = false;
 function fetchHaitatsuBackground() {
   if(_haitatsuBgInflight) return;
   _haitatsuBgInflight = true;
-  jsonp(API_URL+'?action=getHaitatsu&date='+encodeURIComponent(todayStr),'cb_hai',function(res){
+  // 日付キー廃止：常に最新1セットを取得
+  jsonp(API_URL+'?action=getHaitatsu','cb_hai',function(res){
     _haitatsuBgInflight = false;
     if(res && res.success && res.items){
-      try { localStorage.setItem('haitatsu_'+todayStr, JSON.stringify(res.items)); } catch(e){}
+      try { localStorage.setItem('haitatsu_latest', JSON.stringify(res.items)); } catch(e){}
     }
   },function(){ _haitatsuBgInflight = false; });
 }

@@ -362,10 +362,12 @@ function _renderRouteUnsafe(){
   var html = '';
 
   // 最終更新表示（目立たせる）
+  // 【日付キー廃止】常に「最終更新：◯月◯日 ◯時」を表示。データが本当に一度も
+  // 入力されていない場合のみ「未入力」。日付が変わってもデータは残る。
   if(state.lastUpdated){
     html += '<div class="last-upd">🕐 <span>最終更新 '+eH(fmtLastUpdated(state.lastUpdated))+'</span></div>';
   } else {
-    html += '<div class="last-upd none">⚠️ <span>本日まだ未更新</span></div>';
+    html += '<div class="last-upd none">⚠️ <span>未入力</span></div>';
   }
 
   // 編集モード：最上段に「全ルート総合計」（3ルート全ヤオコー店舗の商品別合計）
@@ -460,13 +462,14 @@ function _doSaveAttempt(attempt){
   showLoading(attempt>0 ? '再送信中...' : '保存中...');
   var payload = state.data || {};
   var dataStr = encodeURIComponent(JSON.stringify(payload));
-  var url = API_URL+'?action=saveHaitatsu&date='+encodeURIComponent(todayStr)+'&data='+dataStr;
+  // 日付キー廃止：saveHaitatsu は常に最新1セットを店舗名キーで upsert
+  var url = API_URL+'?action=saveHaitatsu&data='+dataStr;
   jsonp(url, attempt>0?'cb_save_retry':'cb_save', function(res){
     hideLoading();
     if(res && res.success){
       state.dirty = false;
       state.origData = JSON.parse(JSON.stringify(payload));
-      try { localStorage.setItem('haitatsu_'+todayStr, JSON.stringify(payload)); } catch(e){}
+      try { localStorage.setItem('haitatsu_latest', JSON.stringify(payload)); } catch(e){}
       var nd=new Date();
       state.lastUpdated = nd.getFullYear()+'-'+String(nd.getMonth()+1).padStart(2,'0')+'-'+String(nd.getDate()).padStart(2,'0')+' '+String(nd.getHours()).padStart(2,'0')+':'+String(nd.getMinutes()).padStart(2,'0')+':'+String(nd.getSeconds()).padStart(2,'0');
       renderRoute();
@@ -494,15 +497,16 @@ var _haitatsuRetries = 0;
 function forceReload(){ location.reload(); }
 function loadInitial(){
   // 配達商品情報（必須）
-  jsonp(API_URL+'?action=getHaitatsu&date='+encodeURIComponent(todayStr),'cb_get',function(res){
+  // 日付キー廃止：常に最新1セットを返す
+  jsonp(API_URL+'?action=getHaitatsu','cb_get',function(res){
     state.loaded = true;
     if(res && res.success){
       state.data = res.items || {};
       state.lastUpdated = res.lastUpdated || '';
-      try { localStorage.setItem('haitatsu_'+todayStr, JSON.stringify(state.data)); } catch(e){}
+      try { localStorage.setItem('haitatsu_latest', JSON.stringify(state.data)); } catch(e){}
     } else {
       try {
-        var raw = localStorage.getItem('haitatsu_'+todayStr);
+        var raw = localStorage.getItem('haitatsu_latest');
         if(raw) state.data = JSON.parse(raw)||{};
       } catch(e){ state.data = {}; }
     }
@@ -518,7 +522,7 @@ function loadInitial(){
     // それでも失敗 → localStorage フォールバック（無くても空表示・「読み込み中」で固まらない）
     state.loaded = true;
     try {
-      var raw = localStorage.getItem('haitatsu_'+todayStr);
+      var raw = localStorage.getItem('haitatsu_latest');
       state.data = raw ? (JSON.parse(raw)||{}) : {};
     } catch(e){ state.data = {}; }
     state.origData = JSON.parse(JSON.stringify(state.data));
