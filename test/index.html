@@ -274,7 +274,22 @@ function switchRoute(idx) {
   for(var i=0;i<3;i++) document.getElementById('tab'+i).classList.toggle('active',i===idx);
   renderHome();
 }
-function goBack(){ renderHome(); }
+// 未送信の入力があるか判定：state.formData に空でない値が1つでもあれば true。
+// 「入力フォーム画面」時のみ有効（他画面では常に false = 確認不要）。
+function hasUnsavedInput(){
+  if(state.screen !== 'form') return false;
+  if(!state.formData) return false;
+  return Object.keys(state.formData).some(function(k){
+    var v = state.formData[k];
+    return v !== '' && v !== null && v !== undefined && String(v).trim() !== '';
+  });
+}
+// ホームに戻る前の確認：未入力なら即許可、入力ありなら confirm ダイアログ
+function confirmLeaveIfDirty(){
+  if(!hasUnsavedInput()) return true;
+  return confirm('送信していない入力があります。\n送信せずに戻りますか？');
+}
+function goBack(){ if(confirmLeaveIfDirty()) renderHome(); }
 
 function renderHome() {
   state.screen='home';
@@ -339,22 +354,33 @@ function renderForm() {
   var s=state.store, p=s.prices, cfg=state.config||getDefaultConfig();
   var html='<div class="screen">';
 
-  // 保存データ読み込みボタン
-  html+='<button class="load-btn" id="loadBtn" onclick="loadSavedData()">📥 保存済みデータを読み込む</button>';
-
+  // ① 担当者選択
   html+='<div class="staff-sec"><div class="staff-lbl">担当者</div><div class="staff-btns">';
   (cfg.staff||['八島','青柳','杉','その他']).forEach(function(n){ html+='<button class="sbtn'+(state.staff===n?' sel':'')+'" onclick="selStaff(\''+n+'\')">'+n+'</button>'; });
   html+='</div></div>';
-  if(s.type==='yaoko') html+=bExtraMgr();
+
+  // ② 表（納品/陳列数/蘇生庫/持ち帰り/値引き）
   if(s.type==='yaoko'||s.type==='yaoko_simple') {
-    html+=bDiscountGuide();
     html+=bTable(p, true, s.type==='yaoko');
-    if(s.type==='yaoko' && state.extraPrices.length>0) html+=bExtraSales();
   } else if(s.type==='choku') {
     html+=bTable(p, false, false);
   } else {
     html+=bSec('🟩 納品数','green','納品',p);
   }
+
+  // ③ 保存データを読み込む
+  html+='<button class="load-btn" id="loadBtn" onclick="loadSavedData()">📥 保存済みデータを読み込む</button>';
+
+  // ④ 商品追加（ヤオコーのみ）
+  if(s.type==='yaoko') html+=bExtraMgr();
+
+  // ⑤ 値引きタイミング説明（ヤオコー系のみ）
+  // ※ bExtraSales（追加商品の販売数手入力欄）は廃止：エスマルシェが自動取得するため不要
+  if(s.type==='yaoko'||s.type==='yaoko_simple') {
+    html+=bDiscountGuide();
+  }
+
+  // 特記事項＋送信
   html+='<div class="fsec"><div class="fsec-hdr" style="background:#f5f5f5;color:#555">📝 特記事項</div><div class="frow"><textarea oninput="upd(\'特記事項\',this.value)" placeholder="気になることがあれば記入">'+eH(state.formData['特記事項']||'')+'</textarea></div></div>';
   html+='<button class="submit-btn" id="submitBtn" onclick="doSubmit()">✅ 送信する</button></div>';
   document.getElementById('app').innerHTML=html;
@@ -446,11 +472,10 @@ function bExtraMgr() {
   }
   return h+'</div></div>';
 }
-function bExtraSales() {
-  var h='<div class="fsec"><div class="fsec-hdr" style="background:#fff3e0;color:#e65100"><span>➕ 販売数（追加商品・手入力）</span><span class="note">通常価格は自動取得</span></div><div>';
-  state.extraPrices.forEach(function(p){h+=frow('➕'+p,'販売数_臨#'+p,true);});
-  return h+'</div></div>';
-}
+// bExtraSales: 廃止（追加商品の販売数手入力欄はエスマルシェ自動取得により不要）
+// 過去に入力された「販売数_臨#¥XXX」キーは loadSavedData 経由で state.formData に
+// 残る可能性があるが、入力UIが無いため上書き機会がなく、送信時にそのまま送られる。
+// 通常は esmarche が別途書き込むためデータ側は問題なし。
 function frow(label,key,isExtra) {
   var v=state.formData[key]||'';
   var unit=(state.store.units&&state.store.units[label])?state.store.units[label]:'個';
@@ -749,7 +774,7 @@ loadConfig(function(){ renderHome(); fetchHaitatsuBackground(); });
 </script>
 
 <footer style="position:fixed;bottom:0;left:0;width:100%;height:52px;background:#1c1c1e;display:flex;align-items:center;justify-content:center;z-index:100">
-  <a href="https://sakae-garden.github.io/" style="color:#fff;text-decoration:none;font-size:15px;font-weight:500;font-family:'Noto Sans JP',sans-serif">🏠 ホームに戻る</a>
+  <a href="https://sakae-garden.github.io/" onclick="return confirmLeaveIfDirty()" style="color:#fff;text-decoration:none;font-size:15px;font-weight:500;font-family:'Noto Sans JP',sans-serif">🏠 ホームに戻る</a>
 </footer>
 </body>
 </html>
