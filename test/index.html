@@ -451,11 +451,11 @@ function renderForm() {
   document.getElementById('app').innerHTML=html;
 }
 
-// 【新】表形式1画面入力: 行=価格帯、列=納品/陳列数/(蘇生庫)/持ち帰り/値引き
+// 【新】表形式1画面入力: 行=価格帯、列=納品/陳列数/(蘇生庫)/値引き/持ち帰り
 function bTable(prices, isYaokoLike, hasSosei) {
   var cols = isYaokoLike
-    ? (hasSosei ? ['納品','陳列数','蘇生庫','持ち帰り','値引き']
-                : ['納品','陳列数','持ち帰り','値引き'])
+    ? (hasSosei ? ['納品','陳列数','蘇生庫','値引き','持ち帰り']
+                : ['納品','陳列数','値引き','持ち帰り'])
     : ['納品','前日在庫','持ち帰り'];
   var colCls = {
     '納品':'ctl-green','陳列数':'ctl-blue','蘇生庫':'ctl-purple',
@@ -509,7 +509,7 @@ function bDiscountGuide() {
       '</div>' +
     '</div>' +
     '<div class="dg-timeline">' +
-      '<div class="dg-tl-item"><div class="dg-dot dg-gray"></div><div class="dg-tl-day">0日目</div><div class="dg-tl-txt">納品日</div></div>' +
+      '<div class="dg-tl-item"><div class="dg-dot dg-gray"></div><div class="dg-tl-day">0日目</div><div class="dg-tl-txt">陳列日</div></div>' +
       '<div class="dg-tl-item"><div class="dg-dot dg-gray"></div><div class="dg-tl-day">1日目</div><div class="dg-tl-txt">陳列中</div></div>' +
       '<div class="dg-tl-item"><div class="dg-dot dg-yellow"></div><div class="dg-tl-day">2日目</div><div class="dg-tl-txt">状態次第で値引き</div></div>' +
       '<div class="dg-tl-item"><div class="dg-dot dg-red"></div><div class="dg-tl-day">3日目</div><div class="dg-tl-txt">必ず値引き</div></div>' +
@@ -801,7 +801,7 @@ function renderManual() {
   h+='<h3 style="margin-top:20px">💡 値引きタイミングの見方（ヤオコーラベル）</h3>';
   h+='<p><b>「07」</b>（四角囲みなし）＝陳列日（0日目）／ <b>「09」</b>（四角囲み）＝2日後、状態次第で値引く日。</p>';
   h+='<ul style="font-size:13px;color:#444;line-height:1.9;padding-left:20px">' +
-     '<li>0日目：納品日</li>' +
+     '<li>0日目：陳列日</li>' +
      '<li>1日目：陳列中</li>' +
      '<li>2日目：<b style="color:var(--accent-amber)">状態次第で値引き</b>（囲み日）</li>' +
      '<li>3日目：<b style="color:var(--red)">必ず値引き</b></li>' +
