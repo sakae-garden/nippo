@@ -140,6 +140,8 @@ var STORES=[]; ROUTE_GROUPS.forEach(function(g){STORES=STORES.concat(g.stores);}
 
 var SP=[
   {keys:['納品'],        id:'nouhin',  label:'🟩 納品数',           color:'green'},
+  // 【新形式】新日報UI（陳列数を直接入力）のラベル。S/A/B/C品より前に置いて優先マッチ
+  {keys:['陳列数'],      id:'chin',    label:'🟦 陳列数',            color:'blue'},
   {keys:['S品','在庫S'], id:'zaikoS',  label:'🟦 S品陳列数（当日）', color:'blue'},
   {keys:['A品','在庫A'], id:'zaikoA',  label:'🟫 A品陳列数（1日前）',color:'brown'},
   {keys:['B品','在庫B'], id:'zaikoB',  label:'🟫 B品陳列数（2日前）',color:'brown'},
@@ -295,11 +297,23 @@ function extractExtraPrices(items){
 function getChin(secs,prices,isYaoko){
   var r={};
   prices.forEach(function(p){
-    r[p]=isYaoko
-      ?(getRaw(secs.zaikoS,p)+getRaw(secs.zaikoA,p)+getRaw(secs.zaikoB,p)+getRaw(secs.zaikoC,p))
-      :(getRaw(secs.nouhin,p)+getRaw(secs.zenjitsu,p));
+    if(!isYaoko){
+      r[p] = getRaw(secs.nouhin,p) + getRaw(secs.zenjitsu,p);
+      return;
+    }
+    // 新形式（陳列数_¥XX）があればそれを使い、無ければ旧S+A+B+C品合算にfallback
+    var newVal = getRaw(secs.chin, p);
+    r[p] = newVal > 0
+      ? newVal
+      : (getRaw(secs.zaikoS,p)+getRaw(secs.zaikoA,p)+getRaw(secs.zaikoB,p)+getRaw(secs.zaikoC,p));
   });
   return r;
+}
+// 追加商品（1価格分）の陳列数：新形式優先・旧形式fallback
+function getChinExtra(secs, price){
+  var newVal = getRawExtra(secs.chin, price);
+  if(newVal > 0) return newVal;
+  return getRawExtra(secs.zaikoS,price)+getRawExtra(secs.zaikoA,price)+getRawExtra(secs.zaikoB,price)+getRawExtra(secs.zaikoC,price);
 }
 
 function eId(s){return String(s).split('').map(function(c){var cc=c.charCodeAt(0);return (cc<128&&/[a-zA-Z0-9]/.test(c))?c:'x'+cc.toString(16);}).join('');}
@@ -347,8 +361,8 @@ function renderInvTable(store,secs,isY,items){
   // 価格列は常に表示
   var showPrice=true;
 
-  // 追加商品はヤオコー店舗のみ対応
-  var extraPrices = isY ? extractExtraPrices(items) : [];
+  // 追加商品はヤオコー・直売所の両方に対応
+  var extraPrices = extractExtraPrices(items);
 
   var html='<div class="inv-wrap"><table class="inv-table"><thead><tr>';
   if(showPrice) html+='<th>価格</th>';
@@ -357,11 +371,11 @@ function renderInvTable(store,secs,isY,items){
   html+='<th>店頭在庫</th><th>販売数</th><th>残在庫</th></tr></thead><tbody>';
 
   prices.forEach(function(p){
-    // yaoko: 1列目=陳列数(S+A+B+C) / choku: 1列目=納品数のみ
+    // yaoko: 1列目=陳列数(新形式優先・旧S+A+B+C fallback) / choku: 1列目=納品数のみ
     var c=isY?(chin[p]||0):(getRaw(secs.nouhin,p)||0);
     var sv=isY?(getRaw(secs.sosei,p)||0):0;
-    // 店頭在庫: yaoko=陳列数+蘇生庫 / choku=納品+前日在庫
-    var tenpo=isY?(c+sv):(chin[p]||0);
+    // 店頭在庫: yaoko=陳列数+蘇生庫+値引き / choku=納品+前日在庫
+    var tenpo=isY?(c+sv+(getRaw(secs.nebiki,p)||0)):(chin[p]||0);
     tc+=c;ts+=sv;tt+=tenpo;
 
     // items から「販売数_¥99」等のラベルを直接検索
@@ -387,11 +401,20 @@ function renderInvTable(store,secs,isY,items){
     html+='<td><span class="iv iv-zan">'+(zan===''?'-':zan)+'</span></td></tr>';
   });
 
-  // 追加商品行（ヤオコー専用）
+  // 追加商品行（ヤオコー・直売所の両方に対応）
   extraPrices.forEach(function(p){
-    var c = getRawExtra(secs.zaikoS,p)+getRawExtra(secs.zaikoA,p)+getRawExtra(secs.zaikoB,p)+getRawExtra(secs.zaikoC,p);
-    var sv = getRawExtra(secs.sosei,p);
-    var tenpo = c+sv;
+    var c, sv=0, nb=0, tenpo;
+    if(isY){
+      // ヤオコー: 陳列(新形式優先・旧S+A+B+C fallback) + 蘇生 + 値引き
+      c = getChinExtra(secs, p);
+      sv = getRawExtra(secs.sosei, p);
+      nb = getRawExtra(secs.nebiki, p);
+      tenpo = c + sv + nb;
+    } else {
+      // 直売所: 納品数 + 前日在庫 = 店頭在庫
+      c = getRawExtra(secs.nouhin, p);
+      tenpo = c + getRawExtra(secs.zenjitsu, p);
+    }
     tc+=c; ts+=sv; tt+=tenpo;
 
     var salesVal='';
