@@ -20,11 +20,17 @@
   --ink:#1c1c1e; --sub:#6c6c70;
   --border:#e5e1d8; --shadow:0 2px 12px rgba(0,0,0,0.06);
   --green:#2d7a4f;     /* 主要操作 */
-  --red:#c0392b;       /* 値引き */
+  --red:#c0392b;       /* 値引き（表・確認画面では未使用。マニュアル説明のみ） */
   --accent-amber:#c9770a; /* 値引きタイミング表示 2日目のみ */
+  --divider:#c9c1b0;   /* 表内の縦区切り線 */
   --r:12px;            /* カード角丸統一 */
   --r-btn:8px;         /* ボタン角丸統一 */
   --pad-card:14px;     /* カード内側余白統一 */
+  /* 送信完了確認画面（サマリー風パレット） */
+  --sum-light:#f0ebe0; --sum-rule:#d4c9b0; --sum-dot:#e0d9cc;
+  --sum-yellow-lbl:#f57f17; --sum-purple:#7b1fa2; --sum-cyan:#0097a7;
+  --sum-yellow-bg:#fffde7; --sum-yellow-bd:#f9a825;
+  --sum-extra-bg:#fff8e1; --sum-extra-ink:#e65100;
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh;color:var(--ink);max-width:480px;margin:0 auto;padding-bottom:60px}
@@ -140,22 +146,26 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .done-sub{font-size:14px;color:var(--sub);margin-bottom:32px;line-height:1.7}
 .home-btn{background:var(--ink);color:#fff;border:none;border-radius:var(--r-btn);padding:14px 32px;font-family:inherit;font-size:15px;font-weight:600;cursor:pointer}
 
-/* ============ 送信完了 確認テーブル: 統一色（値引きのみ赤・他は黒） ============ */
-.done-confirm-wrap{margin:8px 0 28px;text-align:left}
+/* ============ 送信完了 確認テーブル: サマリー風デザイン（値引きは黒に統一） ============ */
+.done-confirm-wrap{margin:8px 0 28px;text-align:left;padding:0 4px}
 .done-confirm-title{font-size:12px;font-weight:700;color:var(--sub);letter-spacing:.04em;margin-bottom:8px;text-align:center}
-.dc-table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow)}
-.dc-table th{padding:8px 6px;background:#f8f7f2;font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.02em;text-align:center;border-bottom:1px solid var(--border)}
+.dc-table{width:100%;border-collapse:collapse;font-size:13px;background:var(--card);border:1px solid var(--sum-rule);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow)}
+.dc-table th{padding:5px 6px;background:var(--sum-light);font-size:10px;font-weight:700;color:#666;letter-spacing:.06em;text-align:center;border-bottom:2px solid var(--sum-rule)}
 .dc-table th:first-child{text-align:left;padding-left:12px}
-.dc-table td{padding:8px 6px;border-bottom:1px solid var(--border);text-align:center;vertical-align:middle}
-.dc-table td:first-child{text-align:left;padding-left:12px;color:var(--ink);font-size:12px;white-space:nowrap;font-weight:600}
+.dc-table td{padding:6px 6px;border-bottom:1px dotted var(--sum-dot);text-align:center;vertical-align:middle}
+.dc-table td:first-child{text-align:left;padding-left:12px;font-size:12px;color:#555;white-space:nowrap}
 .dc-table tr:last-child td{border-bottom:none}
-/* 数値色は全て黒に統一（値引きだけ renderDoneConfirm 側の inline style で赤指定） */
-.dc-nouhin,.dc-chin,.dc-sosei,.dc-tenpo{font-size:16px;font-weight:700;color:var(--ink)}
-.dc-extra{background:transparent}
-.dc-extra td:first-child{color:var(--ink);font-weight:700}
-.dc-total{background:#f8f7f2;border-top:1px solid var(--border)!important}
+/* 値の色: 陳列=山吹、蘇生=紫、店頭=シアン。値引きと納品は黒（値引き赤字廃止） */
+.dc-nouhin,.dc-chin,.dc-sosei,.dc-tenpo,.dc-nebiki{font-size:15px;font-weight:700}
+.dc-nouhin{color:var(--ink)}
+.dc-chin{color:var(--sum-yellow-lbl)}
+.dc-sosei{color:var(--sum-purple)}
+.dc-tenpo{color:var(--sum-cyan)}
+.dc-nebiki{color:var(--ink)}
+.dc-extra{background:var(--sum-extra-bg)}
+.dc-extra td:first-child{color:var(--sum-extra-ink);font-weight:700}
+.dc-total{background:var(--sum-yellow-bg);font-weight:700;border-top:2px solid var(--sum-yellow-bd)!important}
 .dc-total td:first-child{font-weight:700;color:var(--ink)}
-.c-warn{color:var(--red);font-weight:700;margin-left:6px;font-size:13px}
 
 /* ============ マニュアル・設定 ============ */
 .manual{padding:16px}
@@ -198,10 +208,12 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .itbl th{font-size:12px;font-weight:700;letter-spacing:.02em;position:sticky;top:0;z-index:1;background:#f8f7f2;color:var(--sub)}
 .itbl .itbl-price{width:56px;font-size:13px;font-weight:700;color:var(--ink);background:#f8f7f2}
 .itbl thead .itbl-price{color:var(--sub)}
-/* 列ヘッダー：全てグレー統一（旧: 緑/青/紫/橙は廃止） */
+/* 列ヘッダー：全てグレー統一（旧: 緑/青/紫/橙は廃止・値引き赤字も廃止） */
 .itbl .itbl-col{color:var(--sub);background:#f8f7f2}
-/* 値引き列のみヘッダー文字色赤 */
-.itbl .itbl-col.ctl-red{color:var(--red)}
+.itbl .itbl-col.ctl-red{color:var(--sub)}
+/* 値引き列の左に縦区切り線（通常入力 | イレギュラー入力 の視覚分割） */
+.itbl th.itbl-col.ctl-red,
+.itbl td.itbl-cell.ctl-red{border-left:2px solid var(--divider)}
 .itbl .itbl-cell{padding:4px 3px;background:#fff}
 .itbl input[type=number]{
   width:100%;max-width:64px;height:42px;
@@ -215,8 +227,8 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .itbl tr:last-child td{border-bottom:none}
 .itbl .itbl-extra{background:transparent}
 .itbl .itbl-extra .itbl-price{background:#f8f7f2;color:var(--ink)}
-/* 値引き列のみ数値の文字色赤 */
-.itbl td.itbl-cell.ctl-red input{color:var(--red)}
+/* 値引き列の入力文字色も黒に統一（赤字廃止） */
+.itbl td.itbl-cell.ctl-red input{color:var(--ink)}
 /* 旧色分けクラス（ctl-green/blue/purple/orange/brown）は全て無色化 */
 .ctl-green th.itbl-col.ctl-green,
 .ctl-blue th.itbl-col.ctl-blue,
@@ -436,8 +448,8 @@ function renderForm() {
   // ③ 保存データを読み込む
   html+='<button class="load-btn" id="loadBtn" onclick="loadSavedData()">📥 保存済みデータを読み込む</button>';
 
-  // ④ 商品追加（ヤオコーのみ）
-  if(s.type==='yaoko') html+=bExtraMgr();
+  // ④ 商品追加（ヤオコー・直売所）
+  if(s.type==='yaoko' || s.type==='choku') html+=bExtraMgr();
 
   // ⑤ 値引きタイミング説明（ヤオコー系のみ）
   // ※ bExtraSales（追加商品の販売数手入力欄）は廃止：エスマルシェが自動取得するため不要
@@ -474,8 +486,8 @@ function bTable(prices, isYaokoLike, hasSosei) {
     });
     h+='</tr>';
   });
-  // 追加商品行（ヤオコーのみ）
-  if(isYaokoLike && state.store.type==='yaoko'){
+  // 追加商品行（ヤオコー・直売所）
+  if(state.store.type==='yaoko' || state.store.type==='choku'){
     state.extraPrices.forEach(function(p){
       var suffix='臨#'+p;
       h+='<tr class="itbl-extra"><td class="itbl-price">➕'+eH(p)+'</td>';
@@ -547,7 +559,7 @@ function frow(label,key,isExtra) {
   return '<div class="frow'+(isExtra?' extra':'')+'"><span class="frow-lbl">'+label+'</span><div class="frow-inp"><input type="number" min="0" inputmode="numeric" placeholder="0" value="'+eA(v)+'" oninput="upd(\''+eA(key)+'\',this.value)"><span class="frow-unit">'+unit+'</span></div></div>';
 }
 function addExtraPrice() {
-  var v=prompt('追加する商品の価格を入力してください（円・税抜）\n例：158');
+  var v=prompt('追加する商品の価格を入力してください（円）\n例：158');
   if(v===null) return;
   v=String(v).trim().replace(/[¥￥]/g,'').replace(/[,，]/g,'');
   var n=parseInt(v,10);
@@ -751,12 +763,13 @@ function renderDoneConfirm(s) {
     if(isY){
       h+='<td><span class="dc-chin">'+c+'</span></td>';
       if(hasSosei) h+='<td><span class="dc-sosei">'+sv+'</span></td>';
-      h+='<td><span style="color:var(--red);font-weight:700">'+nb+'</span></td>';
+      h+='<td><span class="dc-nebiki">'+nb+'</span></td>';
     } else {
       h+='<td><span class="dc-chin">'+c+'</span></td>';
     }
     h+='<td><span class="dc-tenpo">'+tenpo+'</span></td></tr>';
   });
+  // 追加商品行（ヤオコー・直売所）
   if(s.type==='yaoko'){
     (state.extraPrices||[]).forEach(function(pp){
       var k='臨#'+pp;
@@ -770,7 +783,19 @@ function renderDoneConfirm(s) {
       h+='<td><span class="dc-nouhin">'+n+'</span></td>';
       h+='<td><span class="dc-chin">'+c+'</span></td>';
       if(hasSosei) h+='<td><span class="dc-sosei">'+sv+'</span></td>';
-      h+='<td><span style="color:var(--red);font-weight:700">'+nb+'</span></td>';
+      h+='<td><span class="dc-nebiki">'+nb+'</span></td>';
+      h+='<td><span class="dc-tenpo">'+tenpo+'</span></td></tr>';
+    });
+  } else if(s.type==='choku'){
+    (state.extraPrices||[]).forEach(function(pp){
+      var k='臨#'+pp;
+      var n=parseInt(state.formData['納品_'+k])||0;
+      var c=parseInt(state.formData['前日在庫_'+k])||0;
+      var tenpo=n+c;
+      tn+=n; tc+=c; tt+=tenpo;
+      h+='<tr class="dc-extra"><td>➕'+eH(pp)+'</td>';
+      h+='<td><span class="dc-nouhin">'+n+'</span></td>';
+      h+='<td><span class="dc-chin">'+c+'</span></td>';
       h+='<td><span class="dc-tenpo">'+tenpo+'</span></td></tr>';
     });
   }
@@ -779,7 +804,7 @@ function renderDoneConfirm(s) {
   if(isY){
     h+='<td><span class="dc-chin">'+tc+'</span></td>';
     if(hasSosei) h+='<td><span class="dc-sosei">'+ts+'</span></td>';
-    h+='<td><span style="color:var(--red);font-weight:700">'+tnb+'</span></td>';
+    h+='<td><span class="dc-nebiki">'+tnb+'</span></td>';
   } else {
     h+='<td><span class="dc-chin">'+tc+'</span></td>';
   }
