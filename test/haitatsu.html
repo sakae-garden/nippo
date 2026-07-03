@@ -184,10 +184,10 @@ document.getElementById('hDate').textContent = today.getFullYear()+'年'+(today.
 // タイムアウトは45秒（GASコールドスタートの10秒スパイクを吸収するため長め）。
 // SWR配信下では初期描画がGCS由来なので、この裏側時間はユーザに見えない。
 var cbIdx=0;
-function jsonp(url,base,onOk,onErr){
+function jsonp(url,base,onOk,onErr,timeoutMs){
   var n=base+'_'+(cbIdx++), s=document.createElement('script');
   var called=false;
-  var t=setTimeout(function(){cleanup();if(!called){called=true;if(onErr)onErr();}},45000);
+  var t=setTimeout(function(){cleanup();if(!called){called=true;if(onErr)onErr();}},timeoutMs||45000);
   function cleanup(){clearTimeout(t);delete window[n];if(s.parentNode)s.parentNode.removeChild(s);}
   window[n]=function(d){if(called)return;called=true;cleanup();onOk(d);};
   s.onload=function(){
@@ -208,7 +208,7 @@ function eH(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').r
 function eA(s){return String(s||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 function esc(s){return String(s).replace(/[^a-zA-Z0-9]/g,'_');}
 function showToast(msg){var t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(window._tt);window._tt=setTimeout(function(){t.classList.remove('show');},2500);}
-function showLoading(msg){var el=document.getElementById('lo');if(!el){el=document.createElement('div');el.id='lo';el.className='loading-overlay';el.innerHTML='<div class="loading-box"><div class="spinner"></div><br>'+eH(msg||'保存中...')+'</div>';document.body.appendChild(el);}}
+function showLoading(msg){var el=document.getElementById('lo');if(!el){el=document.createElement('div');el.id='lo';el.className='loading-overlay';el.innerHTML='<div class="loading-box"><div class="spinner"></div><br><span id="loMsg"></span></div>';document.body.appendChild(el);}var m=document.getElementById('loMsg');if(m)m.textContent=msg||'保存中...';}
 function hideLoading(){var el=document.getElementById('lo');if(el)el.parentNode.removeChild(el);}
 
 // ============ route ヘルパー ============
@@ -497,18 +497,27 @@ function _renderRouteUnsafe(){
 }
 
 // ============ 保存 ============
-// saveHaitatsu は Apps Script 連続呼出で 2回目 404 になることがあるため
-// 失敗時に 2 秒待って 1 回だけ自動リトライする。
+// saveHaitatsu は Google Apps Script のリダイレクト層（script.google.com →
+// googleusercontent.com）が連続・コールドアクセス時に一時的な 404 を返すため
+// 単発では失敗しやすい（実測で成功率は半分程度・成功時は 2〜6 秒で軽量）。
+// 対策: 通信失敗(404等)は状態依存でランダムに発生するので、短い間隔で複数回
+// 自動リトライする。1 回の失敗検知はブラウザでは数秒（jsonp の onload 200ms 判定）
+// なので試行回数を増やすのが最も効果的。GAS 側の処理自体は既に軽量化済み。
+var SAVE_MAX_ATTEMPTS = 6;    // 合計試行回数（attempt 0..5）
+var SAVE_RETRY_WAIT   = 1500; // リトライ間隔(ms)
+var SAVE_TIMEOUT      = 15000;// save 専用タイムアウト(ms)。成功時 2〜6 秒なので十分。
 function doSave(){ _doSaveAttempt(0); }
 function _doSaveAttempt(attempt){
-  showLoading(attempt>0 ? '再送信中...' : '保存中...');
+  // リトライ中もローディングを継続表示（試行回数を明示し、途切れさせない）
+  showLoading(attempt>0 ? ('保存中...（再試行 '+attempt+'/'+(SAVE_MAX_ATTEMPTS-1)+'）') : '保存中...');
   var payload = state.data || {};
   var dataStr = encodeURIComponent(JSON.stringify(payload));
   // 日付キー廃止：saveHaitatsu は常に最新1セットを店舗名キーで upsert
-  var url = API_URL+'?action=saveHaitatsu&data='+dataStr;
-  jsonp(url, attempt>0?'cb_save_retry':'cb_save', function(res){
-    hideLoading();
+  // _cb: キャッシュバスター。Google 側リダイレクト状態のリフレッシュを促し 404 を軽減
+  var url = API_URL+'?action=saveHaitatsu&data='+dataStr+'&_cb='+Date.now()+'_'+attempt;
+  jsonp(url, 'cb_save', function(res){
     if(res && res.success){
+      hideLoading();
       state.dirty = false;
       state.origData = JSON.parse(JSON.stringify(payload));
       var nd=new Date();
@@ -519,23 +528,22 @@ function _doSaveAttempt(attempt){
       try { localStorage.setItem('haitatsu_latest', JSON.stringify(payload)); } catch(e){}
       state.dataStale = false;
       renderRoute();
-      showToast(attempt>0 ? '✅ 保存しました（再送信で成功）' : '✅ 保存しました（'+res.saved+'件）');
+      showToast(attempt>0 ? ('✅ 保存しました（再試行'+attempt+'回で成功）') : '✅ 保存しました（'+res.saved+'件）');
     } else {
-      if(attempt===0){
-        setTimeout(function(){ _doSaveAttempt(1); }, 2000);
-      } else {
-        alert('保存に失敗しました\n'+((res&&res.error)||'')+'\nもう一度お試しください。');
-      }
+      // GAS が応答したが success:false はデータ起因（invalid data 等）で、
+      // 同じ data を再送しても結果は変わらないため即エラー表示（無駄な再送を避ける）。
+      hideLoading();
+      alert('保存に失敗しました\n'+((res&&res.error)||'')+'\nもう一度お試しください。');
     }
   }, function(){
-    hideLoading();
-    if(attempt===0){
-      // 通信失敗を1回だけ自動リトライ
-      setTimeout(function(){ _doSaveAttempt(1); }, 2000);
+    // 通信失敗（404 等）→ 残り試行があれば自動リトライ
+    if(attempt < SAVE_MAX_ATTEMPTS-1){
+      setTimeout(function(){ _doSaveAttempt(attempt+1); }, SAVE_RETRY_WAIT);
     } else {
-      alert('通信エラーで保存できませんでした。\nインターネット接続を確認して再度お試しください。');
+      hideLoading();
+      alert('通信エラーで保存できませんでした（'+SAVE_MAX_ATTEMPTS+'回試行）。\n通信状況を確認して、もう一度お試しください。');
     }
-  });
+  }, SAVE_TIMEOUT);
 }
 
 // ============ SWR初期読み込み ============
