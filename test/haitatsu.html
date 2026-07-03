@@ -157,9 +157,16 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 <script src="shared-stores.js"></script>
 <script>
 var API_URL = 'https://script.google.com/macros/s/AKfycbwe8_3Dp1U7an5wPVt8T2c2AXT6ltwM-T-bquI5IdGk4-uNCHtvd1Ifhn4MRv1-Oegp/exec';
+// スナップショット配信URL（GCS+CORS+publicRead。フロントの初期表示を高速化する）
+var SNAPSHOT_URL = 'https://storage.googleapis.com/sakae-garden-snapshots/test/haitatsu.json';
+// スナップショット鮮度の上限（これより古ければGAS直取得へフォールバック）。朝の運用に十分な6時間。
+var SNAPSHOT_MAX_AGE_MS = 6 * 3600 * 1000;
 var YAOKO_PRICES = ['¥99','¥198','¥398','¥598'];
 
-var state = { mode:'view', route:0, data:{}, zaiko:{}, lastUpdated:'', dirty:false, loaded:false };
+// SWR用 localStorage キー
+var LS_HAITATSU_CACHE = 'haitatsu_cache_v1';
+
+var state = { mode:'view', route:0, data:{}, zaiko:{}, lastUpdated:'', dirty:false, loaded:false, zaikoLoaded:false, dataStale:false };
 
 var today = new Date();
 var DAYS = ['日','月','火','水','木','金','土'];
@@ -169,11 +176,13 @@ document.getElementById('hDate').textContent = today.getFullYear()+'年'+(today.
 // ============ jsonp ============
 // 強化: script.onload で「スクリプトはロードされたがコールバック未呼出」
 //       （Drive 404 HTML が返ったケース等）を検知して onErr に倒す。
+// タイムアウトは45秒（GASコールドスタートの10秒スパイクを吸収するため長め）。
+// SWR配信下では初期描画がGCS由来なので、この裏側時間はユーザに見えない。
 var cbIdx=0;
 function jsonp(url,base,onOk,onErr){
   var n=base+'_'+(cbIdx++), s=document.createElement('script');
   var called=false;
-  var t=setTimeout(function(){cleanup();if(!called){called=true;if(onErr)onErr();}},30000);
+  var t=setTimeout(function(){cleanup();if(!called){called=true;if(onErr)onErr();}},45000);
   function cleanup(){clearTimeout(t);delete window[n];if(s.parentNode)s.parentNode.removeChild(s);}
   window[n]=function(d){if(called)return;called=true;cleanup();onOk(d);};
   s.onload=function(){
@@ -326,11 +335,17 @@ function toggleMode(){
     state.data = JSON.parse(JSON.stringify(state.origData||{}));
     state.dirty = false;
   }
-  state.mode = (state.mode==='view'?'edit':'view');
+  var toEdit = (state.mode==='view');
+  state.mode = (toEdit?'edit':'view');
   var b=document.getElementById('modeBtn');
   if(state.mode==='edit'){ b.textContent='👁 閲覧モードへ'; b.classList.add('edit'); }
   else                  { b.textContent='✏️ 編集モード';   b.classList.remove('edit'); }
   renderRoute();
+  // 編集モード遷移時に初回だけ残在庫を非同期取得（閲覧モードでは呼ばず、
+  // 配達員には見えないデータのためGAS実行スロットを消費しない）。
+  if(toEdit && !state.zaikoLoaded){
+    _fetchZaiko(0);
+  }
 }
 
 function fmtLastUpdated(ts){
@@ -486,9 +501,13 @@ function _doSaveAttempt(attempt){
     if(res && res.success){
       state.dirty = false;
       state.origData = JSON.parse(JSON.stringify(payload));
-      try { localStorage.setItem('haitatsu_latest', JSON.stringify(payload)); } catch(e){}
       var nd=new Date();
       state.lastUpdated = nd.getFullYear()+'-'+String(nd.getMonth()+1).padStart(2,'0')+'-'+String(nd.getDate()).padStart(2,'0')+' '+String(nd.getHours()).padStart(2,'0')+':'+String(nd.getMinutes()).padStart(2,'0')+':'+String(nd.getSeconds()).padStart(2,'0');
+      // localStorageキャッシュ更新（保存本人は即時反映を体感できる。他閲覧者はスナップショット更新間隔待ち）
+      _writeCache({ items: payload, lastUpdated: state.lastUpdated });
+      // 旧キーも互換で更新（既存フォールバックのため）
+      try { localStorage.setItem('haitatsu_latest', JSON.stringify(payload)); } catch(e){}
+      state.dataStale = false;
       renderRoute();
       showToast(attempt>0 ? '✅ 保存しました（再送信で成功）' : '✅ 保存しました（'+res.saved+'件）');
     } else {
@@ -509,46 +528,148 @@ function _doSaveAttempt(attempt){
   });
 }
 
-// ============ 初期読み込み ============
+// ============ SWR初期読み込み ============
+// 読み込み優先順位:
+//   1. localStorage（あれば即座に描画。0秒表示）
+//   2. スナップショット（GCS配信、~200ms、CORS対応）
+//      - generated_at が SNAPSHOT_MAX_AGE_MS 以内なら採用
+//   3. GAS 直接（最終手段、コールドスタート10秒スパイクの影響を受ける）
+// いずれのパスも成功時に localStorage を更新する（次回0秒表示のため）。
 var _haitatsuRetries = 0;
 function forceReload(){ location.reload(); }
-function loadInitial(){
-  // 配達商品情報（必須）
-  // 日付キー廃止：常に最新1セットを返す
-  jsonp(API_URL+'?action=getHaitatsu','cb_get',function(res){
-    state.loaded = true;
-    if(res && res.success){
-      state.data = res.items || {};
-      state.lastUpdated = res.lastUpdated || '';
-      try { localStorage.setItem('haitatsu_latest', JSON.stringify(state.data)); } catch(e){}
-    } else {
-      try {
-        var raw = localStorage.getItem('haitatsu_latest');
-        if(raw) state.data = JSON.parse(raw)||{};
-      } catch(e){ state.data = {}; }
-    }
-    state.origData = JSON.parse(JSON.stringify(state.data));
-    renderRoute();
-  },function(){
-    // 1回だけ自動リトライ（コールドスタート遭遇時の救済）
-    if(_haitatsuRetries===0){
-      _haitatsuRetries++;
-      setTimeout(function(){ loadInitial(); }, 2000);
+
+function _readCache(){
+  try {
+    var raw = localStorage.getItem(LS_HAITATSU_CACHE);
+    if(!raw) return null;
+    var o = JSON.parse(raw);
+    if(!o || typeof o !== 'object') return null;
+    return o;
+  } catch(e){ return null; }
+}
+function _writeCache(payload){
+  try {
+    var o = {
+      items:       payload.items || {},
+      lastUpdated: payload.lastUpdated || '',
+      cachedAt:    Date.now()
+    };
+    localStorage.setItem(LS_HAITATSU_CACHE, JSON.stringify(o));
+  } catch(e){ /* 容量超等は無視 */ }
+}
+
+function _applyHaitatsuData(items, lastUpdated){
+  state.data = items || {};
+  state.lastUpdated = lastUpdated || '';
+  state.origData = JSON.parse(JSON.stringify(state.data));
+  state.loaded = true;
+  renderRoute();
+}
+
+function _updateStaleBanner(msg){
+  var el = document.getElementById('stale_notice');
+  if(!msg){
+    if(el) el.parentNode.removeChild(el);
+    return;
+  }
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'stale_notice';
+    el.style.cssText = 'background:#fff3e0;color:#e65100;border:1px solid #ffb74d;border-radius:8px;padding:6px 10px;margin:0 16px 8px;font-size:12px;text-align:center;font-weight:600';
+    var app = document.getElementById('app');
+    if(app && app.parentNode) app.parentNode.insertBefore(el, app);
+  }
+  el.textContent = msg;
+}
+
+function _fetchSnapshot(cb){
+  // キャッシュバスターで CDN/ブラウザキャッシュを回避
+  var url = SNAPSHOT_URL + '?_=' + Date.now();
+  fetch(url, { cache: 'no-store' }).then(function(r){
+    if(!r.ok) throw new Error('http ' + r.status);
+    return r.json();
+  }).then(function(j){
+    if(!j || !j.generated_at){ cb(null); return; }
+    var gen = Date.parse(j.generated_at);
+    if(isNaN(gen)){ cb(null); return; }
+    if(Date.now() - gen > SNAPSHOT_MAX_AGE_MS){
+      // 古すぎる → 使わない（配達員が古いデータを新しいと誤認するのを防止）
+      cb(null, { tooOld: true, generated_at: j.generated_at });
       return;
     }
-    // それでも失敗 → localStorage フォールバック（無くても空表示・「読み込み中」で固まらない）
-    state.loaded = true;
-    try {
-      var raw = localStorage.getItem('haitatsu_latest');
-      state.data = raw ? (JSON.parse(raw)||{}) : {};
-    } catch(e){ state.data = {}; }
-    state.origData = JSON.parse(JSON.stringify(state.data));
-    renderRoute();
-    showToast('⚠️ サーバから読込失敗。ローカル保存分を表示中');
-  });
+    cb({ items: j.items||{}, lastUpdated: j.lastUpdated||'', generated_at: j.generated_at });
+  }).catch(function(){ cb(null); });
+}
 
-  // 残在庫（並列・任意・失敗しても無視）
-  _fetchZaiko(0);
+function _fetchFromGas(onDone){
+  // GAS直取得（コールドスタート考慮で1回自動リトライ）
+  jsonp(API_URL+'?action=getHaitatsu','cb_get',function(res){
+    if(res && res.success){
+      onDone({ items: res.items||{}, lastUpdated: res.lastUpdated||'' });
+    } else {
+      onDone(null);
+    }
+  },function(){
+    if(_haitatsuRetries===0){
+      _haitatsuRetries++;
+      setTimeout(function(){ _fetchFromGas(onDone); }, 2000);
+    } else {
+      onDone(null);
+    }
+  });
+}
+
+function loadInitial(){
+  var cache = _readCache();
+  // レガシーキーからのマイグレーション（旧`haitatsu_latest`しか持たない端末のため）
+  if(!cache){
+    try {
+      var legacy = localStorage.getItem('haitatsu_latest');
+      if(legacy){
+        var items = JSON.parse(legacy) || {};
+        cache = { items: items, lastUpdated: '', cachedAt: 0 };
+      }
+    } catch(e){}
+  }
+
+  // Step 1: キャッシュ即描画（0秒表示）
+  if(cache){
+    _applyHaitatsuData(cache.items, cache.lastUpdated);
+    _updateStaleBanner('🔄 最新確認中…');
+    state.dataStale = true;
+  }
+
+  // Step 2: スナップショット試行
+  _fetchSnapshot(function(snap, meta){
+    if(snap){
+      _applyHaitatsuData(snap.items, snap.lastUpdated);
+      _writeCache(snap);
+      _updateStaleBanner(null);
+      state.dataStale = false;
+      return;
+    }
+    // スナップショット失敗（存在しない・古すぎる・fetch失敗）→ GAS
+    _fetchFromGas(function(gres){
+      if(gres){
+        _applyHaitatsuData(gres.items, gres.lastUpdated);
+        _writeCache(gres);
+        _updateStaleBanner(null);
+        state.dataStale = false;
+        return;
+      }
+      // GASも失敗
+      if(cache){
+        // キャッシュ表示を維持しつつ警告
+        var when = cache.lastUpdated ? '（'+cache.lastUpdated+'時点）' : '';
+        _updateStaleBanner('⚠️ 最新の取得に失敗' + when + '。表示中のデータは前回保存分です。');
+      } else {
+        // キャッシュも無い→空描画（renderRoute内の「未入力」表示に任せる）
+        _applyHaitatsuData({}, '');
+        _updateStaleBanner('⚠️ サーバ接続失敗。しばらく待って再読み込みしてください。');
+      }
+    });
+  });
+  // 残在庫は閲覧モードでは呼ばない。編集モード切替で初回取得（toggleMode内）。
 }
 
 // 残在庫を取得。サーバから _pending（キャッシュ温め中）なら数秒後に
@@ -559,6 +680,7 @@ function _fetchZaiko(attempt){
     function(res){
       if(res && res.success && res.items && !res._pending){
         state.zaiko = res.items;
+        state.zaikoLoaded = true;
         if(state.loaded) renderRoute();
         return;
       }
