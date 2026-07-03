@@ -290,6 +290,7 @@ td.itbl-cell.ctl-brown{background:#fff}
 <div id="__test_env_banner__">⚠️ テスト環境 - 本番ではありません（TEST）⚠️</div>
 <!-- ▲▲▲ 【テスト環境】バナー ▲▲▲ -->
 
+
 <div class="hdr">
   <div class="hdr-top">
     <h1 id="hTitle">🍄 配達日報</h1>
@@ -391,9 +392,70 @@ function openStore(id) {
   state.store=STORE_DEFS[id]; state.formData={}; state.staff=''; state.extraPrices=[]; state.screen='form';
   // 配達商品情報（haitatsu）の当日分があれば納品数のデフォルト値として反映（localStorage 即読み・0ms）
   applyHaitatsuDefault(id);
+  // 同一日・同一経路で先に送信した担当者があれば自動選択（誤タップ抑止のため送信成功時のみ記憶）
+  applyStaffMemory(id);
   setHeader(state.store.name,true,false); renderForm();
   // バックグラウンドで getHaitatsu を fetch して localStorage を更新（既存表示は待たない・次回反映）
   fetchHaitatsuBackground();
+}
+
+// ===== 担当者の経路内自動引継 =====
+// 保存: 送信成功時のみ (誤タップ波及防止)
+// キー: LS_STAFF_MEMORY = { date:'YYYY-MM-DD', byRoute:{routeId: staffName} }
+// 日次リセット: date が todayStr と異なれば全破棄
+// 経路判定: ROUTES[i].groups[j].stores に storeId が含まれる経路
+var LS_STAFF_MEMORY = 'staff_by_route_v1';
+
+function _routeIdOfStore(storeId){
+  if(typeof ROUTES==='undefined') return null;
+  for(var i=0;i<ROUTES.length;i++){
+    var r = ROUTES[i];
+    for(var j=0;j<r.groups.length;j++){
+      if(r.groups[j].stores.indexOf(storeId) >= 0) return r.id;
+    }
+  }
+  return null;
+}
+
+function _storeIdOfName(name){
+  // state.store は STORE_DEFS の値なので、name→id 逆引き
+  if(typeof STORE_DEFS==='undefined') return null;
+  var ids = Object.keys(STORE_DEFS);
+  for(var i=0;i<ids.length;i++){
+    if(STORE_DEFS[ids[i]].name === name) return ids[i];
+  }
+  return null;
+}
+
+function rememberStaff(store, staff){
+  if(!store || !staff) return;
+  var storeId = _storeIdOfName(store.name);
+  if(!storeId) return;
+  var routeId = _routeIdOfStore(storeId);
+  if(!routeId) return;  // どの経路にも属さない店舗は対象外
+  try {
+    var raw = localStorage.getItem(LS_STAFF_MEMORY);
+    var mem = raw ? JSON.parse(raw) : null;
+    if(!mem || mem.date !== todayStr) mem = { date: todayStr, byRoute: {} };
+    if(!mem.byRoute) mem.byRoute = {};
+    mem.byRoute[routeId] = staff;
+    localStorage.setItem(LS_STAFF_MEMORY, JSON.stringify(mem));
+  } catch(e){ /* 容量超は無視 */ }
+}
+
+function applyStaffMemory(id){
+  // 呼出時点で state.staff は '' に初期化されているが、防御的にチェック
+  if(state.staff) return;
+  try {
+    var raw = localStorage.getItem(LS_STAFF_MEMORY);
+    if(!raw) return;
+    var mem = JSON.parse(raw);
+    if(!mem || mem.date !== todayStr) return;  // 日次リセット
+    var routeId = _routeIdOfStore(id);
+    if(!routeId) return;
+    var s = mem.byRoute && mem.byRoute[routeId];
+    if(s) state.staff = s;
+  } catch(e){}
 }
 
 // localStorage から当日の配達商品情報を読んで state.formData['納品_'+price] にセット
@@ -707,7 +769,7 @@ function doSubmit() {
   document.getElementById('submitBtn')&&(document.getElementById('submitBtn').disabled=true);
   jsonp(url,'cb_sub',function(res){
     hideLoading();
-    if(res.success){renderDone();}
+    if(res.success){ rememberStaff(state.store, state.staff); renderDone(); }
     else{alert('送信に失敗しました。\n'+(res.error||'')+'\nもう一度お試しください。');document.getElementById('submitBtn')&&(document.getElementById('submitBtn').disabled=false);}
   },function(){
     // 3秒後に1回だけ自動リトライ
@@ -715,7 +777,7 @@ function doSubmit() {
     setTimeout(function(){
       jsonp(url,'cb_sub_retry',function(res){
         hideLoading();
-        if(res.success){renderDone();}
+        if(res.success){ rememberStaff(state.store, state.staff); renderDone(); }
         else{alert('送信に失敗しました。\n'+(res.error||'')+'\nもう一度お試しください。');document.getElementById('submitBtn')&&(document.getElementById('submitBtn').disabled=false);}
       },function(){hideLoading();alert('通信エラーが発生しました。\nインターネット接続を確認してください。');document.getElementById('submitBtn')&&(document.getElementById('submitBtn').disabled=false);});
     },3000);
