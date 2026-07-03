@@ -145,6 +145,8 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 var API_URL = 'https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkVvYc7V77OJrh7h_PZCqtuV4aUL7NYz83VsNc5lY6sXONw/exec';
 // スナップショット配信URL（GCS+CORS+publicRead。フロントの初期表示を高速化する）
 var SNAPSHOT_URL = 'https://storage.googleapis.com/sakae-garden-snapshots/haitatsu.json';
+// 残在庫/販売数スナップショット（GASのgetYaokoZaiko代替。編集モード切替時のみ使用）
+var ZAIKO_SNAPSHOT_URL = 'https://storage.googleapis.com/sakae-garden-snapshots/zaiko.json';
 // スナップショット鮮度の上限（これより古ければGAS直取得へフォールバック）。朝の運用に十分な6時間。
 var SNAPSHOT_MAX_AGE_MS = 6 * 3600 * 1000;
 var YAOKO_PRICES = ['¥99','¥198','¥398','¥598'];
@@ -442,8 +444,8 @@ function _renderRouteUnsafe(){
           var salesNone = !(z && z.hasSales);
           html += '<div class="ya-cell">'
                 + '<div class="ya-cell-p">'+eH(p)+'</div>'
-                + '<div class="ya-cell-zan'+(z?'':' none')+'">'+zanLbl+'</div>'
                 + '<div class="ya-cell-sales'+(salesNone?' none':'')+'">'+salesLbl+'</div>'
+                + '<div class="ya-cell-zan'+(z?'':' none')+'">'+zanLbl+'</div>'
                 + '<input type="number" min="0" inputmode="numeric" placeholder="0" value="'+eA(v)+'" '+ro+' oninput="updPrice(\''+eA(nm)+'\',\''+eA(p)+'\',this.value)">'
                 + '</div>';
         });
@@ -663,9 +665,47 @@ function loadInitial(){
   // 残在庫は閲覧モードでは呼ばない。編集モード切替で初回取得（toggleMode内）。
 }
 
-// 残在庫を取得。サーバから _pending（キャッシュ温め中）なら数秒後に
-// 1 回だけ再取得（残在庫は補助情報なのでメイン表示はブロックしない）。
+// 残在庫/販売数を取得。
+// 優先順位:
+//   1. GCS zaiko.json（generated_atが6時間以内で、date=todayStrなら採用。~200ms）
+//   2. GAS getYaokoZaiko（フォールバック、GASコールドスタート時は10秒スパイクあり）
+// 残在庫は補助情報なのでメイン表示はブロックしない。
 function _fetchZaiko(attempt){
+  // Step 1: スナップショット試行（初回のみ。attempt>0 は GAS リトライ）
+  if(attempt === 0){
+    _fetchZaikoSnapshot(function(snap){
+      if(snap){
+        state.zaiko = snap.items || {};
+        state.zaikoLoaded = true;
+        if(state.loaded) renderRoute();
+        return;
+      }
+      // スナップショット失敗（無し・古い・fetch失敗）→ GAS直取得
+      _fetchZaikoGas(0);
+    });
+    return;
+  }
+  _fetchZaikoGas(attempt);
+}
+
+// GCSからzaiko.jsonを取得。generated_atが6h以内かつdateが今日なら採用。
+function _fetchZaikoSnapshot(cb){
+  var url = ZAIKO_SNAPSHOT_URL + '?_=' + Date.now();
+  fetch(url, { cache: 'no-store' }).then(function(r){
+    if(!r.ok) throw new Error('http ' + r.status);
+    return r.json();
+  }).then(function(j){
+    if(!j || !j.generated_at || !j.items){ cb(null); return; }
+    // date が今日と一致することを厳密確認（日付が変わったら snapshotが古い）
+    if(j.date && j.date !== todayStr){ cb(null); return; }
+    var gen = Date.parse(j.generated_at);
+    if(isNaN(gen) || Date.now() - gen > SNAPSHOT_MAX_AGE_MS){ cb(null); return; }
+    cb({ items: j.items, generated_at: j.generated_at });
+  }).catch(function(){ cb(null); });
+}
+
+// GAS直取得（従来の実装。SWR失敗時のフォールバック）。
+function _fetchZaikoGas(attempt){
   jsonp(API_URL+'?action=getYaokoZaiko&date='+encodeURIComponent(todayStr),
     attempt>0 ? 'cb_zaiko_retry' : 'cb_zaiko',
     function(res){
@@ -675,9 +715,9 @@ function _fetchZaiko(attempt){
         if(state.loaded) renderRoute();
         return;
       }
-      // _pending: サーバが getAllData フル計算中。1 回だけ 4 秒後に再取得。
+      // _pending: サーバが getAllData フル計算中。1回だけ4秒後に再取得。
       if(attempt===0 && res && res._pending){
-        setTimeout(function(){ _fetchZaiko(1); }, 4000);
+        setTimeout(function(){ _fetchZaikoGas(1); }, 4000);
       }
     },
     function(){}
