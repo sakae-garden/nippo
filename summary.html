@@ -107,6 +107,12 @@ body{font-family:'Noto Sans JP',sans-serif;background:#e8e0d0;min-height:100vh;p
 
 <script>
 var API_URL='https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkVvYc7V77OJrh7h_PZCqtuV4aUL7NYz83VsNc5lY6sXONw/exec';
+// スナップショット配信URL（GCS+CORS+publicRead。フロントの初期表示を高速化する）
+var SNAPSHOT_URL='https://storage.googleapis.com/sakae-garden-snapshots/summary.json';
+// スナップショット鮮度上限（超過時はGASフォールバック）
+var SNAPSHOT_MAX_AGE_MS = 6 * 3600 * 1000;
+// SWRキャッシュキー
+var LS_SUMMARY_CACHE = 'summary_cache_v1';
 var CACHED=null, currentRoute=0;
 
 var ROUTE_GROUPS=[
@@ -157,14 +163,71 @@ var CD=['nouhin','zenjitsu','mochikae','tokki'];
 var OD=['nouhin','tokki'];
 
 var cbIdx=0;
+// タイムアウトは45秒（GASコールドスタート10秒スパイクを吸収）。
+// SWR配信下では裏側の時間なのでUIには見えない。
 function jsonp(url,ok,err){
   var cb='c'+(cbIdx++),s=document.createElement('script');
-  var t=setTimeout(function(){cl();if(err)err();},30000);
+  var t=setTimeout(function(){cl();if(err)err();},45000);
   function cl(){clearTimeout(t);delete window[cb];if(s.parentNode)s.parentNode.removeChild(s);}
   window[cb]=function(d){cl();ok(d);};
   s.onerror=function(){cl();if(err)err();};
   s.src=url+(url.indexOf('?')>-1?'&':'?')+'callback='+cb;
   document.body.appendChild(s);
+}
+
+// SWRキャッシュ read/write
+function _readSummaryCache(){
+  try {
+    var raw = localStorage.getItem(LS_SUMMARY_CACHE);
+    if(!raw) return null;
+    var o = JSON.parse(raw);
+    if(!o || typeof o !== 'object') return null;
+    return o;
+  } catch(e){ return null; }
+}
+function _writeSummaryCache(data){
+  try {
+    var o = {
+      availableDates: data.availableDates||[],
+      allData:        data.allData||{},
+      esmarcheStatus: data.esmarcheStatus||null,
+      cachedAt:       Date.now()
+    };
+    localStorage.setItem(LS_SUMMARY_CACHE, JSON.stringify(o));
+  } catch(e){ /* 容量超は無視 */ }
+}
+
+// 「最新確認中…」「取得失敗（前回キャッシュ表示中）」等の控えめな通知バー
+function _updateSummaryStale(msg){
+  var el = document.getElementById('summaryStale');
+  if(!msg){ if(el) el.parentNode.removeChild(el); return; }
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'summaryStale';
+    el.style.cssText='background:#fff3e0;color:#e65100;border:1px solid #ffb74d;border-radius:8px;padding:6px 10px;margin:8px auto;font-size:12px;text-align:center;font-weight:600;max-width:640px';
+    var host = document.getElementById('report');
+    if(host && host.parentNode) host.parentNode.insertBefore(el, host);
+  }
+  el.textContent = msg;
+}
+
+// スナップショット取得（generated_at検証、鮮度確認）
+function _fetchSummarySnapshot(cb){
+  var url = SNAPSHOT_URL + '?_=' + Date.now();
+  fetch(url, { cache:'no-store' }).then(function(r){
+    if(!r.ok) throw new Error('http ' + r.status);
+    return r.json();
+  }).then(function(j){
+    if(!j || !j.generated_at){ cb(null); return; }
+    var gen = Date.parse(j.generated_at);
+    if(isNaN(gen)){ cb(null); return; }
+    if(Date.now() - gen > SNAPSHOT_MAX_AGE_MS){
+      // 古すぎる → 使わない（誤認防止）
+      cb(null, { tooOld:true, generated_at:j.generated_at });
+      return;
+    }
+    cb(j);
+  }).catch(function(){ cb(null); });
 }
 
 function switchRoute(i){
@@ -174,10 +237,16 @@ function switchRoute(i){
   if(d&&CACHED&&CACHED[d]) render(d,CACHED[d]);
 }
 
-function handleAllDataSuccess(data){
-  CACHED=data.allData;
+function handleAllDataSuccess(data){ _applyAllData(data, null); }
+
+// 差替時に既選択の日付を維持するSWR対応版。
+// preserveDate: 明示指定があればそれを優先。無ければ現在のselect値を維持。
+// どちらも存在しなければ availableDates[0] にフォールバック。
+function _applyAllData(data, preserveDate){
+  CACHED = data.allData||{};
   document.getElementById('loading').style.display='none';
   var sel=document.getElementById('dateSelect');
+  var wantSel = preserveDate || sel.value || '';
   sel.innerHTML='<option value="">-- 日付を選択 --</option>';
   sel.disabled=false;
   (data.availableDates||[]).forEach(function(d){
@@ -189,9 +258,12 @@ function handleAllDataSuccess(data){
     sel.innerHTML='<option value="">データがありません</option>';
     return;
   }
-  // 最新日（availableDates[0]、降順なので先頭が最新）を自動選択して即表示
-  sel.value=data.availableDates[0];
-  showReport(data.availableDates[0]);
+  // 選択維持ロジック
+  var target = (wantSel && data.availableDates.indexOf(wantSel) >= 0)
+    ? wantSel
+    : data.availableDates[0];
+  sel.value = target;
+  showReport(target);
 }
 
 function fmtTodayLocal(){
@@ -211,18 +283,53 @@ function handleEsmarcheStatus(d){
   }
 }
 window.onload=function(){
-  // 反映時刻は getAllData と並列で軽量取得（待たせない）
-  jsonp(API_URL+'?action=getEsmarcheStatus',handleEsmarcheStatus,function(){});
-  jsonp(API_URL+'?action=getAllData',handleAllDataSuccess,function(){
-    // 5秒後に1回だけ自動リトライ
-    document.getElementById('loading').innerHTML='<div class="spinner"></div><br>再取得中...<br><small>しばらくお待ちください</small>';
-    setTimeout(function(){
-      jsonp(API_URL+'?action=getAllData',handleAllDataSuccess,function(){
-        document.getElementById('loading').style.display='none';
-        document.getElementById('error').innerHTML='データ取得に失敗しました。<br>しばらく待ってから更新してください。';
-        document.getElementById('error').style.display='block';
-      });
-    },5000);
+  // ──── SWR起動フロー ────
+  // Step 1: localStorage キャッシュがあれば即描画（0秒表示）
+  // Step 2: スナップショット（GCS）を並行取得→鮮度OKなら差替
+  // Step 3: 失敗ならGAS直取得→リトライ→最終フォールバック（キャッシュ維持＋警告）
+  var cache = _readSummaryCache();
+
+  if(cache && cache.availableDates && cache.availableDates.length){
+    _applyAllData({availableDates:cache.availableDates, allData:cache.allData}, null);
+    if(cache.esmarcheStatus) handleEsmarcheStatus(cache.esmarcheStatus);
+    _updateSummaryStale('🔄 最新確認中…');
+  }
+
+  _fetchSummarySnapshot(function(snap){
+    if(snap){
+      var prevSel = document.getElementById('dateSelect').value;
+      _applyAllData({availableDates:snap.availableDates||[], allData:snap.allData||{}}, prevSel);
+      if(snap.esmarcheStatus) handleEsmarcheStatus(snap.esmarcheStatus);
+      _writeSummaryCache({availableDates:snap.availableDates||[], allData:snap.allData||{}, esmarcheStatus:snap.esmarcheStatus||null});
+      _updateSummaryStale(null);
+      return;
+    }
+    // スナップショット取得失敗（無い/古い/CORSブロック/ネット不通）→ GAS直取得
+    var applyFromGas = function(data){
+      var prevSel = document.getElementById('dateSelect').value;
+      _applyAllData(data, prevSel);
+      _writeSummaryCache({availableDates:data.availableDates||[], allData:data.allData||{}, esmarcheStatus:null});
+      _updateSummaryStale(null);
+    };
+    jsonp(API_URL+'?action=getEsmarcheStatus',handleEsmarcheStatus,function(){});
+    jsonp(API_URL+'?action=getAllData',applyFromGas,function(){
+      // GAS1回目失敗→5秒後リトライ
+      if(!cache) document.getElementById('loading').innerHTML='<div class="spinner"></div><br>再取得中...<br><small>しばらくお待ちください</small>';
+      _updateSummaryStale('🔄 再取得中…');
+      setTimeout(function(){
+        jsonp(API_URL+'?action=getAllData',applyFromGas,function(){
+          if(cache){
+            // キャッシュ表示継続＋警告
+            var when = new Date(cache.cachedAt).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
+            _updateSummaryStale('⚠️ 最新の取得に失敗（表示は '+when+' 時点）');
+          } else {
+            document.getElementById('loading').style.display='none';
+            document.getElementById('error').innerHTML='データ取得に失敗しました。<br>しばらく待ってから更新してください。';
+            document.getElementById('error').style.display='block';
+          }
+        });
+      },5000);
+    });
   });
 };
 
