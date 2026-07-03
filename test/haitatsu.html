@@ -576,6 +576,28 @@ function _applyHaitatsuData(items, lastUpdated){
   renderRoute();
 }
 
+// lastUpdated('yyyy-MM-dd HH:mm:ss')を比較可能なミリ秒に変換。空/不正は0。
+function _luMs(lu){
+  if(!lu) return 0;
+  var t = Date.parse(String(lu).replace(' ','T'));
+  return isNaN(t) ? 0 : t;
+}
+// 鮮度ガード：現在表示中(state.lastUpdated)より新しいデータの場合のみ差し替える。
+//  - 一度も描画していない(!state.loaded)場合は無条件採用（初回表示）。
+//  - 編集中(dirty)は入力を失わないよう一切上書きしない。
+//  - 採用時はlocalStorageキャッシュも更新（次回0秒表示 & 以後の上書きガードの基準）。
+// これにより generated_at が新しくても lastUpdated が古いスナップショットが、
+// 新しいlocalStorage/表示中データを上書きするバグを防ぐ。
+function _applyIfNewer(items, lastUpdated){
+  if(state.dirty) return false;
+  if(!state.loaded || _luMs(lastUpdated) > _luMs(state.lastUpdated)){
+    _applyHaitatsuData(items, lastUpdated);
+    _writeCache({ items: items, lastUpdated: lastUpdated });
+    return true;
+  }
+  return false;
+}
+
 function _updateStaleBanner(msg){
   var el = document.getElementById('stale_notice');
   if(!msg){
@@ -643,40 +665,48 @@ function loadInitial(){
   }
 
   // Step 1: キャッシュ即描画（0秒表示）
+  var haveDisplay = false;
   if(cache){
     _applyHaitatsuData(cache.items, cache.lastUpdated);
     _updateStaleBanner('🔄 最新確認中…');
     state.dataStale = true;
+    haveDisplay = true;
   }
 
-  // Step 2: スナップショット試行
+  // Step 2: スナップショット試行（鮮度ガード付き）。
+  //   generated_at はスナップショット自体の鮮度(6h以内か)判定にのみ使う（_fetchSnapshot内）。
+  //   採用可否は lastUpdated 比較で決める（_applyIfNewer）ので、generated_atが新しくても
+  //   lastUpdatedが古いスナップショットは新しい表示中/localStorageデータを上書きしない。
   _fetchSnapshot(function(snap, meta){
     if(snap){
-      _applyHaitatsuData(snap.items, snap.lastUpdated);
-      _writeCache(snap);
+      _applyIfNewer(snap.items, snap.lastUpdated);
+      haveDisplay = true;
+    }
+    if(haveDisplay){
+      // 即表示できている → 「確認中」は消す。GASは裏で静かに正として確認する
+      //（配達員の体感速度を悪化させない）。
       _updateStaleBanner(null);
       state.dataStale = false;
-      return;
     }
-    // スナップショット失敗（存在しない・古すぎる・fetch失敗）→ GAS
+    // Step 3: GASを正として裏で必ず確認（SWR完成形）。
+    //   スナップショット採否に関わらず実行。lastUpdatedがより新しければ差し替え＆キャッシュ更新。
+    //   これで他端末の最新保存も次のスナップショット生成を待たず反映される。
+    //   GASが遅い/失敗しても表示は既に出ているため体感速度は悪化しない。失敗時は静かに諦める
+    //  （「最終更新 ◯月◯日 ◯時」の鮮度表示は last-upd 表示として維持される）。
     _fetchFromGas(function(gres){
       if(gres){
-        _applyHaitatsuData(gres.items, gres.lastUpdated);
-        _writeCache(gres);
+        _applyIfNewer(gres.items, gres.lastUpdated);
         _updateStaleBanner(null);
         state.dataStale = false;
         return;
       }
-      // GASも失敗
-      if(cache){
-        // キャッシュ表示を維持しつつ警告
-        var when = cache.lastUpdated ? '（'+cache.lastUpdated+'時点）' : '';
-        _updateStaleBanner('⚠️ 最新の取得に失敗' + when + '。表示中のデータは前回保存分です。');
-      } else {
-        // キャッシュも無い→空描画（renderRoute内の「未入力」表示に任せる）
+      // GAS失敗
+      if(!haveDisplay){
+        // キャッシュもスナップショットも無い→空描画（renderRoute内の「未入力」表示に任せる）
         _applyHaitatsuData({}, '');
         _updateStaleBanner('⚠️ サーバ接続失敗。しばらく待って再読み込みしてください。');
       }
+      // haveDisplay時は静かに諦める（既に表示済み・鮮度表示は維持）
     });
   });
   // 残在庫は閲覧モードでは呼ばない。編集モード切替で初回取得（toggleMode内）。
