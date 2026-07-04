@@ -112,6 +112,17 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .extra-mgr-add:active{opacity:.7}
 .extra-mgr-body{padding:10px var(--pad-card)}
 .extra-mgr-empty{font-size:12px;color:var(--sub);font-style:italic}
+/* 商品追加の金額入力モーダル（数字テンキー対応） */
+.price-modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px}
+.price-modal{background:#fff;border-radius:var(--r);padding:20px;width:100%;max-width:320px;box-shadow:0 8px 24px rgba(0,0,0,.2)}
+.price-modal-ttl{font-size:14px;font-weight:700;color:var(--ink);margin-bottom:12px}
+.price-modal-inp{width:100%;height:48px;border:1.5px solid var(--border);border-radius:var(--r-btn);text-align:center;font-size:22px;font-weight:700;font-family:inherit;color:var(--ink);box-sizing:border-box}
+.price-modal-inp:focus{outline:none;border-color:var(--green)}
+.price-modal-btns{display:flex;gap:10px;margin-top:16px}
+.price-modal-btns button{flex:1;height:44px;border:none;border-radius:var(--r-btn);font-size:15px;font-weight:700;font-family:inherit;cursor:pointer}
+.price-modal-cancel{background:#eee;color:var(--sub)}
+.price-modal-ok{background:var(--green);color:#fff}
+.price-modal-ok:active,.price-modal-cancel:active{opacity:.7}
 .extra-chips{display:flex;flex-wrap:wrap;gap:6px}
 .extra-chip{display:inline-flex;align-items:center;gap:4px;background:#f5f5f5;border:1px solid var(--border);border-radius:20px;padding:4px 6px 4px 12px;font-size:13px;font-weight:600;color:var(--ink)}
 .extra-chip-del{background:none;border:none;color:#999;cursor:pointer;font-size:18px;line-height:1;padding:0 4px;font-family:inherit}
@@ -604,17 +615,36 @@ function frow(label,key,isExtra) {
   return '<div class="frow'+(isExtra?' extra':'')+'"><span class="frow-lbl">'+label+'</span><div class="frow-inp"><input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="0" value="'+eA(v)+'" oninput="upd(\''+eA(key)+'\',this.value)"><span class="frow-unit">'+unit+'</span></div></div>';
 }
 function addExtraPrice() {
-  var v=prompt('追加する商品の価格を入力してください（円）\n例：158');
-  if(v===null) return;
-  v=String(v).trim().replace(/[¥￥]/g,'').replace(/[,，]/g,'');
-  var n=parseInt(v,10);
-  if(!n||n<=0||isNaN(n)){alert('正の整数を入力してください');return;}
-  var label='¥'+n;
-  if(state.extraPrices.indexOf(label)>-1){alert(label+'は既に追加されています');return;}
-  if((state.store.prices||[]).indexOf(label)>-1){alert('既存価格('+label+')と同じです。追加できません。');return;}
-  state.extraPrices.push(label);
-  state.extraPrices.sort(function(a,b){return parseInt(a.replace('¥',''),10)-parseInt(b.replace('¥',''),10);});
-  renderForm();
+  // prompt を廃止し、inputmode="numeric" のHTML入力モーダルで金額入力（数字テンキー対応）
+  showPriceModal(function(v){
+    if(v===null) return;
+    v=String(v).trim().replace(/[¥￥]/g,'').replace(/[,，]/g,'');
+    var n=parseInt(v,10);
+    if(!n||n<=0||isNaN(n)){alert('正の整数を入力してください');return;}
+    var label='¥'+n;
+    if(state.extraPrices.indexOf(label)>-1){alert(label+'は既に追加されています');return;}
+    if((state.store.prices||[]).indexOf(label)>-1){alert('既存価格('+label+')と同じです。追加できません。');return;}
+    state.extraPrices.push(label);
+    state.extraPrices.sort(function(a,b){return parseInt(a.replace('¥',''),10)-parseInt(b.replace('¥',''),10);});
+    renderForm();
+  });
+}
+// 金額入力モーダル（type=text inputmode=numeric pattern=[0-9]* で正の整数テンキー）
+function showPriceModal(cb){
+  var ov=document.createElement('div');
+  ov.className='price-modal-ov';
+  ov.innerHTML='<div class="price-modal"><div class="price-modal-ttl">追加する商品の価格（円）</div>'
+    +'<input type="text" inputmode="numeric" pattern="[0-9]*" class="price-modal-inp" placeholder="例：158" maxlength="6">'
+    +'<div class="price-modal-btns"><button type="button" class="price-modal-cancel">キャンセル</button><button type="button" class="price-modal-ok">追加</button></div></div>';
+  document.body.appendChild(ov);
+  var inp=ov.querySelector('.price-modal-inp');
+  var done=false;
+  function close(val){ if(done)return; done=true; if(ov.parentNode)ov.parentNode.removeChild(ov); cb(val); }
+  ov.querySelector('.price-modal-ok').onclick=function(){ close(inp.value); };
+  ov.querySelector('.price-modal-cancel').onclick=function(){ close(null); };
+  ov.addEventListener('click',function(e){ if(e.target===ov) close(null); });
+  inp.addEventListener('keydown',function(e){ if(e.key==='Enter'){ e.preventDefault(); close(inp.value); } else if(e.key==='Escape'){ close(null); } });
+  setTimeout(function(){ try{ inp.focus(); }catch(e){} },50);
 }
 function rmExtraPrice(idx) {
   var p=state.extraPrices[idx];
