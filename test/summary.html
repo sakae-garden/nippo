@@ -302,8 +302,8 @@ function handleEsmarcheStatus(d){
 window.onload=function(){
   // ──── SWR起動フロー ────
   // Step 1: localStorage キャッシュがあれば即描画（0秒表示）
-  // Step 2: スナップショット（GCS）を並行取得→鮮度OKなら差替
-  // Step 3: 失敗ならGAS直取得→リトライ→最終フォールバック（キャッシュ維持＋警告）
+  // Step 2: GAS(getAllData)で最新を取得して差替（即時性最優先・スナップショット非依存）
+  // Step 3: 失敗なら5秒後リトライ→最終フォールバック（キャッシュ維持＋警告）
   var cache = _readSummaryCache();
 
   if(cache && cache.availableDates && cache.availableDates.length){
@@ -312,41 +312,34 @@ window.onload=function(){
     _updateSummaryStale('🔄 最新確認中…');
   }
 
-  _fetchSummarySnapshot(function(snap){
-    if(snap){
-      var prevSel = document.getElementById('dateSelect').value;
-      _applyAllData({availableDates:snap.availableDates||[], allData:snap.allData||{}}, prevSel);
-      if(snap.esmarcheStatus) handleEsmarcheStatus(snap.esmarcheStatus);
-      _writeSummaryCache({availableDates:snap.availableDates||[], allData:snap.allData||{}, esmarcheStatus:snap.esmarcheStatus||null});
-      _updateSummaryStale(null);
-      return;
-    }
-    // スナップショット取得失敗（無い/古い/CORSブロック/ネット不通）→ GAS直取得
-    var applyFromGas = function(data){
-      var prevSel = document.getElementById('dateSelect').value;
-      _applyAllData(data, prevSel);
-      _writeSummaryCache({availableDates:data.availableDates||[], allData:data.allData||{}, esmarcheStatus:null});
-      _updateSummaryStale(null);
-    };
-    jsonp(API_URL+'?action=getEsmarcheStatus',handleEsmarcheStatus,function(){});
-    jsonp(API_URL+'?action=getAllData',applyFromGas,function(){
-      // GAS1回目失敗→5秒後リトライ
-      if(!cache) document.getElementById('loading').innerHTML='<div class="spinner"></div><br>再取得中...<br><small>しばらくお待ちください</small>';
-      _updateSummaryStale('🔄 再取得中…');
-      setTimeout(function(){
-        jsonp(API_URL+'?action=getAllData',applyFromGas,function(){
-          if(cache){
-            // キャッシュ表示継続＋警告
-            var when = new Date(cache.cachedAt).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
-            _updateSummaryStale('⚠️ 最新の取得に失敗（表示は '+when+' 時点）');
-          } else {
-            document.getElementById('loading').style.display='none';
-            document.getElementById('error').innerHTML='データ取得に失敗しました。<br>しばらく待ってから更新してください。';
-            document.getElementById('error').style.display='block';
-          }
-        });
-      },5000);
-    });
+  // スナップショット依存を廃止：サマリーは即時性最優先（日報送信・値引き修正が
+  // 数秒で反映される必要がある）のため、裏の確認先を常に GAS(getAllData) にする。
+  // localStorage 即時表示(SWR)は上の cache 描画で維持されるので体感速度は変わらない。
+  // ※ haitatsu 側のスナップショットは夜入力・翌朝閲覧で即時性不要のため据え置き。
+  var applyFromGas = function(data){
+    var prevSel = document.getElementById('dateSelect').value;
+    _applyAllData(data, prevSel);
+    _writeSummaryCache({availableDates:data.availableDates||[], allData:data.allData||{}, esmarcheStatus:null});
+    _updateSummaryStale(null);
+  };
+  jsonp(API_URL+'?action=getEsmarcheStatus',handleEsmarcheStatus,function(){});
+  jsonp(API_URL+'?action=getAllData',applyFromGas,function(){
+    // GAS1回目失敗→5秒後リトライ
+    if(!cache) document.getElementById('loading').innerHTML='<div class="spinner"></div><br>再取得中...<br><small>しばらくお待ちください</small>';
+    _updateSummaryStale('🔄 再取得中…');
+    setTimeout(function(){
+      jsonp(API_URL+'?action=getAllData',applyFromGas,function(){
+        if(cache){
+          // キャッシュ表示継続＋警告
+          var when = new Date(cache.cachedAt).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
+          _updateSummaryStale('⚠️ 最新の取得に失敗（表示は '+when+' 時点）');
+        } else {
+          document.getElementById('loading').style.display='none';
+          document.getElementById('error').innerHTML='データ取得に失敗しました。<br>しばらく待ってから更新してください。';
+          document.getElementById('error').style.display='block';
+        }
+      });
+    },5000);
   });
 };
 
