@@ -472,7 +472,7 @@ function _renderRouteUnsafe(){
                 + '<div class="ya-cell-p">'+eH(p)+'</div>'
                 + '<div class="ya-cell-sales'+(salesNone?' none':'')+'">'+salesLbl+'</div>'
                 + '<div class="ya-cell-zan'+(z?'':' none')+'">'+zanLbl+'</div>'
-                + '<input type="number" min="0" inputmode="numeric" placeholder="0" value="'+eA(v)+'" '+ro+' oninput="updPrice(\''+eA(nm)+'\',\''+eA(p)+'\',this.value)">'
+                + '<input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="0" value="'+eA(v)+'" '+ro+' oninput="updPrice(\''+eA(nm)+'\',\''+eA(p)+'\',this.value)">'
                 + '</div>';
         });
         html += '</div></div>';

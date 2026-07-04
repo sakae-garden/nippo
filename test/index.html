@@ -97,7 +97,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .frow:last-child{border-bottom:none}
 .frow-lbl{flex:1;font-size:14px;color:var(--ink)}
 .frow-inp{display:flex;align-items:center;gap:5px}
-.frow input[type=number]{width:80px;height:40px;border:1px solid var(--border);border-radius:var(--r-btn);text-align:center;font-size:18px;font-weight:600;font-family:inherit;color:var(--ink);background:#fff;-moz-appearance:textfield}
+.frow input[inputmode="numeric"]{width:80px;height:40px;border:1px solid var(--border);border-radius:var(--r-btn);text-align:center;font-size:18px;font-weight:600;font-family:inherit;color:var(--ink);background:#fff;-moz-appearance:textfield}
 .frow input::-webkit-inner-spin-button,.frow input::-webkit-outer-spin-button{-webkit-appearance:none}
 .frow input:focus{outline:none;border-color:var(--ink)}
 .frow textarea{width:100%;border:1px solid var(--border);border-radius:var(--r-btn);padding:10px 12px;font-size:14px;font-family:inherit;color:var(--ink);background:#fff;resize:vertical;min-height:70px}
@@ -215,7 +215,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .itbl th.itbl-col.ctl-red,
 .itbl td.itbl-cell.ctl-red{border-left:2px solid var(--divider)}
 .itbl .itbl-cell{padding:4px 3px;background:#fff}
-.itbl input[type=number]{
+.itbl input[inputmode="numeric"]{
   width:100%;max-width:64px;height:42px;
   border:1px solid var(--border);border-radius:var(--r-btn);
   text-align:center;font-size:18px;font-weight:600;
@@ -267,7 +267,7 @@ td.itbl-cell.ctl-brown{background:#fff}
 
 /* ============ レスポンシブ ============ */
 @media (max-width: 360px){
-  .itbl input[type=number]{max-width:56px;height:38px;font-size:16px}
+  .itbl input[inputmode="numeric"]{max-width:56px;height:38px;font-size:16px}
   .itbl .itbl-price{width:48px;font-size:12px}
 }
 </style>
@@ -544,7 +544,7 @@ function bTable(prices, isYaokoLike, hasSosei) {
     cols.forEach(function(c){
       var key = c+'_'+p;
       var v = state.formData[key] || '';
-      h+='<td class="itbl-cell '+colCls[c]+'"><input type="number" min="0" inputmode="numeric" placeholder="0" value="'+eA(v)+'" oninput="upd(\''+eA(key)+'\',this.value)"></td>';
+      h+='<td class="itbl-cell '+colCls[c]+'"><input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="0" value="'+eA(v)+'" oninput="upd(\''+eA(key)+'\',this.value)"></td>';
     });
     h+='</tr>';
   });
@@ -556,7 +556,7 @@ function bTable(prices, isYaokoLike, hasSosei) {
       cols.forEach(function(c){
         var key = c+'_'+suffix;
         var v = state.formData[key] || '';
-        h+='<td class="itbl-cell '+colCls[c]+'"><input type="number" min="0" inputmode="numeric" placeholder="0" value="'+eA(v)+'" oninput="upd(\''+eA(key)+'\',this.value)"></td>';
+        h+='<td class="itbl-cell '+colCls[c]+'"><input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="0" value="'+eA(v)+'" oninput="upd(\''+eA(key)+'\',this.value)"></td>';
       });
       h+='</tr>';
     });
@@ -618,7 +618,7 @@ function bExtraMgr() {
 function frow(label,key,isExtra) {
   var v=state.formData[key]||'';
   var unit=(state.store.units&&state.store.units[label])?state.store.units[label]:'個';
-  return '<div class="frow'+(isExtra?' extra':'')+'"><span class="frow-lbl">'+label+'</span><div class="frow-inp"><input type="number" min="0" inputmode="numeric" placeholder="0" value="'+eA(v)+'" oninput="upd(\''+eA(key)+'\',this.value)"><span class="frow-unit">'+unit+'</span></div></div>';
+  return '<div class="frow'+(isExtra?' extra':'')+'"><span class="frow-lbl">'+label+'</span><div class="frow-inp"><input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="0" value="'+eA(v)+'" oninput="upd(\''+eA(key)+'\',this.value)"><span class="frow-unit">'+unit+'</span></div></div>';
 }
 function addExtraPrice() {
   var v=prompt('追加する商品の価格を入力してください（円）\n例：158');
