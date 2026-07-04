@@ -231,9 +231,10 @@ function updPrice(storeName, price, val){
   if(!state.data[storeName].prices) state.data[storeName].prices={};
   state.data[storeName].prices[price] = val;
   state.dirty = true;
-  // 店舗小計と全ルート総合計を即時更新
+  // 店舗小計・全ルート総合計・この経路合計を即時更新（入力ミス検算用）
   updateStoreSubtotal(storeName);
   updateAllRoutesTotal();
+  updateRouteTotal();
 }
 function updComment(storeName, val){
   if(!state.data[storeName]) state.data[storeName]={};
@@ -407,12 +408,20 @@ function _renderRouteUnsafe(){
     html += '<div class="last-upd none">⚠️ <span>未入力</span></div>';
   }
 
-  // 編集モード：最上段に「全ルート総合計」（3ルート全ヤオコー店舗の商品別合計）
+  // 編集モード：最上段に「全ルート総合計」＋直下に「この経路合計」（入力ミス検算用・案B上下2段）
   if(state.mode==='edit'){
     html += '<div class="all-total"><div class="all-total-ttl">📦 全ルート ヤオコー納品数 総合計</div><div class="all-total-grid">';
     YAOKO_PRICES.forEach(function(p){
       var v = priceTotalAllRoutes(p);
       html += '<div class="all-total-cell"><div class="at-p">'+eH(p)+'</div><div class="at-v" id="at_'+esc(p)+'">'+v+'</div><span class="at-u">個</span></div>';
+    });
+    html += '</div></div>';
+    // この経路合計（全ルート合計の直下）。入力中の値をリアルタイム反映し桁間違い等を検算。
+    var _rlabel = (typeof ROUTES!=='undefined' && ROUTES[state.route] && ROUTES[state.route].label) || 'この経路';
+    html += '<div class="route-total"><div class="route-total-ttl">🎯 '+eH(_rlabel)+' ヤオコー納品数 合計</div><div class="route-total-grid">';
+    YAOKO_PRICES.forEach(function(p){
+      var rv = priceTotalForRoute(state.route, p);
+      html += '<div class="route-total-cell"><div class="rt-p">'+eH(p)+'</div><div class="rt-v" id="rt_'+esc(p)+'">'+rv+'</div><span class="rt-u">個</span></div>';
     });
     html += '</div></div>';
   }
