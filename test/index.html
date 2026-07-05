@@ -476,8 +476,9 @@ function renderNedanAlertForStore(storeId){
   prices.forEach(function(p){
     var pp=store[p]; if(!pp||!pp.alert) return;
     var key='nedan_'+storeId+'_'+p, done=state.labelIssued[key];
+    var need=(pp.shortfall!=null)?pp.shortfall:Math.max(200-pp.stock,0);
     rows+='<div class="lbl-issue-row">';
-    rows+='<span class="lbl-issue-lbl">'+eH(p)+' <span class="lbl-issue-sub">(前日在庫'+pp.stock+'枚)</span></span>';
+    rows+='<span class="lbl-issue-lbl">'+eH(p)+' <span class="lbl-issue-sub">(前日在庫'+pp.stock+'枚／あと<b>'+need+'枚以上</b>発行)</span></span>';
     if(done!=null){
       rows+='<span class="lbl-issue-done">✅ '+done+'枚を記録（翌朝反映）</span>';
     } else {
