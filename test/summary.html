@@ -176,7 +176,9 @@ var SP=[
   {keys:['特記事項'],    id:'tokki',   label:'📝 特記事項',          color:'gray'},
 ];
 var YD=['nouhin','zaikoS','zaikoA','zaikoB','zaikoC','sosei','nebiki','mochikae','tokki'];
-var CD=['nouhin','zenjitsu','mochikae','tokki'];
+// 直売所詳細に nebiki を追加：たまやのみ値引きデータを持つため、他直売所では
+// secs.nebiki が無く renderAccordion でスキップされる（列構成は変わらない）。
+var CD=['nouhin','zenjitsu','nebiki','mochikae','tokki'];
 var OD=['nouhin','tokki'];
 
 var cbIdx=0;

@@ -276,6 +276,26 @@ td.itbl-cell.ctl-brown{background:#fff}
 .dg-tl-day{font-size:10px;font-weight:700;color:var(--sub)}
 .dg-tl-txt{font-size:10px;color:var(--ink);text-align:center;line-height:1.3}
 
+/* ============ ラベル在庫アラート（②産地シール / ③値段シール） ============ */
+.lbl-alert{background:#fff8e6;border:1px solid #f0c14b;border-left:4px solid #e6a817;
+  border-radius:var(--r);padding:12px 14px;margin-bottom:10px;box-shadow:var(--shadow)}
+.lbl-alert-ttl{font-size:13px;font-weight:700;color:#8a5a00;letter-spacing:.02em;display:flex;align-items:center;gap:6px}
+.lbl-alert-msg{font-size:12px;color:#6b5300;line-height:1.6;margin-top:5px}
+.lbl-alert-msg b{color:#c0392b;font-weight:700}
+.lbl-issue-wrap{margin-top:10px;display:flex;flex-direction:column;gap:8px}
+.lbl-issue-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.lbl-issue-row .lbl-issue-lbl{font-size:12px;font-weight:600;color:var(--ink);min-width:96px}
+.lbl-issue-row .lbl-issue-sub{font-size:11px;color:var(--sub)}
+.lbl-issue-row input[inputmode="numeric"]{width:72px;height:40px;border:1px solid var(--border);
+  border-radius:var(--r-btn);text-align:center;font-size:17px;font-weight:600;font-family:inherit;color:var(--ink);background:#fff}
+.lbl-issue-row input:focus{outline:none;border-color:var(--green)}
+.lbl-issue-btn{background:var(--green);color:#fff;border:none;border-radius:var(--r-btn);
+  padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;transition:opacity .15s}
+.lbl-issue-btn:active{opacity:.7}
+.lbl-issue-btn:disabled{opacity:.45;cursor:default}
+.lbl-issue-done{font-size:11px;color:var(--green);font-weight:700}
+.lbl-alert-note{font-size:10px;color:#a08000;margin-top:8px;font-style:italic}
+
 /* ============ レスポンシブ ============ */
 @media (max-width: 360px){
   .itbl input[inputmode="numeric"]{max-width:56px;height:38px;font-size:16px}
@@ -318,9 +338,12 @@ td.itbl-cell.ctl-brown{background:#fff}
 <script src="shared-stores.js"></script>
 <script>
 var API_URL = 'https://script.google.com/macros/s/AKfycbwe8_3Dp1U7an5wPVt8T2c2AXT6ltwM-T-bquI5IdGk4-uNCHtvd1Ifhn4MRv1-Oegp/exec';
+// ラベル在庫アラート スナップショット（夜の再計算結果。日中は固定表示）。
+// テスト環境では _propagate_test_env.py が /test/ 版に差し替える。
+var LABEL_SNAPSHOT_URL = 'https://storage.googleapis.com/sakae-garden-snapshots/test/label_alert.json';
 // STORE_DEFS / ROUTES は shared-stores.js でグローバル定義（window.STORE_DEFS / window.ROUTES）
 
-var state = { screen:'home', route:0, store:null, formData:{}, staff:'', config:null, extraPrices:[] };
+var state = { screen:'home', route:0, store:null, formData:{}, staff:'', config:null, extraPrices:[], labelAlert:null, labelIssued:{} };
 var today = new Date();
 var DAYS = ['日','月','火','水','木','金','土'];
 var todayStr = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
@@ -387,9 +410,15 @@ function renderHome() {
   var html='<div class="screen">'
     + '<a href="summary.html" class="summary-link-btn">📊 サマリーを見る</a>'
     + '<div class="action-row"><button class="action-btn" onclick="renderManual()"><span class="a-icon">📖</span>マニュアル</button><button class="action-btn" onclick="renderSettings()"><span class="a-icon">⚙️</span>設定</button></div>';
+  var sanchiShown=false;
   route.groups.forEach(function(g) {
+    // ②産地シール：ヤオコー店舗群の上に、アラート時のみ表示（経路ごとの発行入力欄付き）
+    var hasYaoko=g.stores.some(function(id){ return STORE_DEFS[id] && STORE_DEFS[id].type==='yaoko'; });
+    if(hasYaoko && !sanchiShown){ html+=renderSanchiAlert(route.id); sanchiShown=true; }
     html+='<div class="sec-lbl">'+g.label+'</div><div class="store-list">';
     g.stores.forEach(function(id) {
+      // ③値段シール：男衾・川本の店舗名の上に、アラート時のみ表示（値段ごとの発行入力欄付き）
+      if(id==='obusuma'||id==='kawamoto'){ html+=renderNedanAlertForStore(id); }
       var s=STORE_DEFS[id], sub=(cfg.storeContacts&&cfg.storeContacts[s.name])||'';
       html+='<button class="store-btn '+s.cls+'" onclick="openStore(\''+id+'\')"><span class="si">'+s.icon+'</span><span class="sinfo"><span class="sname">'+s.name+'</span>'+(sub?'<br><span class="ssub">'+sub+'</span>':'')+'</span><span class="sarr">›</span></button>';
     });
@@ -397,6 +426,97 @@ function renderHome() {
   });
   html+='</div>';
   document.getElementById('app').innerHTML=html;
+}
+
+// ============ ラベル在庫アラート（②産地シール / ③値段シール） ============
+// 夜生成のスナップショット(label_alert.json)を読み、店舗選択画面に表示する。
+// 日中の発行入力は label_stock に追記されるが、スナップショットは夜まで再生成
+// されないため、日中はアラートが固定表示される（その場では消えない）。
+var _labelAlertFetched=false;
+function fetchLabelAlert(){
+  fetch(LABEL_SNAPSHOT_URL+'?_='+Date.now(),{cache:'no-store'})
+    .then(function(r){ if(!r.ok) throw new Error('http '+r.status); return r.json(); })
+    .then(function(j){
+      if(j && (j.sanchi||j.nedan)){
+        state.labelAlert=j; _labelAlertFetched=true;
+        if(state.screen==='home') renderHome();
+      }
+    }).catch(function(){ /* スナップショット無し/取得失敗時はアラート非表示（機能は非破壊） */ });
+}
+function _routeLabel(routeId){
+  for(var i=0;i<ROUTES.length;i++) if(ROUTES[i].id===routeId) return ROUTES[i].label;
+  return routeId;
+}
+// ②産地シール アラート（現在の経路の発行入力欄付き）
+function renderSanchiAlert(routeId){
+  var la=state.labelAlert;
+  if(!la||!la.sanchi||!la.sanchi.alert) return '';
+  var s=la.sanchi, key='sanchi_'+routeId, done=state.labelIssued[key];
+  var h='<div class="lbl-alert"><div class="lbl-alert-ttl">⚠️ 産地シール 残りわずか</div>';
+  h+='<div class="lbl-alert-msg">前日在庫 <b>'+s.stock+'枚</b>。各経路 <b>'+s.perRoute+'枚以上</b> 発行してください。</div>';
+  h+='<div class="lbl-issue-wrap"><div class="lbl-issue-row">';
+  h+='<span class="lbl-issue-lbl">'+eH(_routeLabel(routeId))+' 発行数</span>';
+  if(done!=null){
+    h+='<span class="lbl-issue-done">✅ '+done+'枚を記録（在庫反映は翌朝）</span>';
+  } else {
+    h+='<input type="text" inputmode="numeric" pattern="[0-9]*" id="sanchiInp_'+eA(routeId)+'" placeholder="'+s.perRoute+'">';
+    h+='<button class="lbl-issue-btn" onclick="issueSanchi(\''+eA(routeId)+'\')">発行</button>';
+  }
+  h+='</div></div>';
+  h+='<div class="lbl-alert-note">※ この場では消えません。夜の再計算で翌朝に反映されます。</div></div>';
+  return h;
+}
+// ③値段シール アラート（男衾・川本、値段ごとの発行入力欄付き）
+function renderNedanAlertForStore(storeId){
+  var la=state.labelAlert;
+  if(!la||!la.nedan||!la.nedan.stores) return '';
+  var def=STORE_DEFS[storeId]; if(!def) return '';
+  var store=la.nedan.stores[def.name]; if(!store) return '';
+  var prices=la.nedan.prices||[], rows='';
+  prices.forEach(function(p){
+    var pp=store[p]; if(!pp||!pp.alert) return;
+    var key='nedan_'+storeId+'_'+p, done=state.labelIssued[key];
+    rows+='<div class="lbl-issue-row">';
+    rows+='<span class="lbl-issue-lbl">'+eH(p)+' <span class="lbl-issue-sub">(前日在庫'+pp.stock+'枚)</span></span>';
+    if(done!=null){
+      rows+='<span class="lbl-issue-done">✅ '+done+'枚を記録（翌朝反映）</span>';
+    } else {
+      rows+='<input type="text" inputmode="numeric" pattern="[0-9]*" id="nedanInp_'+eA(storeId)+'_'+esc(p)+'" placeholder="発行数">';
+      rows+='<button class="lbl-issue-btn" onclick="issueNedan(\''+eA(storeId)+'\',\''+eA(p)+'\')">発行</button>';
+    }
+    rows+='</div>';
+  });
+  if(!rows) return '';
+  var h='<div class="lbl-alert"><div class="lbl-alert-ttl">⚠️ '+eH(def.name)+' 値段シール 残りわずか</div>';
+  h+='<div class="lbl-issue-wrap">'+rows+'</div>';
+  h+='<div class="lbl-alert-note">※ この場では消えません。夜の再計算で翌朝に反映されます。</div></div>';
+  return h;
+}
+function issueSanchi(routeId){
+  var inp=document.getElementById('sanchiInp_'+routeId);
+  var n=parseInt(((inp&&inp.value)||'').trim(),10);
+  if(!n||n<=0){alert('発行数を入力してください');return;}
+  var url=API_URL+'?action=issueLabel&type='+encodeURIComponent('産地シール')
+    +'&route='+encodeURIComponent(routeId)+'&count='+n+'&date='+todayStr+'&staff='+encodeURIComponent(state.staff||'');
+  _postIssue(url,'sanchi_'+routeId,n);
+}
+function issueNedan(storeId,price){
+  var def=STORE_DEFS[storeId]; if(!def) return;
+  var inp=document.getElementById('nedanInp_'+storeId+'_'+esc(price));
+  var n=parseInt(((inp&&inp.value)||'').trim(),10);
+  if(!n||n<=0){alert('発行数を入力してください');return;}
+  var url=API_URL+'?action=issueLabel&type='+encodeURIComponent('値段シール')
+    +'&store='+encodeURIComponent(def.name)+'&price='+encodeURIComponent(price)
+    +'&count='+n+'&date='+todayStr+'&staff='+encodeURIComponent(state.staff||'');
+  _postIssue(url,'nedan_'+storeId+'_'+price,n);
+}
+function _postIssue(url,key,n){
+  showLoading('発行を記録中...');
+  jsonp(url,'cb_issue',function(res){
+    hideLoading();
+    if(res&&res.success){ state.labelIssued[key]=n; renderHome(); }
+    else{ alert('発行の記録に失敗しました。\n'+((res&&res.error)||'')); }
+  },function(){ hideLoading(); alert('通信エラーで発行を記録できませんでした。'); });
 }
 
 function openStore(id) {
@@ -538,10 +658,13 @@ function renderForm() {
 
 // 【新】表形式1画面入力: 行=価格帯、列=納品/陳列数/(蘇生庫)/値引き/持ち帰り
 function bTable(prices, isYaokoLike, hasSosei) {
+  // たまや（choku系）のみ「値引き」列を追加。男衾・川本等の他直売所は従来の3列のまま。
+  var isTamaya = (state.store && state.store.name === 'たまや');
   var cols = isYaokoLike
     ? (hasSosei ? ['納品','陳列数','蘇生庫','値引き','持ち帰り']
                 : ['納品','陳列数','値引き','持ち帰り'])
-    : ['納品','前日在庫','持ち帰り'];
+    : (isTamaya ? ['納品','前日在庫','値引き','持ち帰り']
+                : ['納品','前日在庫','持ち帰り']);
   var colCls = {
     '納品':'ctl-green','陳列数':'ctl-blue','蘇生庫':'ctl-purple',
     '持ち帰り':'ctl-orange','値引き':'ctl-red','前日在庫':'ctl-brown'
@@ -824,6 +947,7 @@ function renderDoneConfirm(s) {
   var isY=(s.type==='yaoko'||s.type==='yaoko_simple');
   var isC=(s.type==='choku');
   if(!isY&&!isC) return '';
+  var isTamaya=(s.name==='たまや');  // たまやのみ値引き列を表示
   var p=s.prices||[];
   var hasSosei = (s.type==='yaoko');
   var h='<div class="done-confirm-wrap"><div class="done-confirm-title">📋 入力内容の確認</div>';
@@ -833,7 +957,9 @@ function renderDoneConfirm(s) {
     if(hasSosei) h+='<th>蘇生</th>';
     h+='<th>値引</th><th>店頭</th>';
   } else {
-    h+='<th>前日</th><th>店頭</th>';
+    h+='<th>前日</th>';
+    if(isTamaya) h+='<th>値引</th>';
+    h+='<th>店頭</th>';
   }
   h+='</tr></thead><tbody>';
   var tn=0,tc=0,ts=0,tnb=0,tt=0;
@@ -847,6 +973,8 @@ function renderDoneConfirm(s) {
       tenpo = c+sv+nb;
     } else {
       c = parseInt(state.formData['前日在庫_'+pp])||0;
+      // たまやのみ値引きを集計（店頭在庫の定義は従来通り 納品+前日在庫 のまま）
+      if(isTamaya) nb = parseInt(state.formData['値引き_'+pp])||0;
       tenpo = n+c;
     }
     tn+=n; tc+=c; ts+=sv; tnb+=nb; tt+=tenpo;
@@ -858,6 +986,7 @@ function renderDoneConfirm(s) {
       h+='<td><span class="dc-nebiki">'+nb+'</span></td>';
     } else {
       h+='<td><span class="dc-chin">'+c+'</span></td>';
+      if(isTamaya) h+='<td><span class="dc-nebiki">'+nb+'</span></td>';
     }
     h+='<td><span class="dc-tenpo">'+tenpo+'</span></td></tr>';
   });
@@ -883,11 +1012,13 @@ function renderDoneConfirm(s) {
       var k='臨#'+pp;
       var n=parseInt(state.formData['納品_'+k])||0;
       var c=parseInt(state.formData['前日在庫_'+k])||0;
+      var nb=isTamaya?(parseInt(state.formData['値引き_'+k])||0):0;
       var tenpo=n+c;
-      tn+=n; tc+=c; tt+=tenpo;
+      tn+=n; tc+=c; tnb+=nb; tt+=tenpo;
       h+='<tr class="dc-extra"><td>➕'+eH(pp)+'</td>';
       h+='<td><span class="dc-nouhin">'+n+'</span></td>';
       h+='<td><span class="dc-chin">'+c+'</span></td>';
+      if(isTamaya) h+='<td><span class="dc-nebiki">'+nb+'</span></td>';
       h+='<td><span class="dc-tenpo">'+tenpo+'</span></td></tr>';
     });
   }
@@ -899,6 +1030,7 @@ function renderDoneConfirm(s) {
     h+='<td><span class="dc-nebiki">'+tnb+'</span></td>';
   } else {
     h+='<td><span class="dc-chin">'+tc+'</span></td>';
+    if(isTamaya) h+='<td><span class="dc-nebiki">'+tnb+'</span></td>';
   }
   h+='<td><span class="dc-tenpo">'+tt+'</span></td></tr>';
   h+='</tbody></table></div>';
@@ -946,7 +1078,7 @@ function rfTags(){var w=document.getElementById('staffTagWrap');if(!w)return;var
 function updC(name,val){if(!window._ec.storeContacts)window._ec.storeContacts={};window._ec.storeContacts[name]=val;}
 function saveCfg(){localStorage.setItem('nippo_config',JSON.stringify(window._ec));state.config=window._ec;jsonp(API_URL+'?action=saveConfig&data='+encodeURIComponent(JSON.stringify(window._ec)),'cb_sc',function(){},function(){});var m=document.getElementById('settingsMsg');if(m){m.style.display='block';setTimeout(function(){m.style.display='none';},2000);}}
 
-loadConfig(function(){ renderHome(); fetchHaitatsuBackground(); });
+loadConfig(function(){ renderHome(); fetchHaitatsuBackground(); fetchLabelAlert(); });
 </script>
 
 <footer style="position:fixed;bottom:0;left:0;width:100%;height:52px;background:#1c1c1e;display:flex;align-items:center;justify-content:center;z-index:100">
