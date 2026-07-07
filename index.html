@@ -434,19 +434,21 @@ function _routeLabel(routeId){
 function renderSanchiAlert(routeId){
   var la=state.labelAlert;
   if(!la||!la.sanchi||!la.sanchi.alert) return '';
-  var s=la.sanchi, key='sanchi_'+routeId, done=state.labelIssued[key];
+  var s=la.sanchi, key='sanchi_'+routeId;
+  var need=s.perRoute||0;
+  var issued=state.labelIssued[key]||0;
+  // 修正4（パターン1）: この経路で規定枚数以上を発行入力したら当日画面上は即座に非表示。
+  // 未入力・規定未満の経路は残す。本判定は夜の再計算（独立）。
+  if(need>0 && issued>=need) return '';
   var h='<div class="lbl-alert"><div class="lbl-alert-ttl">⚠️ 産地シール 残りわずか</div>';
-  h+='<div class="lbl-alert-msg">前日在庫 <b>'+s.stock+'枚</b>。各経路 <b>'+s.perRoute+'枚以上</b> 発行してください。</div>';
+  h+='<div class="lbl-alert-msg">前日在庫 <b>'+s.stock+'枚</b>。各経路 <b>'+need+'枚以上</b> 発行してください。</div>';
   h+='<div class="lbl-issue-wrap"><div class="lbl-issue-row">';
   h+='<span class="lbl-issue-lbl">'+eH(_routeLabel(routeId))+' 発行数</span>';
-  if(done!=null){
-    h+='<span class="lbl-issue-done">✅ '+done+'枚を記録（在庫反映は翌朝）</span>';
-  } else {
-    h+='<input type="text" inputmode="numeric" pattern="[0-9]*" id="sanchiInp_'+eA(routeId)+'" placeholder="'+s.perRoute+'">';
-    h+='<button class="lbl-issue-btn" onclick="issueSanchi(\''+eA(routeId)+'\')">発行</button>';
-  }
+  h+='<input type="text" inputmode="numeric" pattern="[0-9]*" id="sanchiInp_'+eA(routeId)+'" placeholder="'+need+'">';
+  h+='<button class="lbl-issue-btn" onclick="issueSanchi(\''+eA(routeId)+'\')">発行</button>';
+  if(issued>0) h+='<span class="lbl-issue-done">これまで'+issued+'枚（規定'+need+'枚）</span>';
   h+='</div></div>';
-  h+='<div class="lbl-alert-note">※ この場では消えません。夜の再計算で翌朝に反映されます。</div></div>';
+  h+='<div class="lbl-alert-note">※ 規定枚数以上を入力するとこの経路の表示は消えます。在庫の本反映は夜の再計算で翌朝です。</div></div>';
   return h;
 }
 // ③値段シール アラート（男衾・川本、値段ごとの発行入力欄付き）
@@ -458,22 +460,23 @@ function renderNedanAlertForStore(storeId){
   var prices=la.nedan.prices||[], rows='';
   prices.forEach(function(p){
     var pp=store[p]; if(!pp||!pp.alert) return;
-    var key='nedan_'+storeId+'_'+p, done=state.labelIssued[key];
-    var need=(pp.shortfall!=null)?pp.shortfall:Math.max(200-pp.stock,0);
+    var key='nedan_'+storeId+'_'+p;
+    // 規定枚数 = GAS算出の need（不足分→上限200→10の位四捨五入）。無ければフロントで再現。
+    var need=(pp.need!=null)?pp.need:Math.round(Math.min(Math.max(500-pp.stock,0),200)/10)*10;
+    var issued=state.labelIssued[key]||0;
+    // 修正4（パターン1）: この店舗×値段で規定枚数以上を入力したら即座に非表示。他は残す。
+    if(need>0 && issued>=need) return;
     rows+='<div class="lbl-issue-row">';
     rows+='<span class="lbl-issue-lbl">'+eH(p)+' <span class="lbl-issue-sub">(前日在庫'+pp.stock+'枚／あと<b>'+need+'枚以上</b>発行)</span></span>';
-    if(done!=null){
-      rows+='<span class="lbl-issue-done">✅ '+done+'枚を記録（翌朝反映）</span>';
-    } else {
-      rows+='<input type="text" inputmode="numeric" pattern="[0-9]*" id="nedanInp_'+eA(storeId)+'_'+esc(p)+'" placeholder="発行数">';
-      rows+='<button class="lbl-issue-btn" onclick="issueNedan(\''+eA(storeId)+'\',\''+eA(p)+'\')">発行</button>';
-    }
+    rows+='<input type="text" inputmode="numeric" pattern="[0-9]*" id="nedanInp_'+eA(storeId)+'_'+esc(p)+'" placeholder="発行数">';
+    rows+='<button class="lbl-issue-btn" onclick="issueNedan(\''+eA(storeId)+'\',\''+eA(p)+'\')">発行</button>';
+    if(issued>0) rows+='<span class="lbl-issue-done">これまで'+issued+'枚（規定'+need+'枚）</span>';
     rows+='</div>';
   });
   if(!rows) return '';
   var h='<div class="lbl-alert"><div class="lbl-alert-ttl">⚠️ '+eH(def.name)+' 値段シール 残りわずか</div>';
   h+='<div class="lbl-issue-wrap">'+rows+'</div>';
-  h+='<div class="lbl-alert-note">※ この場では消えません。夜の再計算で翌朝に反映されます。</div></div>';
+  h+='<div class="lbl-alert-note">※ 規定枚数以上を入力したその値段の表示は消えます。在庫の本反映は夜の再計算で翌朝です。</div></div>';
   return h;
 }
 function issueSanchi(routeId){
@@ -498,7 +501,8 @@ function _postIssue(url,key,n){
   showLoading('発行を記録中...');
   jsonp(url,'cb_issue',function(res){
     hideLoading();
-    if(res&&res.success){ state.labelIssued[key]=n; renderHome(); }
+    // 当日画面上の累積（複数回に分けて入力しても合算）。規定到達で即時非表示（renderHome内で判定）。
+    if(res&&res.success){ state.labelIssued[key]=(state.labelIssued[key]||0)+n; renderHome(); }
     else{ alert('発行の記録に失敗しました。\n'+((res&&res.error)||'')); }
   },function(){ hideLoading(); alert('通信エラーで発行を記録できませんでした。'); });
 }
