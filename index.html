@@ -338,7 +338,7 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkV
 var LABEL_SNAPSHOT_URL = 'https://storage.googleapis.com/sakae-garden-snapshots/label_alert.json';
 // STORE_DEFS / ROUTES は shared-stores.js でグローバル定義（window.STORE_DEFS / window.ROUTES）
 
-var state = { screen:'home', route:0, store:null, formData:{}, staff:'', config:null, extraPrices:[], labelAlert:null, labelIssued:{}, labelIssuedTotal:null, manualIssueOpen:false };
+var state = { screen:'home', route:0, store:null, formData:{}, staff:'', config:null, extraPrices:[], labelAlert:null, labelIssued:{}, labelIssuedTotal:null, manualIssueOpen:false, sanchiIssuedToday:0 };
 var today = new Date();
 var DAYS = ['日','月','火','水','木','金','土'];
 var todayStr = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
@@ -425,12 +425,11 @@ function renderHome() {
   var html='<div class="screen">'
     + '<a href="summary.html" class="summary-link-btn">📊 サマリーを見る</a>'
     + '<div class="action-row"><button class="action-btn" onclick="renderManual()"><span class="a-icon">📖</span>マニュアル</button><button class="action-btn" onclick="renderSettings()"><span class="a-icon">⚙️</span>設定</button></div>'
+    // 並び順: ②産地シールのアラート（通知＋全社一括の発行指示枚数）→ 任意発行パネル。
+    // 産地シールは全社共通1在庫なので、経路タブに関係なく常に同じ位置に出す。
+    + renderSanchiAlert()
     + renderManualIssue();
-  var sanchiShown=false;
   route.groups.forEach(function(g) {
-    // ②産地シール：ヤオコー店舗群の上に、アラート時のみ表示（経路ごとの発行入力欄付き）
-    var hasYaoko=g.stores.some(function(id){ return STORE_DEFS[id] && STORE_DEFS[id].type==='yaoko'; });
-    if(hasYaoko && !sanchiShown){ html+=renderSanchiAlert(route.id); sanchiShown=true; }
     html+='<div class="sec-lbl">'+g.label+'</div><div class="store-list">';
     g.stores.forEach(function(id) {
       // ③値段シール：男衾・川本の店舗名の上に、アラート時のみ表示（値段ごとの発行入力欄付き）
@@ -459,9 +458,20 @@ function fetchLabelAlert(){
       }
     }).catch(function(){ /* スナップショット無し/取得失敗時はアラート非表示（機能は非破壊） */ });
 }
-function _routeLabel(routeId){
-  for(var i=0;i<ROUTES.length;i++) if(ROUTES[i].id===routeId) return ROUTES[i].label;
-  return routeId;
+// ===== 産地シール：当日の任意発行累計（localStorage 永続） =====
+// 即時非表示の判定に使う。ページを開き直しても当日中は維持し、リロードで
+// アラートが復活する事故を防ぐ。日付が変われば自動的に 0 から数え直す
+// （翌朝の真値は夜間再計算＝スナップショット側で決まる）。
+var LS_SANCHI_ISSUED = 'sanchi_issued_today_v1';
+function _loadSanchiIssuedToday(){
+  try{
+    var r=JSON.parse(localStorage.getItem(LS_SANCHI_ISSUED)||'null');
+    if(r && r.date===todayStr) return parseInt(r.count,10)||0;
+  }catch(e){}
+  return 0;
+}
+function _saveSanchiIssuedToday(n){
+  try{ localStorage.setItem(LS_SANCHI_ISSUED, JSON.stringify({date:todayStr, count:n})); }catch(e){}
 }
 
 // ============ 産地シールの任意発行（アラート非表示時も常時使える） ============
@@ -494,17 +504,13 @@ function renderManualIssue(){
   h+='<span class="lbl-manual-stock">現時点在庫：<b>'+(stock==null?'—':stock)+'</b>枚</span>';
   h+='</div>';
   h+='<div class="lbl-manual-body" id="lblManualBody"'+(open?'':' style="display:none"')+'>';
-  h+='<div class="lbl-issue-wrap">';
-  for(var i=0;i<ROUTES.length;i++){
-    var r=ROUTES[i];
-    h+='<div class="lbl-issue-row">';
-    h+='<span class="lbl-issue-lbl">'+eH(r.label)+'</span>';
-    h+='<input type="text" inputmode="numeric" pattern="[0-9]*" id="manualInp_'+eA(r.id)+'" placeholder="発行数">';
-    h+='<button class="lbl-issue-btn" onclick="issueSanchiManual(\''+eA(r.id)+'\')">発行</button>';
-    h+='</div>';
-  }
-  h+='</div>';
-  h+='<div class="lbl-manual-note">※ ヤオコー産地シールのみ。どの経路で入力しても全社共通の1在庫に加算されます。'
+  h+='<div class="lbl-issue-wrap"><div class="lbl-issue-row">';
+  h+='<span class="lbl-issue-lbl">発行枚数</span>';
+  h+='<input type="text" inputmode="numeric" pattern="[0-9]*" id="manualInpSanchi" placeholder="発行数">';
+  h+='<button class="lbl-issue-btn" onclick="issueSanchiManual()">発行</button>';
+  if(state.sanchiIssuedToday>0) h+='<span class="lbl-issue-done">本日'+state.sanchiIssuedToday+'枚発行</span>';
+  h+='</div></div>';
+  h+='<div class="lbl-manual-note">※ ヤオコー産地シールのみ。全社共通の1在庫に加算されます。'
     +'消費（納品分）の反映は夜の再計算です。</div>';
   h+='</div></div>';
   return h;
@@ -516,38 +522,46 @@ function toggleManualIssue(){
   if(b) b.style.display=state.manualIssueOpen?'':'none';
   if(c) c.textContent=state.manualIssueOpen?'−':'＋';
 }
-// 発行記録・在庫加算はアラート時発行と同一の仕組み（issueLabel → label_stock 追記）を流用。
-function issueSanchiManual(routeId){
-  var inp=document.getElementById('manualInp_'+routeId);
+// 発行記録・在庫加算は従来と同一の仕組み（issueLabel → label_stock 追記）を流用。
+// 経路の区別は廃止し、route列には固定で '任意' を入れる（在庫は全sanchi合算＝経路非依存）。
+var SANCHI_MANUAL_ROUTE = '任意';
+function issueSanchiManual(){
+  var inp=document.getElementById('manualInpSanchi');
   var n=parseInt(((inp&&inp.value)||'').trim(),10);
   if(!n||n<=0){alert('発行数を入力してください');return;}
   state.manualIssueOpen=true;  // 発行後の再描画でも開いたまま
-  _postIssue(_sanchiIssueUrl(routeId,n),'sanchi_'+routeId,n);
+  _postIssue(_sanchiIssueUrl(n),'sanchi_manual',n);
 }
-function _sanchiIssueUrl(routeId,n){
+function _sanchiIssueUrl(n){
   return API_URL+'?action=issueLabel&type='+encodeURIComponent('産地シール')
-    +'&route='+encodeURIComponent(routeId)+'&count='+n+'&date='+todayStr
+    +'&route='+encodeURIComponent(SANCHI_MANUAL_ROUTE)+'&count='+n+'&date='+todayStr
     +'&staff='+encodeURIComponent(state.staff||'');
 }
-// ②産地シール アラート（現在の経路の発行入力欄付き）
-function renderSanchiAlert(routeId){
+// 全社一括の発行指示枚数。GAS が need を返さない古いスナップショットでもフロントで再現する
+// （不足分 = 1000 − 在庫 → 上限200 → 10の位四捨五入）。
+function _sanchiNeed(s){
+  if(s.need!=null) return s.need;
+  var target=(s.target!=null)?s.target:1000, cap=(s.cap!=null)?s.cap:200;
+  var shortfall=(s.shortfall!=null)?s.shortfall:Math.max(target-(s.stock||0),0);
+  return Math.round(Math.min(Math.max(shortfall,0),cap)/10)*10;
+}
+// ②産地シール アラート（通知＋全社一括の発行指示枚数のみ。発行操作は任意発行パネルに一本化）
+function renderSanchiAlert(){
   var la=state.labelAlert;
   if(!la||!la.sanchi||!la.sanchi.alert) return '';
-  var s=la.sanchi, key='sanchi_'+routeId;
-  var need=s.perRoute||0;
-  var issued=state.labelIssued[key]||0;
-  // 修正4（パターン1）: この経路で規定枚数以上を発行入力したら当日画面上は即座に非表示。
-  // 未入力・規定未満の経路は残す。本判定は夜の再計算（独立）。
-  if(need>0 && issued>=need) return '';
+  var s=la.sanchi;
+  var need=_sanchiNeed(s);
+  // 即時非表示: 当日の任意発行累計が発行指示枚数に達したら当日中は消す。
+  // 分割発行でも累計で判定。localStorage 永続なのでリロードしても復活しない。
+  // しきい値(解除1000枚)超えは条件にしない＝指示枚数到達のみで消す。
+  // 本判定は夜間再計算（persist は朝4:00-5:59）とは独立。
+  if(need>0 && state.sanchiIssuedToday>=need) return '';
   var h='<div class="lbl-alert"><div class="lbl-alert-ttl">⚠️ 産地シール 残りわずか</div>';
-  h+='<div class="lbl-alert-msg">前日在庫 <b>'+s.stock+'枚</b>。各経路 <b>'+need+'枚以上</b> 発行してください。</div>';
-  h+='<div class="lbl-issue-wrap"><div class="lbl-issue-row">';
-  h+='<span class="lbl-issue-lbl">'+eH(_routeLabel(routeId))+' 発行数</span>';
-  h+='<input type="text" inputmode="numeric" pattern="[0-9]*" id="sanchiInp_'+eA(routeId)+'" placeholder="'+need+'">';
-  h+='<button class="lbl-issue-btn" onclick="issueSanchi(\''+eA(routeId)+'\')">発行</button>';
-  if(issued>0) h+='<span class="lbl-issue-done">これまで'+issued+'枚（規定'+need+'枚）</span>';
-  h+='</div></div>';
-  h+='<div class="lbl-alert-note">※ 規定枚数以上を入力するとこの経路の表示は消えます。在庫の本反映は夜の再計算で翌朝です。</div></div>';
+  h+='<div class="lbl-alert-msg">前日在庫 <b>'+s.stock+'枚</b>。<b>'+need+'枚以上</b> 発行してください。</div>';
+  if(state.sanchiIssuedToday>0){
+    h+='<div class="lbl-alert-msg">本日の発行 <b>'+state.sanchiIssuedToday+'枚</b>（あと'+Math.max(need-state.sanchiIssuedToday,0)+'枚）</div>';
+  }
+  h+='<div class="lbl-alert-note">※ 下の「＋ラベルを発行する」から発行してください。本日の発行累計が'+need+'枚に達すると、この表示は当日中は消えます。在庫の本反映は夜の再計算で翌朝です。</div></div>';
   return h;
 }
 // ③値段シール アラート（男衾・川本、値段ごとの発行入力欄付き）
@@ -578,12 +592,6 @@ function renderNedanAlertForStore(storeId){
   h+='<div class="lbl-alert-note">※ 規定枚数以上を入力したその値段の表示は消えます。在庫の本反映は夜の再計算で翌朝です。</div></div>';
   return h;
 }
-function issueSanchi(routeId){
-  var inp=document.getElementById('sanchiInp_'+routeId);
-  var n=parseInt(((inp&&inp.value)||'').trim(),10);
-  if(!n||n<=0){alert('発行数を入力してください');return;}
-  _postIssue(_sanchiIssueUrl(routeId,n),'sanchi_'+routeId,n);
-}
 function issueNedan(storeId,price){
   var def=STORE_DEFS[storeId]; if(!def) return;
   var inp=document.getElementById('nedanInp_'+storeId+'_'+esc(price));
@@ -610,6 +618,16 @@ function _setIssueBtnsDisabled(d){
   var b=document.querySelectorAll('.lbl-issue-btn');
   for(var i=0;i<b.length;i++) b[i].disabled=!!d;
 }
+// 発行成功時のローカル計上（1回の発行につき1度だけ呼ぶ）
+function _countIssued(key,n){
+  // 当日画面上の累積（複数回に分けて入力しても合算）。規定到達で即時非表示（renderHome内で判定）。
+  state.labelIssued[key]=(state.labelIssued[key]||0)+n;
+  if(key==='sanchi_manual'){
+    // 産地シールの即時非表示は「当日の任意発行累計」で判定。localStorage に永続化。
+    state.sanchiIssuedToday+=n;
+    _saveSanchiIssuedToday(state.sanchiIssuedToday);
+  }
+}
 function _postIssue(baseUrl,key,n){
   if(_issueBusy) return;                    // 送信中の再タップを無視
   _issueBusy=true; _setIssueBtnsDisabled(true);
@@ -618,8 +636,7 @@ function _postIssue(baseUrl,key,n){
   function done(){ _issueBusy=false; _setIssueBtnsDisabled(false); hideLoading(); }
   function succeed(){
     done();
-    // 当日画面上の累積（複数回に分けて入力しても合算）。規定到達で即時非表示（renderHome内で判定）。
-    state.labelIssued[key]=(state.labelIssued[key]||0)+n;
+    _countIssued(key,n);
     // 産地シールはライブ累計発行数にも加算 →「現時点在庫」がその場で増える
     if(key.indexOf('sanchi_')===0 && state.labelIssuedTotal!=null) state.labelIssuedTotal+=n;
     renderHome();
@@ -632,7 +649,7 @@ function _postIssue(baseUrl,key,n){
         if(res&&res.success&&res.found){
           if(typeof res.sanchi==='number') state.labelIssuedTotal=res.sanchi;
           done();
-          state.labelIssued[key]=(state.labelIssued[key]||0)+n;
+          _countIssued(key,n);
           renderHome();
           return;
         }
@@ -1290,6 +1307,8 @@ function saveCfg(){
     },function(){ failed('通信エラーが発生しました'); },SAVECFG_TIMEOUT);
 }
 
+// 当日の任意発行累計を localStorage から復元（リロードでアラートが復活しないように）
+state.sanchiIssuedToday = _loadSanchiIssuedToday();
 loadConfig(function(){ renderHome(); fetchHaitatsuBackground(); fetchLabelAlert(); fetchLabelIssuedTotal(); });
 </script>
 
