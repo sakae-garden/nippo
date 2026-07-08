@@ -358,15 +358,35 @@ function getDefaultConfig() {
   return { staff:['八島','青柳','杉','その他'], storeContacts:c };
 }
 
+// JSONP。GASの /exec は HTTP 200 で HTML 中間ページ（ログイン/リダイレクト）を返すことがあり、
+// その場合スクリプトは「読み込み成功」扱いになり onerror も発火しないため、コールバックが
+// 呼ばれたかを onload 後に確認して失敗判定する（無検知だとタイムアウトまで無言でぶら下がる）。
+// called ラッチで onOk/onErr の二重呼び出しを防ぐ。timeoutMs は呼び出し側で指定可（既定30秒）。
 var cbIdx=0;
-function jsonp(url,base,onOk,onErr) {
+function jsonp(url,base,onOk,onErr,timeoutMs) {
   var n=base+'_'+(cbIdx++), s=document.createElement('script');
-  var t=setTimeout(function(){cleanup();if(onErr)onErr();},30000);
+  var called=false;
+  var t=setTimeout(function(){cleanup();if(!called){called=true;if(onErr)onErr();}},timeoutMs||30000);
   function cleanup(){clearTimeout(t);delete window[n];if(s.parentNode)s.parentNode.removeChild(s);}
-  window[n]=function(d){cleanup();onOk(d);};
-  s.onerror=function(){cleanup();if(onErr)onErr();};
+  window[n]=function(d){if(called)return;called=true;cleanup();onOk(d);};
+  s.onload=function(){
+    // script は実行完了したが window[n] が呼ばれていなければ失敗扱い（HTML中間ページ等）
+    if(called) return;
+    setTimeout(function(){
+      if(called) return;
+      called=true; cleanup(); if(onErr)onErr();
+    },200);
+  };
+  s.onerror=function(){if(called)return;called=true;cleanup();if(onErr)onErr();};
   s.src=url+(url.indexOf('?')>-1?'&':'?')+'callback='+n;
   document.body.appendChild(s);
+}
+// 冪等キー用UUID（crypto.randomUUID 非対応端末のフォールバック付き）
+function _uuid(){
+  try{ if(window.crypto&&crypto.randomUUID) return crypto.randomUUID(); }catch(e){}
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,function(c){
+    var r=Math.random()*16|0, v=(c==='x')?r:((r&0x3)|0x8); return v.toString(16);
+  });
 }
 function showLoading(msg){var el=document.getElementById('lo');if(!el){el=document.createElement('div');el.id='lo';el.className='loading-overlay';el.innerHTML='<div class="loading-box"><div class="spinner"></div><br>'+(msg||'送信中...')+'</div>';document.body.appendChild(el);}}
 function hideLoading(){var el=document.getElementById('lo');if(el)el.parentNode.removeChild(el);}
@@ -574,19 +594,68 @@ function issueNedan(storeId,price){
     +'&count='+n+'&date='+todayStr+'&staff='+encodeURIComponent(state.staff||'');
   _postIssue(url,'nedan_'+storeId+'_'+price,n);
 }
-function _postIssue(url,key,n){
-  showLoading('発行を記録中...');
-  jsonp(url,'cb_issue',function(res){
-    hideLoading();
+// 発行の送信。二重記録防止:
+//   F) 送信中は全発行ボタンを disabled（連打・再タップ封じ）
+//   B) 操作ごとに reqId(UUID) を発番し、再試行は同じ reqId で再送 → GAS側で重複検知
+//      （duplicate:true も success 扱い。ローカル加算は1回だけ）
+//   C) 全試行が失敗しても、最後に reqId で「記録が入ったか」をサーバに確認する。
+//      入っていれば成功扱い（誤ってもう一度発行させない＝別reqIdでの真の二重行を防ぐ）。
+// タイムアウトは30秒（GAS実測で15〜25秒かかることがある。HTML中間ページは onload 検知で
+// 即失敗するので、長めのタイムアウトでも体感は悪化しない）。
+var ISSUE_MAX_ATTEMPTS = 3;
+var ISSUE_RETRY_WAIT   = 2000;
+var ISSUE_TIMEOUT      = 30000;
+var _issueBusy = false;
+function _setIssueBtnsDisabled(d){
+  var b=document.querySelectorAll('.lbl-issue-btn');
+  for(var i=0;i<b.length;i++) b[i].disabled=!!d;
+}
+function _postIssue(baseUrl,key,n){
+  if(_issueBusy) return;                    // 送信中の再タップを無視
+  _issueBusy=true; _setIssueBtnsDisabled(true);
+  var reqId=_uuid();
+  var url=baseUrl+'&reqId='+encodeURIComponent(reqId);
+  function done(){ _issueBusy=false; _setIssueBtnsDisabled(false); hideLoading(); }
+  function succeed(){
+    done();
     // 当日画面上の累積（複数回に分けて入力しても合算）。規定到達で即時非表示（renderHome内で判定）。
-    if(res&&res.success){
-      state.labelIssued[key]=(state.labelIssued[key]||0)+n;
-      // 産地シールはライブ累計発行数にも加算 →「現時点在庫」がその場で増える
-      if(key.indexOf('sanchi_')===0 && state.labelIssuedTotal!=null) state.labelIssuedTotal+=n;
-      renderHome();
-    }
-    else{ alert('発行の記録に失敗しました。\n'+((res&&res.error)||'')); }
-  },function(){ hideLoading(); alert('通信エラーで発行を記録できませんでした。'); });
+    state.labelIssued[key]=(state.labelIssued[key]||0)+n;
+    // 産地シールはライブ累計発行数にも加算 →「現時点在庫」がその場で増える
+    if(key.indexOf('sanchi_')===0 && state.labelIssuedTotal!=null) state.labelIssuedTotal+=n;
+    renderHome();
+  }
+  // 全試行が通信エラーで終わった時、reqId で記録の有無をサーバに確認する
+  function confirmOrFail(){
+    hideLoading(); showLoading('記録を確認中...');
+    jsonp(API_URL+'?action=getLabelIssuedTotal&reqId='+encodeURIComponent(reqId)+'&_cb='+Date.now(),
+      'cb_issue_confirm',function(res){
+        if(res&&res.success&&res.found){
+          if(typeof res.sanchi==='number') state.labelIssuedTotal=res.sanchi;
+          done();
+          state.labelIssued[key]=(state.labelIssued[key]||0)+n;
+          renderHome();
+          return;
+        }
+        done(); alert('通信エラーで発行を記録できませんでした。');
+      },function(){ done(); alert('通信エラーで発行を記録できませんでした。\n記録されたか不明です。時間をおいて在庫表示をご確認ください。'); },
+      ISSUE_TIMEOUT);
+  }
+  function attempt(i){
+    hideLoading();
+    showLoading(i===0?'発行を記録中...':'発行を記録中...（再試行 '+i+'/'+(ISSUE_MAX_ATTEMPTS-1)+'）');
+    // _cb はGoogle側リダイレクト状態のリフレッシュ用（冪等キーではない）
+    jsonp(url+'&_cb='+Date.now()+'_'+i,'cb_issue',function(res){
+      // duplicate:true（同じreqIdの再送）も success として1回だけ計上する
+      if(res&&res.success){ succeed(); return; }
+      // ロック競合など retryable なサーバエラーは同じ reqId で再送
+      if(res&&res.retryable&&i+1<ISSUE_MAX_ATTEMPTS){ setTimeout(function(){attempt(i+1);},ISSUE_RETRY_WAIT); return; }
+      done(); alert('発行の記録に失敗しました。\n'+((res&&res.error)||''));
+    },function(){
+      if(i+1<ISSUE_MAX_ATTEMPTS){ setTimeout(function(){attempt(i+1);},ISSUE_RETRY_WAIT); return; }
+      confirmOrFail();
+    },ISSUE_TIMEOUT);
+  }
+  attempt(0);
 }
 
 function openStore(id) {
