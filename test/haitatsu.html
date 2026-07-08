@@ -168,8 +168,13 @@ var ZAIKO_SNAPSHOT_URL = 'https://storage.googleapis.com/sakae-garden-snapshots/
 var SNAPSHOT_MAX_AGE_MS = 6 * 3600 * 1000;
 var YAOKO_PRICES = ['¥99','¥198','¥398','¥598'];
 
-// SWR用 localStorage キー
-var LS_HAITATSU_CACHE = 'haitatsu_cache_v1';
+// SWR用 localStorage キー。/nippo/test/ は本番と同一オリジンで localStorage を共有するため、
+// スナップショットURL(/test/)で環境を判定してキーを分ける。本番のキー名は従来のまま。
+// index.html も同じ規則で haitatsu_latest を読むので、両者のキーは常に一致する。
+var IS_TEST_ENV = String(SNAPSHOT_URL).indexOf('/test/') > -1;
+function lsKey(base){ return base + (IS_TEST_ENV ? '_test' : ''); }
+var LS_HAITATSU_CACHE = lsKey('haitatsu_cache_v1');
+var LS_HAITATSU_LATEST = lsKey('haitatsu_latest');
 
 var state = { mode:'view', route:0, data:{}, zaiko:{}, lastUpdated:'', dirty:false, loaded:false, zaikoLoaded:false, dataStale:false };
 
@@ -534,7 +539,7 @@ function _doSaveAttempt(attempt){
       // localStorageキャッシュ更新（保存本人は即時反映を体感できる。他閲覧者はスナップショット更新間隔待ち）
       _writeCache({ items: payload, lastUpdated: state.lastUpdated });
       // 旧キーも互換で更新（既存フォールバックのため）
-      try { localStorage.setItem('haitatsu_latest', JSON.stringify(payload)); } catch(e){}
+      try { localStorage.setItem(LS_HAITATSU_LATEST, JSON.stringify(payload)); } catch(e){}
       state.dataStale = false;
       renderRoute();
       showToast(attempt>0 ? ('✅ 保存しました（再試行'+attempt+'回で成功）') : '✅ 保存しました（'+res.saved+'件）');
@@ -673,7 +678,7 @@ function loadInitial(){
   // レガシーキーからのマイグレーション（旧`haitatsu_latest`しか持たない端末のため）
   if(!cache){
     try {
-      var legacy = localStorage.getItem('haitatsu_latest');
+      var legacy = localStorage.getItem(LS_HAITATSU_LATEST);
       if(legacy){
         var items = JSON.parse(legacy) || {};
         cache = { items: items, lastUpdated: '', cachedAt: 0 };

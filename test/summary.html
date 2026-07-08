@@ -128,8 +128,11 @@ var API_URL='https://script.google.com/macros/s/AKfycbwe8_3Dp1U7an5wPVt8T2c2AXT6
 var SNAPSHOT_URL='https://storage.googleapis.com/sakae-garden-snapshots/test/summary.json';
 // スナップショット鮮度上限（超過時はGASフォールバック）
 var SNAPSHOT_MAX_AGE_MS = 6 * 3600 * 1000;
-// SWRキャッシュキー
-var LS_SUMMARY_CACHE = 'summary_cache_v1';
+// SWRキャッシュキー。/nippo/test/ は本番と同一オリジンで localStorage を共有するため、
+// スナップショットURL(/test/)で環境を判定してキーを分ける。本番のキー名は従来のまま。
+var IS_TEST_ENV = String(SNAPSHOT_URL).indexOf('/test/') > -1;
+function lsKey(base){ return base + (IS_TEST_ENV ? '_test' : ''); }
+var LS_SUMMARY_CACHE = lsKey('summary_cache_v1');
 var CACHED=null, currentRoute=0, userPickedDate=false;
 
 var ROUTE_GROUPS=[
