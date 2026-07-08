@@ -90,7 +90,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:#e8e0d0;min-height:100vh;p
   </div>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
     <a href="index.html" style="font-size:12px;color:rgba(255,255,255,.7);text-decoration:none">← 日報入力に戻る</a>
-    <select id="dateSelect" onchange="showReport(this.value)" disabled>
+    <select id="dateSelect" onchange="userPickedDate=true;showReport(this.value)" disabled>
       <option value="">読み込み中...</option>
     </select>
   </div>
@@ -113,7 +113,7 @@ var SNAPSHOT_URL='https://storage.googleapis.com/sakae-garden-snapshots/summary.
 var SNAPSHOT_MAX_AGE_MS = 6 * 3600 * 1000;
 // SWRキャッシュキー
 var LS_SUMMARY_CACHE = 'summary_cache_v1';
-var CACHED=null, currentRoute=0;
+var CACHED=null, currentRoute=0, userPickedDate=false;
 
 var ROUTE_GROUPS=[
   {label:'籠原ルート',stores:[
@@ -248,7 +248,9 @@ function _applyAllData(data, preserveDate){
   CACHED = data.allData||{};
   document.getElementById('loading').style.display='none';
   var sel=document.getElementById('dateSelect');
-  var wantSel = preserveDate || sel.value || '';
+  // ユーザーが手動で日付を選んだ時のみ選択を維持。未選択(自動)なら最新日(=当日があれば当日)を選ぶ。
+  // 朝の初回描画で前日を自動選択後、getAllDataが当日を返したら当日へ更新される（日報→即反映）。
+  var wantSel = userPickedDate ? (preserveDate || sel.value || '') : '';
   sel.innerHTML='<option value="">-- 日付を選択 --</option>';
   sel.disabled=false;
   (data.availableDates||[]).forEach(function(d){
@@ -302,7 +304,10 @@ window.onload=function(){
   // localStorage 即時表示(SWR)は上の cache 描画で維持されるので体感速度は変わらない。
   // ※ haitatsu 側のスナップショットは夜入力・翌朝閲覧で即時性不要のため据え置き。
   var applyFromGas = function(data){
-    var prevSel = document.getElementById('dateSelect').value;
+    // ユーザーが手動で日付を選んだ時のみ選択を維持。未選択(自動)なら最新日(=当日があれば当日)を表示。
+    // これにより、朝の初回描画で前日を自動選択後に getAllData が当日を返したら当日へ更新される
+    // （日報送信→即・当日反映。エスマルシェ収集とは独立）。
+    var prevSel = userPickedDate ? document.getElementById('dateSelect').value : null;
     _applyAllData(data, prevSel);
     _writeSummaryCache({availableDates:data.availableDates||[], allData:data.allData||{}, esmarcheStatus:null});
     _updateSummaryStale(null);
