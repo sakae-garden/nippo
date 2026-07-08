@@ -1052,28 +1052,62 @@ function tryLoadDate(date, isFallback) {
 }
 
 
+// 日報送信。二重記録防止:
+//   F) 送信中は送信ボタンを disabled ＋ _submitBusy で多重送信を無視
+//   B) 送信操作ごとに reqId(UUID) を発番。自動リトライは同じ reqId で再送し、
+//      GAS側が同一 date × reqId の行を検知して追記しない（duplicate:true）。
+//      値を直しての「別の送信操作」は別 reqId → 従来どおり追記＋読み側マージで反映。
+//   C) 全試行が通信エラーで終わったら getSubmitStatus で記録の有無を確認し、
+//      入っていれば成功扱い（誤った再送信＝別reqIdでの真の二重行を防ぐ）。
+var SUBMIT_MAX_ATTEMPTS = 3;
+var SUBMIT_RETRY_WAIT   = 2000;
+var SUBMIT_TIMEOUT      = 30000;
+var _submitBusy = false;
+function _setSubmitBtnDisabled(d){
+  var b=document.getElementById('submitBtn');
+  if(b) b.disabled=!!d;
+}
 function doSubmit() {
+  if(_submitBusy) return;                    // 送信中の再タップを無視
   if(!state.staff){alert('担当者を選択してください');return;}
   var items=[];
   Object.keys(state.formData).forEach(function(k){var v=state.formData[k];if(v!==''&&v!==null&&v!==undefined)items.push({key:k,value:String(v)});});
-  var url=API_URL+'?action=submit&store='+encodeURIComponent(state.store.name)+'&date='+todayStr+'&staff='+encodeURIComponent(state.staff)+'&items='+encodeURIComponent(JSON.stringify(items));
-  showLoading('送信中...');
-  document.getElementById('submitBtn')&&(document.getElementById('submitBtn').disabled=true);
-  jsonp(url,'cb_sub',function(res){
+  var store=state.store, staff=state.staff;
+  var reqId=_uuid();
+  var url=API_URL+'?action=submit&store='+encodeURIComponent(store.name)+'&date='+todayStr
+    +'&staff='+encodeURIComponent(staff)+'&items='+encodeURIComponent(JSON.stringify(items))
+    +'&reqId='+encodeURIComponent(reqId);
+  _submitBusy=true; _setSubmitBtnDisabled(true);
+  function fail(msg){ _submitBusy=false; hideLoading(); _setSubmitBtnDisabled(false); alert(msg); }
+  function succeed(){ _submitBusy=false; hideLoading(); rememberStaff(store, staff); renderDone(); }
+  // 全試行が通信エラー。記録されたかを reqId でサーバに確認する。
+  function confirmOrFailSubmit(){
+    hideLoading(); showLoading('送信を確認中...');
+    jsonp(API_URL+'?action=getSubmitStatus&store='+encodeURIComponent(store.name)
+      +'&date='+todayStr+'&reqId='+encodeURIComponent(reqId)+'&_cb='+Date.now(),
+      'cb_sub_confirm',function(res){
+        if(res&&res.success&&res.found){ succeed(); return; }
+        fail('通信エラーが発生しました。\nインターネット接続を確認してください。');
+      },function(){
+        fail('通信エラーが発生しました。\n送信されたか不明です。時間をおいてサマリーをご確認ください。');
+      },SUBMIT_TIMEOUT);
+  }
+  function attempt(i){
     hideLoading();
-    if(res.success){ rememberStaff(state.store, state.staff); renderDone(); }
-    else{alert('送信に失敗しました。\n'+(res.error||'')+'\nもう一度お試しください。');document.getElementById('submitBtn')&&(document.getElementById('submitBtn').disabled=false);}
-  },function(){
-    // 3秒後に1回だけ自動リトライ
-    showLoading('再送信中...');
-    setTimeout(function(){
-      jsonp(url,'cb_sub_retry',function(res){
-        hideLoading();
-        if(res.success){ rememberStaff(state.store, state.staff); renderDone(); }
-        else{alert('送信に失敗しました。\n'+(res.error||'')+'\nもう一度お試しください。');document.getElementById('submitBtn')&&(document.getElementById('submitBtn').disabled=false);}
-      },function(){hideLoading();alert('通信エラーが発生しました。\nインターネット接続を確認してください。');document.getElementById('submitBtn')&&(document.getElementById('submitBtn').disabled=false);});
-    },3000);
-  });
+    showLoading(i===0?'送信中...':'再送信中...（'+i+'/'+(SUBMIT_MAX_ATTEMPTS-1)+'）');
+    // _cb はGoogle側リダイレクト状態のリフレッシュ用（冪等キーではない）
+    jsonp(url+'&_cb='+Date.now()+'_'+i,'cb_sub',function(res){
+      // duplicate:true（同じreqIdの再送）も success として扱う
+      if(res&&res.success){ succeed(); return; }
+      // ロック競合など retryable なサーバエラーは同じ reqId で再送
+      if(res&&res.retryable&&i+1<SUBMIT_MAX_ATTEMPTS){ setTimeout(function(){attempt(i+1);},SUBMIT_RETRY_WAIT); return; }
+      fail('送信に失敗しました。\n'+((res&&res.error)||'')+'\nもう一度お試しください。');
+    },function(){
+      if(i+1<SUBMIT_MAX_ATTEMPTS){ setTimeout(function(){attempt(i+1);},SUBMIT_RETRY_WAIT); return; }
+      confirmOrFailSubmit();
+    },SUBMIT_TIMEOUT);
+  }
+  attempt(0);
 }
 function renderDone() {
   state.screen='done';setHeader('送信完了',false,false);
@@ -1215,7 +1249,46 @@ function rmStaff(i){window._ec.staff.splice(i,1);rfTags();}
 function addStaff(){var inp=document.getElementById('newStaffInput'),n=inp.value.trim();if(!n)return;if(window._ec.staff.indexOf(n)>-1){alert('すでに登録されています');return;}window._ec.staff.push(n);inp.value='';rfTags();}
 function rfTags(){var w=document.getElementById('staffTagWrap');if(!w)return;var h='';window._ec.staff.forEach(function(s,i){h+='<span class="staff-tag">'+eH(s)+'<button class="staff-tag-del" onclick="rmStaff('+i+')">×</button></span>';});w.innerHTML=h;}
 function updC(name,val){if(!window._ec.storeContacts)window._ec.storeContacts={};window._ec.storeContacts[name]=val;}
-function saveCfg(){localStorage.setItem('nippo_config',JSON.stringify(window._ec));state.config=window._ec;jsonp(API_URL+'?action=saveConfig&data='+encodeURIComponent(JSON.stringify(window._ec)),'cb_sc',function(){},function(){});var m=document.getElementById('settingsMsg');if(m){m.style.display='block';setTimeout(function(){m.style.display='none';},2000);}}
+// 設定保存。従来は onOk/onErr とも空関数で、応答前に無条件で「✅保存しました」を出していた
+// （＝サーバに届かなくても成功に見えるサイレント失敗）。
+//   ・success:true を必ず検証し、success:false／通信エラーは alert で明示する
+//   ・保存直後に getConfig で読み戻し、保存内容と一致して初めて成功表示する
+//   ・localStorage への反映も「サーバ保存＋読み戻し一致」を確認できてから行う
+//     （失敗した設定を端末に残さない。次回起動時のサーバ値との食い違いを防ぐ）
+// saveConfig は冪等な上書きなので reqId dedup は不要。
+var SAVECFG_TIMEOUT = 30000;
+function _cfgKey(c){
+  // 比較用の正規化（キー順に依存しない）
+  var sc={}; Object.keys((c&&c.storeContacts)||{}).sort().forEach(function(k){ sc[k]=String(c.storeContacts[k]||''); });
+  return JSON.stringify({ staff:((c&&c.staff)||[]).map(String), storeContacts:sc });
+}
+var _saveCfgBusy=false;
+function saveCfg(){
+  if(_saveCfgBusy) return;
+  var cfg=window._ec;
+  var btn=document.querySelector('.save-btn');
+  _saveCfgBusy=true; if(btn){btn.disabled=true;}
+  showLoading('設定を保存中...');
+  function done(){ _saveCfgBusy=false; hideLoading(); if(btn){btn.disabled=false;} }
+  function failed(msg){ done(); alert('設定の保存に失敗しました。\n'+msg+'\nもう一度お試しください。'); }
+  jsonp(API_URL+'?action=saveConfig&data='+encodeURIComponent(JSON.stringify(cfg))+'&_cb='+Date.now(),
+    'cb_sc',function(res){
+      if(!res||res.success!==true){ failed((res&&res.error)||'サーバエラー'); return; }
+      // 読み戻し検証: サーバの保存結果が送った内容と一致するか
+      hideLoading(); showLoading('保存内容を確認中...');
+      jsonp(API_URL+'?action=getConfig&_cb='+Date.now(),'cb_sc_verify',function(v){
+        if(!v||v.success!==true||!v.config){ failed('保存内容を確認できませんでした'); return; }
+        if(_cfgKey(v.config)!==_cfgKey(cfg)){ failed('保存内容がサーバの値と一致しません'); return; }
+        // ここで初めて端末側にも反映
+        localStorage.setItem('nippo_config',JSON.stringify(cfg));
+        state.config=cfg;
+        done();
+        var m=document.getElementById('settingsMsg');
+        if(m){ m.style.display='block'; setTimeout(function(){m.style.display='none';},2000); }
+        else { alert('設定を保存しました。'); }
+      },function(){ failed('保存内容の確認が通信エラーになりました'); },SAVECFG_TIMEOUT);
+    },function(){ failed('通信エラーが発生しました'); },SAVECFG_TIMEOUT);
+}
 
 loadConfig(function(){ renderHome(); fetchHaitatsuBackground(); fetchLabelAlert(); fetchLabelIssuedTotal(); });
 </script>
