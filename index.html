@@ -338,6 +338,17 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkV
 var LABEL_SNAPSHOT_URL = 'https://storage.googleapis.com/sakae-garden-snapshots/label_alert.json';
 // STORE_DEFS / ROUTES は shared-stores.js でグローバル定義（window.STORE_DEFS / window.ROUTES）
 
+// ===== 環境別 localStorage キー =====
+// /nippo/test/ は本番と同一オリジンなので localStorage を共有してしまう。
+// 環境固有の状態（テストGAS/テストシート由来のデータ）を持つキーは全て分離する。
+// 判定は _propagate_test_env.py が LABEL_SNAPSHOT_URL を /test/ 版へ差し替えるのを利用。
+// 本番のキー名は従来のまま（サフィックス無し）なので、既存ユーザーの値は失われない。
+var IS_TEST_ENV = String(LABEL_SNAPSHOT_URL).indexOf('/test/') > -1;
+function lsKey(base){ return base + (IS_TEST_ENV ? '_test' : ''); }
+var LS_CONFIG           = lsKey('nippo_config');
+var LS_HAITATSU_LATEST  = lsKey('haitatsu_latest');
+var LS_SANCHI_ISSUED    = lsKey('sanchi_issued_today_v1');
+
 var state = { screen:'home', route:0, store:null, formData:{}, staff:'', config:null, extraPrices:[], labelAlert:null, labelIssued:{}, labelIssuedTotal:null, manualIssueOpen:false, sanchiIssuedToday:0 };
 var today = new Date();
 var DAYS = ['日','月','火','水','木','金','土'];
@@ -345,10 +356,10 @@ var todayStr = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0'
 document.getElementById('hDate').textContent = today.getFullYear()+'年'+(today.getMonth()+1)+'月'+today.getDate()+'日（'+DAYS[today.getDay()]+'）';
 
 function loadConfig(cb) {
-  var cached = localStorage.getItem('nippo_config');
+  var cached = localStorage.getItem(LS_CONFIG);
   state.config = cached ? (function(){ try{return JSON.parse(cached);}catch(e){return getDefaultConfig();} })() : getDefaultConfig();
   if (cb) cb();
-  jsonp(API_URL+'?action=getConfig','cb_cfg',function(res){ if(res.success&&res.config){ state.config=res.config; localStorage.setItem('nippo_config',JSON.stringify(res.config)); } },function(){});
+  jsonp(API_URL+'?action=getConfig','cb_cfg',function(res){ if(res.success&&res.config){ state.config=res.config; localStorage.setItem(LS_CONFIG,JSON.stringify(res.config)); } },function(){});
 }
 
 function getDefaultConfig() {
@@ -462,11 +473,7 @@ function fetchLabelAlert(){
 // 即時非表示の判定に使う。ページを開き直しても当日中は維持し、リロードで
 // アラートが復活する事故を防ぐ。日付が変われば自動的に 0 から数え直す
 // （翌朝の真値は夜間再計算＝スナップショット側で決まる）。
-// テスト環境(/nippo/test/)は本番と同一オリジンで localStorage を共有してしまうため、
-// キーを環境で分ける（テストでの発行が本番のアラートを消す事故を防ぐ）。
-// _propagate_test_env.py が LABEL_SNAPSHOT_URL を /test/ 版へ差し替えるのを利用して判定する。
-var LS_SANCHI_ISSUED = 'sanchi_issued_today_v1'
-  + (String(LABEL_SNAPSHOT_URL).indexOf('/test/') > -1 ? '_test' : '');
+// キーは環境別（LS_SANCHI_ISSUED）。テストでの発行が本番のアラートを消す事故を防ぐ。
 function _loadSanchiIssuedToday(){
   try{
     var r=JSON.parse(localStorage.getItem(LS_SANCHI_ISSUED)||'null');
@@ -695,7 +702,7 @@ function openStore(id) {
 // キー: LS_STAFF_MEMORY = { date:'YYYY-MM-DD', byRoute:{routeId: staffName} }
 // 日次リセット: date が todayStr と異なれば全破棄
 // 経路判定: ROUTES[i].groups[j].stores に storeId が含まれる経路
-var LS_STAFF_MEMORY = 'staff_by_route_v1';
+var LS_STAFF_MEMORY = lsKey('staff_by_route_v1');
 
 function _routeIdOfStore(storeId){
   if(typeof ROUTES==='undefined') return null;
@@ -755,7 +762,7 @@ function applyHaitatsuDefault(id) {
   try {
     var def = STORE_DEFS[id];
     if(!def) return;
-    var raw = localStorage.getItem('haitatsu_latest');
+    var raw = localStorage.getItem(LS_HAITATSU_LATEST);
     if(!raw) return;
     var all = JSON.parse(raw);
     var entry = all && all[def.name];
@@ -775,7 +782,7 @@ function fetchHaitatsuBackground() {
   jsonp(API_URL+'?action=getHaitatsu','cb_hai',function(res){
     _haitatsuBgInflight = false;
     if(res && res.success && res.items){
-      try { localStorage.setItem('haitatsu_latest', JSON.stringify(res.items)); } catch(e){}
+      try { localStorage.setItem(LS_HAITATSU_LATEST, JSON.stringify(res.items)); } catch(e){}
     }
   },function(){ _haitatsuBgInflight = false; });
 }
@@ -1301,7 +1308,7 @@ function saveCfg(){
         if(!v||v.success!==true||!v.config){ failed('保存内容を確認できませんでした'); return; }
         if(_cfgKey(v.config)!==_cfgKey(cfg)){ failed('保存内容がサーバの値と一致しません'); return; }
         // ここで初めて端末側にも反映
-        localStorage.setItem('nippo_config',JSON.stringify(cfg));
+        localStorage.setItem(LS_CONFIG,JSON.stringify(cfg));
         state.config=cfg;
         done();
         var m=document.getElementById('settingsMsg');
