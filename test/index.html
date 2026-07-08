@@ -295,6 +295,18 @@ td.itbl-cell.ctl-brown{background:#fff}
 .lbl-issue-btn:disabled{opacity:.45;cursor:default}
 .lbl-issue-done{font-size:11px;color:var(--green);font-weight:700}
 .lbl-alert-note{font-size:10px;color:#a08000;margin-top:8px;font-style:italic}
+/* 任意発行（産地シール）: 常時表示・既定は閉じた状態 */
+.lbl-manual{background:var(--card);border:1px solid var(--border);border-radius:var(--r-btn);
+  box-shadow:var(--shadow);padding:10px 12px;margin-bottom:10px}
+.lbl-manual-hdr{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.lbl-manual-btn{background:none;border:none;padding:0;cursor:pointer;font-family:inherit;
+  font-size:14px;font-weight:600;color:var(--ink);display:flex;align-items:center;gap:6px}
+.lbl-manual-btn:active{opacity:.6}
+.lbl-manual-caret{display:inline-block;width:20px;text-align:center;font-weight:700;color:var(--green)}
+.lbl-manual-stock{font-size:12px;color:var(--sub);white-space:nowrap}
+.lbl-manual-stock b{font-size:14px;color:var(--ink);font-weight:700}
+.lbl-manual-body{margin-top:10px;border-top:1px solid var(--border);padding-top:10px}
+.lbl-manual-note{font-size:10px;color:var(--sub);margin-top:8px;font-style:italic}
 
 /* ============ レスポンシブ ============ */
 @media (max-width: 360px){
@@ -343,7 +355,7 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbwe8_3Dp1U7an5wPVt8T2c2AX
 var LABEL_SNAPSHOT_URL = 'https://storage.googleapis.com/sakae-garden-snapshots/test/label_alert.json';
 // STORE_DEFS / ROUTES は shared-stores.js でグローバル定義（window.STORE_DEFS / window.ROUTES）
 
-var state = { screen:'home', route:0, store:null, formData:{}, staff:'', config:null, extraPrices:[], labelAlert:null, labelIssued:{} };
+var state = { screen:'home', route:0, store:null, formData:{}, staff:'', config:null, extraPrices:[], labelAlert:null, labelIssued:{}, labelIssuedTotal:null, manualIssueOpen:false };
 var today = new Date();
 var DAYS = ['日','月','火','水','木','金','土'];
 var todayStr = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
@@ -409,7 +421,8 @@ function renderHome() {
   var cfg=state.config||getDefaultConfig(), route=ROUTES[state.route];
   var html='<div class="screen">'
     + '<a href="summary.html" class="summary-link-btn">📊 サマリーを見る</a>'
-    + '<div class="action-row"><button class="action-btn" onclick="renderManual()"><span class="a-icon">📖</span>マニュアル</button><button class="action-btn" onclick="renderSettings()"><span class="a-icon">⚙️</span>設定</button></div>';
+    + '<div class="action-row"><button class="action-btn" onclick="renderManual()"><span class="a-icon">📖</span>マニュアル</button><button class="action-btn" onclick="renderSettings()"><span class="a-icon">⚙️</span>設定</button></div>'
+    + renderManualIssue();
   var sanchiShown=false;
   route.groups.forEach(function(g) {
     // ②産地シール：ヤオコー店舗群の上に、アラート時のみ表示（経路ごとの発行入力欄付き）
@@ -446,6 +459,72 @@ function fetchLabelAlert(){
 function _routeLabel(routeId){
   for(var i=0;i<ROUTES.length;i++) if(ROUTES[i].id===routeId) return ROUTES[i].label;
   return routeId;
+}
+
+// ============ 産地シールの任意発行（アラート非表示時も常時使える） ============
+// 現時点在庫 ＝ ライブの累計発行数（GAS getLabelIssuedTotal）− 前夜計算の累計消費
+//              （スナップショット sanchi.delivered）。
+// ＝「発行は最新・消費は前夜時点」。消費(−側)は朝4:45の再計算まで反映されない目安値。
+// 取得失敗時は前夜計算の stock をそのまま表示（非破壊）。
+function fetchLabelIssuedTotal(){
+  jsonp(API_URL+'?action=getLabelIssuedTotal','cb_issued_total',function(res){
+    if(res&&res.success&&typeof res.sanchi==='number'){
+      state.labelIssuedTotal=res.sanchi;
+      if(state.screen==='home') renderHome();
+    }
+  },function(){ /* 失敗時は前夜計算の在庫にフォールバック */ });
+}
+// 表示用の「現時点在庫」。スナップショット未取得なら null（'—' 表示）。
+function currentSanchiStock(){
+  var la=state.labelAlert;
+  if(!la||!la.sanchi) return null;
+  var s=la.sanchi;
+  if(state.labelIssuedTotal!=null && typeof s.delivered==='number') return state.labelIssuedTotal-s.delivered;
+  return (typeof s.stock==='number')?s.stock:null;
+}
+function renderManualIssue(){
+  var stock=currentSanchiStock();
+  var open=!!state.manualIssueOpen;
+  var h='<div class="lbl-manual"><div class="lbl-manual-hdr">';
+  h+='<button class="lbl-manual-btn" onclick="toggleManualIssue()">'
+    +'<span class="lbl-manual-caret" id="lblManualCaret">'+(open?'−':'＋')+'</span>ラベルを発行する</button>';
+  h+='<span class="lbl-manual-stock">現時点在庫：<b>'+(stock==null?'—':stock)+'</b>枚</span>';
+  h+='</div>';
+  h+='<div class="lbl-manual-body" id="lblManualBody"'+(open?'':' style="display:none"')+'>';
+  h+='<div class="lbl-issue-wrap">';
+  for(var i=0;i<ROUTES.length;i++){
+    var r=ROUTES[i];
+    h+='<div class="lbl-issue-row">';
+    h+='<span class="lbl-issue-lbl">'+eH(r.label)+'</span>';
+    h+='<input type="text" inputmode="numeric" pattern="[0-9]*" id="manualInp_'+eA(r.id)+'" placeholder="発行数">';
+    h+='<button class="lbl-issue-btn" onclick="issueSanchiManual(\''+eA(r.id)+'\')">発行</button>';
+    h+='</div>';
+  }
+  h+='</div>';
+  h+='<div class="lbl-manual-note">※ ヤオコー産地シールのみ。どの経路で入力しても全社共通の1在庫に加算されます。'
+    +'消費（納品分）の反映は夜の再計算です。</div>';
+  h+='</div></div>';
+  return h;
+}
+// 開閉は再描画せず DOM 直操作（アラート側の入力欄を消さないため）
+function toggleManualIssue(){
+  state.manualIssueOpen=!state.manualIssueOpen;
+  var b=document.getElementById('lblManualBody'), c=document.getElementById('lblManualCaret');
+  if(b) b.style.display=state.manualIssueOpen?'':'none';
+  if(c) c.textContent=state.manualIssueOpen?'−':'＋';
+}
+// 発行記録・在庫加算はアラート時発行と同一の仕組み（issueLabel → label_stock 追記）を流用。
+function issueSanchiManual(routeId){
+  var inp=document.getElementById('manualInp_'+routeId);
+  var n=parseInt(((inp&&inp.value)||'').trim(),10);
+  if(!n||n<=0){alert('発行数を入力してください');return;}
+  state.manualIssueOpen=true;  // 発行後の再描画でも開いたまま
+  _postIssue(_sanchiIssueUrl(routeId,n),'sanchi_'+routeId,n);
+}
+function _sanchiIssueUrl(routeId,n){
+  return API_URL+'?action=issueLabel&type='+encodeURIComponent('産地シール')
+    +'&route='+encodeURIComponent(routeId)+'&count='+n+'&date='+todayStr
+    +'&staff='+encodeURIComponent(state.staff||'');
 }
 // ②産地シール アラート（現在の経路の発行入力欄付き）
 function renderSanchiAlert(routeId){
@@ -500,9 +579,7 @@ function issueSanchi(routeId){
   var inp=document.getElementById('sanchiInp_'+routeId);
   var n=parseInt(((inp&&inp.value)||'').trim(),10);
   if(!n||n<=0){alert('発行数を入力してください');return;}
-  var url=API_URL+'?action=issueLabel&type='+encodeURIComponent('産地シール')
-    +'&route='+encodeURIComponent(routeId)+'&count='+n+'&date='+todayStr+'&staff='+encodeURIComponent(state.staff||'');
-  _postIssue(url,'sanchi_'+routeId,n);
+  _postIssue(_sanchiIssueUrl(routeId,n),'sanchi_'+routeId,n);
 }
 function issueNedan(storeId,price){
   var def=STORE_DEFS[storeId]; if(!def) return;
@@ -519,7 +596,12 @@ function _postIssue(url,key,n){
   jsonp(url,'cb_issue',function(res){
     hideLoading();
     // 当日画面上の累積（複数回に分けて入力しても合算）。規定到達で即時非表示（renderHome内で判定）。
-    if(res&&res.success){ state.labelIssued[key]=(state.labelIssued[key]||0)+n; renderHome(); }
+    if(res&&res.success){
+      state.labelIssued[key]=(state.labelIssued[key]||0)+n;
+      // 産地シールはライブ累計発行数にも加算 →「現時点在庫」がその場で増える
+      if(key.indexOf('sanchi_')===0 && state.labelIssuedTotal!=null) state.labelIssuedTotal+=n;
+      renderHome();
+    }
     else{ alert('発行の記録に失敗しました。\n'+((res&&res.error)||'')); }
   },function(){ hideLoading(); alert('通信エラーで発行を記録できませんでした。'); });
 }
@@ -1083,7 +1165,7 @@ function rfTags(){var w=document.getElementById('staffTagWrap');if(!w)return;var
 function updC(name,val){if(!window._ec.storeContacts)window._ec.storeContacts={};window._ec.storeContacts[name]=val;}
 function saveCfg(){localStorage.setItem('nippo_config',JSON.stringify(window._ec));state.config=window._ec;jsonp(API_URL+'?action=saveConfig&data='+encodeURIComponent(JSON.stringify(window._ec)),'cb_sc',function(){},function(){});var m=document.getElementById('settingsMsg');if(m){m.style.display='block';setTimeout(function(){m.style.display='none';},2000);}}
 
-loadConfig(function(){ renderHome(); fetchHaitatsuBackground(); fetchLabelAlert(); });
+loadConfig(function(){ renderHome(); fetchHaitatsuBackground(); fetchLabelAlert(); fetchLabelIssuedTotal(); });
 </script>
 
 <footer style="position:fixed;bottom:0;left:0;width:100%;height:52px;background:#1c1c1e;display:flex;align-items:center;justify-content:center;z-index:100">
