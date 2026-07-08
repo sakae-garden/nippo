@@ -615,10 +615,13 @@ function issueNedan(storeId,price){
 //   F) 送信中は全発行ボタンを disabled（連打・再タップ封じ）
 //   B) 操作ごとに reqId(UUID) を発番し、再試行は同じ reqId で再送 → GAS側で重複検知
 //      （duplicate:true も success 扱い。ローカル加算は1回だけ）
-// タイムアウトを15秒に短縮し、失敗しても最大3試行まで同一 reqId で自動再送する。
+//   C) 全試行が失敗しても、最後に reqId で「記録が入ったか」をサーバに確認する。
+//      入っていれば成功扱い（誤ってもう一度発行させない＝別reqIdでの真の二重行を防ぐ）。
+// タイムアウトは30秒（GAS実測で15〜25秒かかることがある。HTML中間ページは onload 検知で
+// 即失敗するので、長めのタイムアウトでも体感は悪化しない）。
 var ISSUE_MAX_ATTEMPTS = 3;
-var ISSUE_RETRY_WAIT   = 1500;
-var ISSUE_TIMEOUT      = 15000;
+var ISSUE_RETRY_WAIT   = 2000;
+var ISSUE_TIMEOUT      = 30000;
 var _issueBusy = false;
 function _setIssueBtnsDisabled(d){
   var b=document.querySelectorAll('.lbl-issue-btn');
@@ -630,26 +633,43 @@ function _postIssue(baseUrl,key,n){
   var reqId=_uuid();
   var url=baseUrl+'&reqId='+encodeURIComponent(reqId);
   function done(){ _issueBusy=false; _setIssueBtnsDisabled(false); hideLoading(); }
+  function succeed(){
+    done();
+    // 当日画面上の累積（複数回に分けて入力しても合算）。規定到達で即時非表示（renderHome内で判定）。
+    state.labelIssued[key]=(state.labelIssued[key]||0)+n;
+    // 産地シールはライブ累計発行数にも加算 →「現時点在庫」がその場で増える
+    if(key.indexOf('sanchi_')===0 && state.labelIssuedTotal!=null) state.labelIssuedTotal+=n;
+    renderHome();
+  }
+  // 全試行が通信エラーで終わった時、reqId で記録の有無をサーバに確認する
+  function confirmOrFail(){
+    hideLoading(); showLoading('記録を確認中...');
+    jsonp(API_URL+'?action=getLabelIssuedTotal&reqId='+encodeURIComponent(reqId)+'&_cb='+Date.now(),
+      'cb_issue_confirm',function(res){
+        if(res&&res.success&&res.found){
+          if(typeof res.sanchi==='number') state.labelIssuedTotal=res.sanchi;
+          done();
+          state.labelIssued[key]=(state.labelIssued[key]||0)+n;
+          renderHome();
+          return;
+        }
+        done(); alert('通信エラーで発行を記録できませんでした。');
+      },function(){ done(); alert('通信エラーで発行を記録できませんでした。\n記録されたか不明です。時間をおいて在庫表示をご確認ください。'); },
+      ISSUE_TIMEOUT);
+  }
   function attempt(i){
     hideLoading();
     showLoading(i===0?'発行を記録中...':'発行を記録中...（再試行 '+i+'/'+(ISSUE_MAX_ATTEMPTS-1)+'）');
     // _cb はGoogle側リダイレクト状態のリフレッシュ用（冪等キーではない）
     jsonp(url+'&_cb='+Date.now()+'_'+i,'cb_issue',function(res){
-      if(res&&res.success){
-        done();
-        // 当日画面上の累積（複数回に分けて入力しても合算）。規定到達で即時非表示（renderHome内で判定）。
-        state.labelIssued[key]=(state.labelIssued[key]||0)+n;
-        // 産地シールはライブ累計発行数にも加算 →「現時点在庫」がその場で増える
-        if(key.indexOf('sanchi_')===0 && state.labelIssuedTotal!=null) state.labelIssuedTotal+=n;
-        renderHome();
-        return;
-      }
+      // duplicate:true（同じreqIdの再送）も success として1回だけ計上する
+      if(res&&res.success){ succeed(); return; }
       // ロック競合など retryable なサーバエラーは同じ reqId で再送
       if(res&&res.retryable&&i+1<ISSUE_MAX_ATTEMPTS){ setTimeout(function(){attempt(i+1);},ISSUE_RETRY_WAIT); return; }
       done(); alert('発行の記録に失敗しました。\n'+((res&&res.error)||''));
     },function(){
       if(i+1<ISSUE_MAX_ATTEMPTS){ setTimeout(function(){attempt(i+1);},ISSUE_RETRY_WAIT); return; }
-      done(); alert('通信エラーで発行を記録できませんでした。');
+      confirmOrFail();
     },ISSUE_TIMEOUT);
   }
   attempt(0);
