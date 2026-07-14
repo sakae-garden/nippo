@@ -42,6 +42,8 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 /* グループラベル */
 .sec-lbl{font-size:11px;color:var(--sub);letter-spacing:.12em;font-weight:700;margin:18px 0 8px;padding-left:4px}
 .sec-lbl:first-child{margin-top:0}
+/* 残在庫/販売数の参照日（いつ時点の値かを控えめに明示） */
+.zaiko-asof{font-size:10px;color:#aaa;letter-spacing:0;font-weight:500;margin-left:6px}
 
 /* ヤオコー店舗カード */
 .ya-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);margin-bottom:10px;overflow:hidden;box-shadow:var(--shadow)}
@@ -176,7 +178,7 @@ function lsKey(base){ return base + (IS_TEST_ENV ? '_test' : ''); }
 var LS_HAITATSU_CACHE = lsKey('haitatsu_cache_v1');
 var LS_HAITATSU_LATEST = lsKey('haitatsu_latest');
 
-var state = { mode:'view', route:0, data:{}, zaiko:{}, lastUpdated:'', dirty:false, loaded:false, zaikoLoaded:false, dataStale:false };
+var state = { mode:'view', route:0, data:{}, zaiko:{}, zaikoDataDate:'', lastUpdated:'', dirty:false, loaded:false, zaikoLoaded:false, dataStale:false };
 
 var today = new Date();
 var DAYS = ['日','月','火','水','木','金','土'];
@@ -359,6 +361,15 @@ function toggleMode(){
   }
 }
 
+// 残在庫/販売数の参照日ラベル。'yyyy-MM-dd' → '残・売 M/D時点'（控えめ表示用）。
+// 当日値でも前日値でも出す（前日か当日かが一目で分かるように）。
+function zaikoAsOfLabel(){
+  if(!state.zaikoLoaded || !state.zaikoDataDate) return '';
+  var m = String(state.zaikoDataDate).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(!m) return '';
+  return '残・売 '+parseInt(m[2])+'/'+parseInt(m[3])+'時点';
+}
+
 function fmtLastUpdated(ts){
   // ts 形式: 'yyyy-MM-dd HH:mm:ss'
   if(!ts) return '';
@@ -460,7 +471,8 @@ function _renderRouteUnsafe(){
       html += '</tr></tbody></table></div>';
     } else {
       // 編集モード：店舗ごとカード入力（既存）
-      html += '<div class="sec-lbl">🏪 ヤオコー</div>';
+      var asof = zaikoAsOfLabel();
+      html += '<div class="sec-lbl">🏪 ヤオコー'+(asof?'<span class="zaiko-asof">'+eH(asof)+'</span>':'')+'</div>';
       ya.forEach(function(id){
         var d = STORE_DEFS[id], nm=d.name;
         var sub = storeSubtotal(nm);
@@ -745,6 +757,7 @@ function _fetchZaiko(attempt){
     _fetchZaikoSnapshot(function(snap){
       if(snap){
         state.zaiko = snap.items || {};
+        state.zaikoDataDate = snap.actualDate || todayStr;
         state.zaikoLoaded = true;
         if(state.loaded) renderRoute();
         return;
@@ -769,7 +782,8 @@ function _fetchZaikoSnapshot(cb){
     if(j.date && j.date !== todayStr){ cb(null); return; }
     var gen = Date.parse(j.generated_at);
     if(isNaN(gen) || Date.now() - gen > SNAPSHOT_MAX_AGE_MS){ cb(null); return; }
-    cb({ items: j.items, generated_at: j.generated_at });
+    // actualDate: 実際にどの日付の値か（当日に実データが無ければ前日等）。参照日表示に使う。
+    cb({ items: j.items, generated_at: j.generated_at, actualDate: j.actualDate || j.date || todayStr });
   }).catch(function(){ cb(null); });
 }
 
@@ -780,6 +794,7 @@ function _fetchZaikoGas(attempt){
     function(res){
       if(res && res.success && res.items && !res._pending){
         state.zaiko = res.items;
+        state.zaikoDataDate = res.actualDate || res.date || todayStr;
         state.zaikoLoaded = true;
         if(state.loaded) renderRoute();
         return;
