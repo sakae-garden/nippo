@@ -112,16 +112,15 @@ body{font-family:'Noto Sans JP',sans-serif;background:#e8e0d0;min-height:100vh;p
     </select>
   </div>
 </div>
-<div class="route-tabs">
-  <button class="rtab active" id="rtab0" onclick="switchRoute(0)">籠原ルート</button>
-  <button class="rtab" id="rtab1" onclick="switchRoute(1)">皆野ルート</button>
-  <button class="rtab" id="rtab2" onclick="switchRoute(2)">坂戸ルート</button>
-</div>
+<!-- 経路タブは shared-stores.js の ROUTES から描画する（renderRouteTabs）。
+     ラベルをここにベタ書きすると ROUTE_VERSION 切替で不整合になるので禁止。 -->
+<div class="route-tabs" id="routeTabs"></div>
 <div id="loading"><div class="spinner"></div><br>データを読み込んでいます...<br><small>初回のみ時間がかかります</small></div>
 <div id="error">データの取得に失敗しました。<br>しばらく待ってから再度お試しください。</div>
 <div id="report"></div>
 <div class="footer">栄ガーデン 配達日報システム</div>
 
+<script src="shared-stores.js"></script>
 <script>
 var API_URL='https://script.google.com/macros/s/AKfycbwe8_3Dp1U7an5wPVt8T2c2AXT6ltwM-T-bquI5IdGk4-uNCHtvd1Ifhn4MRv1-Oegp/exec';
 // スナップショット配信URL（GCS+CORS+publicRead。フロントの初期表示を高速化する）
@@ -135,34 +134,46 @@ function lsKey(base){ return base + (IS_TEST_ENV ? '_test' : ''); }
 var LS_SUMMARY_CACHE = lsKey('summary_cache_v1');
 var CACHED=null, currentRoute=0, userPickedDate=false;
 
-var ROUTE_GROUPS=[
-  {label:'籠原ルート',stores:[
-    {name:'ヤオコー籠原店',                  cls:'yaoko',  sub:'', type:'yaoko', prices:['¥99','¥198','¥398','¥598']},
-    {name:'ヤオコー寄居店',                  cls:'yaoko',  sub:'河野さん・竹山さん', type:'yaoko', prices:['¥99','¥198','¥398','¥598']},
-    {name:'ヤオコーみどりが丘店',            cls:'yaoko',  sub:'杉田さん・川野さん', type:'yaoko', prices:['¥99','¥198','¥398','¥598']},
-    {name:'男衾農産物直売所',                cls:'choku',  sub:'', type:'choku', prices:['¥180','¥200','¥380','¥540']},
-    {name:'川本農産物直売所',                cls:'choku',  sub:'', type:'choku', prices:['¥180','¥200','¥380','¥540']},
-    {name:'道の駅おがわまち',                cls:'choku',  sub:'', type:'choku', prices:['¥210','¥420']},
-    {name:'農林公園',                        cls:'choku',  sub:'', type:'choku', prices:['¥180','¥200','¥380','¥500']},
-    {name:'たまや',                          cls:'choku',  sub:'', type:'choku', prices:['¥220（税込）','¥450（税込）']},
-  ]},
-  {label:'皆野ルート',stores:[
-    {name:'ヤオコー皆野店',         cls:'yaoko',sub:'',type:'yaoko',prices:['¥99','¥198','¥398','¥598']},
-    {name:'ヤオコー児玉バイパス店', cls:'yaoko',sub:'',type:'yaoko',prices:['¥99','¥198','¥398','¥598']},
-    {name:'ヤオコー上里店',         cls:'yaoko',sub:'',type:'yaoko',prices:['¥99','¥198','¥398','¥598']},
-    {name:'ヤオコー本庄中央店',     cls:'yaoko',sub:'',type:'yaoko',prices:['¥99','¥198','¥398','¥598']},
-    {name:'道の駅おかべ',           cls:'choku',sub:'',type:'choku',prices:['¥200','¥216','¥380','¥420']},
-  ]},
-  {label:'坂戸ルート',stores:[
-    {name:'ヤオコー東松山新宿店',    cls:'yaoko',sub:'',type:'yaoko',prices:['¥99','¥198','¥398','¥598']},
-    {name:'ヤオコー坂戸泉店',        cls:'yaoko',sub:'',type:'yaoko',prices:['¥99','¥198','¥398','¥598']},
-    {name:'ヤオコー坂戸千代田店',    cls:'yaoko',sub:'',type:'yaoko',prices:['¥99','¥198','¥398','¥598']},
-    {name:'ヤオコーワカバウォーク店', cls:'yaoko',sub:'',type:'yaoko',prices:['¥99','¥198','¥398','¥598']},
-    {name:'ヤオコー一本松南店',      cls:'yaoko',sub:'',type:'yaoko',prices:['¥99','¥198','¥398','¥598']},
-    {name:'ヤオコー長瀬店',          cls:'yaoko',sub:'',type:'yaoko',prices:['¥99','¥198','¥398','¥598']},
-  ]}
-];
+// 経路の編成（ラベル・所属・順序）は shared-stores.js の ROUTES を唯一の出典とする。
+// ここに経路をベタ書きすると ROUTE_VERSION の 1 行切替で戻せなくなるので禁止。
+// 表示データは STORE_DEFS（name/type/prices）から組み立て、summary 固有の
+// 見た目（担当者サブラベル・色クラス）だけを下のオーバーライドで足す。
+var SUMMARY_SUB = {
+  yorii:  '河野さん・竹山さん',
+  midori: '杉田さん・川野さん'
+};
+// summary では たまや/農林公園/道の駅おがわまち を直売所色（緑）で出す。
+// STORE_DEFS の cls は 'others'（青）なので、従来の見た目を維持するため上書き。
+var SUMMARY_CLS = { tamaya:'choku', nourin:'choku', michieki:'choku' };
+
+function buildRouteGroups(){
+  if(typeof ROUTES==='undefined'||typeof STORE_DEFS==='undefined') return [];
+  return ROUTES.map(function(r){
+    var stores=[];
+    r.groups.forEach(function(g){
+      g.stores.forEach(function(id){
+        var d=STORE_DEFS[id]; if(!d) return;
+        stores.push({ name:d.name, cls:(SUMMARY_CLS[id]||d.cls), sub:(SUMMARY_SUB[id]||''),
+                      type:d.type, prices:d.prices });
+      });
+    });
+    return { label:r.label, stores:stores };
+  });
+}
+var ROUTE_GROUPS=buildRouteGroups();
 var STORES=[]; ROUTE_GROUPS.forEach(function(g){STORES=STORES.concat(g.stores);});
+
+// 経路タブを ROUTES から描画（本数・ラベルとも ROUTE_VERSION に追随する）
+function renderRouteTabs(){
+  var el=document.getElementById('routeTabs'); if(!el) return;
+  var h='';
+  for(var i=0;i<ROUTE_GROUPS.length;i++){
+    h+='<button class="rtab'+(i===currentRoute?' active':'')+'" id="rtab'+i+'" onclick="switchRoute('+i+')">'
+      +String(ROUTE_GROUPS[i].label).replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</button>';
+  }
+  el.innerHTML=h;
+}
+renderRouteTabs();
 
 var SP=[
   {keys:['納品'],        id:'nouhin',  label:'🟩 納品数',           color:'green'},
@@ -254,7 +265,7 @@ function _fetchSummarySnapshot(cb){
 
 function switchRoute(i){
   currentRoute=i;
-  for(var j=0;j<3;j++) document.getElementById('rtab'+j).classList.toggle('active',j===i);
+  for(var j=0;j<ROUTE_GROUPS.length;j++){ var t=document.getElementById('rtab'+j); if(t) t.classList.toggle('active',j===i); }
   var d=document.getElementById('dateSelect').value;
   if(d&&CACHED&&CACHED[d]) render(d,CACHED[d]);
 }
@@ -450,6 +461,12 @@ function eH(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').r
 function render(date,dayData){
   var p=date.split('-'),days=['日','月','火','水','木','金','土'];
   var ds=p[0]+'年'+parseInt(p[1])+'月'+parseInt(p[2])+'日（'+days[new Date(date+'T00:00:00').getDay()]+'）';
+  // shared-stores.js が読めないと経路が組み立たない。無言で白画面にせず明示する。
+  if(!ROUTE_GROUPS[currentRoute]){
+    document.getElementById('report').innerHTML='<div class="nodata">店舗定義(shared-stores.js)が読み込めません。再読み込みしてください。</div>';
+    document.getElementById('report').style.display='block';
+    return;
+  }
   var rs=ROUTE_GROUPS[currentRoute].stores,staff='';
   rs.forEach(function(s){if(!staff&&dayData[s.name]&&dayData[s.name].担当者)staff=dayData[s.name].担当者;});
 
