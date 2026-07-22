@@ -144,10 +144,9 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
     <button class="mode-btn" id="modeBtn" onclick="toggleMode()">✏️ 編集モード</button>
   </div>
   <div class="hdr-date" id="hDate"></div>
-  <div class="route-tabs">
-    <button class="rtab active" id="tab0" onclick="switchRoute(0)">籠原ルート</button>
-    <button class="rtab" id="tab1" onclick="switchRoute(1)">皆野ルート</button>
-    <button class="rtab" id="tab2" onclick="switchRoute(2)">坂戸ルート</button>
+  <!-- 経路タブは shared-stores.js の ROUTES から描画する（renderRouteTabs）。
+       ラベルをここにベタ書きすると ROUTE_VERSION 切替で不整合になるので禁止。 -->
+  <div class="route-tabs" id="routeTabs">
   </div>
 </div>
 <div class="nippo-link-wrap"><a href="index.html" class="nippo-link-btn">📝 日報入力へ</a></div>
@@ -337,8 +336,18 @@ function switchRoute(i){
     }
   }
   state.route=i;
-  for(var j=0;j<3;j++) document.getElementById('tab'+j).classList.toggle('active',j===i);
+  for(var j=0;j<ROUTES.length;j++){ var t=document.getElementById('tab'+j); if(t) t.classList.toggle('active',j===i); }
   renderRoute();
+}
+// 経路タブを ROUTES から描画（本数・ラベルとも ROUTE_VERSION に追随する）
+function renderRouteTabs(){
+  var el=document.getElementById('routeTabs');
+  if(!el || typeof ROUTES==='undefined') return;
+  var h='';
+  for(var i=0;i<ROUTES.length;i++){
+    h+='<button class="rtab'+(i===state.route?' active':'')+'" id="tab'+i+'" onclick="switchRoute('+i+')">'+eH(ROUTES[i].label)+'</button>';
+  }
+  el.innerHTML=h;
 }
 function toggleMode(){
   if(state.mode==='edit' && state.dirty){
@@ -920,6 +929,7 @@ function _fetchZaikoGas(attempt){
   );
 }
 
+renderRouteTabs();
 loadInitial();
 </script>
 </body>

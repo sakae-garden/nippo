@@ -323,10 +323,9 @@ td.itbl-cell.ctl-brown{background:#fff}
     <button class="back-btn" id="backBtn" style="display:none" onclick="goBack()">← 戻る</button>
   </div>
   <div class="hdr-date" id="hDate"></div>
+  <!-- 経路タブは shared-stores.js の ROUTES から描画する（renderRouteTabs）。
+       ラベルをここにベタ書きすると ROUTE_VERSION 切替で不整合になるので禁止。 -->
   <div class="route-tabs" id="routeTabs">
-    <button class="rtab active" id="tab0" onclick="switchRoute(0)">籠原ルート</button>
-    <button class="rtab" id="tab1" onclick="switchRoute(1)">皆野ルート</button>
-    <button class="rtab" id="tab2" onclick="switchRoute(2)">坂戸ルート</button>
   </div>
 </div>
 <div id="app"></div>
@@ -407,9 +406,19 @@ function setHeader(title,showBack,showTabs) {
   document.getElementById('backBtn').style.display=showBack?'':'none';
   document.getElementById('routeTabs').style.display=showTabs?'':'none';
 }
+// 経路タブを ROUTES から描画（本数・ラベルとも ROUTE_VERSION に追随する）
+function renderRouteTabs(){
+  var el=document.getElementById('routeTabs');
+  if(!el || typeof ROUTES==='undefined') return;
+  var h='';
+  for(var i=0;i<ROUTES.length;i++){
+    h+='<button class="rtab'+(i===state.route?' active':'')+'" id="tab'+i+'" onclick="switchRoute('+i+')">'+eH(ROUTES[i].label)+'</button>';
+  }
+  el.innerHTML=h;
+}
 function switchRoute(idx) {
   state.route=idx;
-  for(var i=0;i<3;i++) document.getElementById('tab'+i).classList.toggle('active',i===idx);
+  for(var i=0;i<ROUTES.length;i++){ var t=document.getElementById('tab'+i); if(t) t.classList.toggle('active',i===idx); }
   renderHome();
 }
 // 未送信の入力があるか判定：state.formData に空でない値が1つでもあれば true。
@@ -1320,6 +1329,7 @@ function saveCfg(){
 
 // 当日の任意発行累計を localStorage から復元（リロードでアラートが復活しないように）
 state.sanchiIssuedToday = _loadSanchiIssuedToday();
+renderRouteTabs();
 loadConfig(function(){ renderHome(); fetchHaitatsuBackground(); fetchLabelAlert(); fetchLabelIssuedTotal(); });
 </script>
 
