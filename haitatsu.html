@@ -759,7 +759,34 @@ function _fetchZaiko(attempt){
   _fetchZaikoGas(attempt);
 }
 
-// GCSからzaiko.jsonを取得。generated_atが6h以内かつdateが今日なら採用。
+// zaiko スナップショットの items に「実データ」が1件でも入っているか。
+// 重要: items は {} でも truthy なので、存在チェック(!j.items)では空を弾けない。
+//   Cloud Run の早朝実行(4:30)は当日データが未収集のため items={} を書き出す。
+//   これを有効なスナップショットとして採用すると、GAS の直近日フォールバックへ
+//   落ちず「残:-／売:-」になる（2026-07-22 早朝の障害）。
+// 判定はキーの存在ではなく「値が有効か」で行う。店舗×価格のいずれかに
+//   hasSales=true または zan/tenpo/sales のいずれかが非0 があれば実データとみなす。
+//   全店・全価格が 0 かつ hasSales=false（＝行はあるが値が空）も無効扱いにする。
+function _zaikoItemsHaveValues(items){
+  if(!items || typeof items !== 'object') return false;
+  var stores = Object.keys(items);
+  for(var i=0;i<stores.length;i++){
+    var per = items[stores[i]];
+    if(!per || typeof per !== 'object') continue;
+    for(var pi=0;pi<YAOKO_PRICES.length;pi++){
+      var e = per[YAOKO_PRICES[pi]];
+      if(!e || typeof e !== 'object') continue;
+      if(e.hasSales === true) return true;
+      if((parseInt(e.zan,10)||0) !== 0) return true;
+      if((parseInt(e.tenpo,10)||0) !== 0) return true;
+      if((parseInt(e.sales,10)||0) !== 0) return true;
+    }
+  }
+  return false;
+}
+
+// GCSからzaiko.jsonを取得。dateが今日・items が非空・generated_atが6h以内なら採用。
+// 空判定は鮮度判定より前に行う（空スナップショットは「新しくても」常に無効）。
 function _fetchZaikoSnapshot(cb){
   var url = ZAIKO_SNAPSHOT_URL + '?_=' + Date.now();
   fetch(url, { cache: 'no-store' }).then(function(r){
@@ -767,6 +794,8 @@ function _fetchZaikoSnapshot(cb){
     return r.json();
   }).then(function(j){
     if(!j || !j.generated_at || !j.items){ cb(null); return; }
+    // 値ベースの非空判定。空なら鮮度に関わらず GAS 直近日フォールバックへ。
+    if(!_zaikoItemsHaveValues(j.items)){ cb(null); return; }
     // date が今日と一致することを厳密確認（日付が変わったら snapshotが古い）
     if(j.date && j.date !== todayStr){ cb(null); return; }
     var gen = Date.parse(j.generated_at);
