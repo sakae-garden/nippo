@@ -590,52 +590,176 @@ function _renderRouteUnsafe(){
 
 // ============ 保存 ============
 // saveHaitatsu は Google Apps Script のリダイレクト層（script.google.com →
-// googleusercontent.com）が連続・コールドアクセス時に一時的な 404 を返すため
-// 単発では失敗しやすい（実測で成功率は半分程度・成功時は 2〜6 秒で軽量）。
-// 対策: 通信失敗(404等)は状態依存でランダムに発生するので、短い間隔で複数回
-// 自動リトライする。1 回の失敗検知はブラウザでは数秒（jsonp の onload 200ms 判定）
-// なので試行回数を増やすのが最も効果的。GAS 側の処理自体は既に軽量化済み。
-var SAVE_MAX_ATTEMPTS = 6;    // 合計試行回数（attempt 0..5）
-var SAVE_RETRY_WAIT   = 1500; // リトライ間隔(ms)
-var SAVE_TIMEOUT      = 15000;// save 専用タイムアウト(ms)。成功時 2〜6 秒なので十分。
-function doSave(){ _doSaveAttempt(0); }
-function _doSaveAttempt(attempt){
+// googleusercontent.com）が連続・コールドアクセス時に一時的な 404 を返すほか、
+// 応答が数秒〜数十秒までばらつく（コールドスタート＋ScriptLock 待ち）。
+//
+// 【2026-07-30 の障害から得た教訓】
+// JSONP はリクエストをキャンセルできないため、クライアントがタイムアウトしても
+// GAS 側の書き込みはそのまま成立する。旧実装は
+//   ・save 側タイムアウト 15秒 ≦ GAS 側 tryLock 待ち 15秒
+//   ・1.5秒間隔で最大6回リトライ
+// だったため、1回目が遅延すると後続リトライが全部 ScriptLock の行列に並び、
+// 必ず 15秒で打ち切られる＝「全滅表示なのにサーバには書けている」状態に陥った
+// （実際に 2026-07-29 23:11:35 の書き込みが成立していた）。
+// 対策:
+//   1) タイムアウトを GAS のロック待ち上限より十分長くする（30秒）
+//   2) 通信失敗したら再送の前に getHaitatsu で「実際に保存されたか」を確認し、
+//      保存済みなら成功として扱う（upsert なので二重記録の危険はない）
+//   3) 再送回数を絞る（無駄打ちが行列を悪化させるため）
+//   4) 全滅時は入力を localStorage に退避し、後から再送できる導線を出す
+var SAVE_MAX_ATTEMPTS = 3;    // 合計試行回数（各失敗後にサーバ確認を挟む）
+var SAVE_RETRY_WAIT   = 2000; // リトライ間隔(ms)
+var SAVE_TIMEOUT      = 30000;// save 専用タイムアウト(ms)。GAS 側ロック待ち(最大10秒)＋コールドスタートを吸収
+var VERIFY_WAIT       = 1500; // 失敗検知からサーバ確認までの待ち(ms)。遅延書き込みの着地を待つ
+var VERIFY_TIMEOUT    = 25000;// 保存確認(getHaitatsu)のタイムアウト(ms)
+var LS_HAITATSU_PENDING = lsKey('haitatsu_pending_v1');
+
+function doSave(){ _doSaveAttempt(0, state.data || {}); }
+
+// 送った payload がサーバに反映されているかを比較する。
+// getHaitatsu は空値を落として返す・数値を文字列で返すため、両者を正規化して突合。
+function _normVal(v){ return (v===undefined || v===null) ? '' : String(v).trim(); }
+function _payloadMatches(items, payload){
+  if(!items || typeof items !== 'object') return false;
+  var PR = ['¥99','¥198','¥398','¥598'];
+  var names = Object.keys(payload || {});
+  for(var i=0;i<names.length;i++){
+    var exp = payload[names[i]] || {}, got = items[names[i]] || {};
+    var ep = exp.prices || {}, gp = got.prices || {};
+    for(var j=0;j<PR.length;j++){
+      if(_normVal(ep[PR[j]]) !== _normVal(gp[PR[j]])) return false;
+    }
+    if(_normVal(exp.comment) !== _normVal(got.comment)) return false;
+  }
+  return true;
+}
+
+function _nowStamp(){
+  var nd=new Date();
+  return nd.getFullYear()+'-'+String(nd.getMonth()+1).padStart(2,'0')+'-'+String(nd.getDate()).padStart(2,'0')
+    +' '+String(nd.getHours()).padStart(2,'0')+':'+String(nd.getMinutes()).padStart(2,'0')+':'+String(nd.getSeconds()).padStart(2,'0');
+}
+
+function _saveSucceeded(payload, toastMsg){
+  hideLoading();
+  _clearPending();
+  state.dirty = false;
+  state.origData = JSON.parse(JSON.stringify(payload));
+  state.lastUpdated = _nowStamp();
+  // localStorageキャッシュ更新（保存本人は即時反映を体感できる。他閲覧者はスナップショット更新間隔待ち）
+  _writeCache({ items: payload, lastUpdated: state.lastUpdated });
+  // 旧キーも互換で更新（既存フォールバックのため）
+  try { localStorage.setItem(LS_HAITATSU_LATEST, JSON.stringify(payload)); } catch(e){}
+  state.dataStale = false;
+  renderRoute();
+  showToast(toastMsg);
+}
+
+function _doSaveAttempt(attempt, payload){
   // リトライ中もローディングを継続表示（試行回数を明示し、途切れさせない）
-  showLoading(attempt>0 ? ('保存中...（再試行 '+attempt+'/'+(SAVE_MAX_ATTEMPTS-1)+'）') : '保存中...');
-  var payload = state.data || {};
+  showLoading(attempt>0 ? ('保存中...（再送 '+attempt+'/'+(SAVE_MAX_ATTEMPTS-1)+'）') : '保存中...');
   var dataStr = encodeURIComponent(JSON.stringify(payload));
   // 日付キー廃止：saveHaitatsu は常に最新1セットを店舗名キーで upsert
   // _cb: キャッシュバスター。Google 側リダイレクト状態のリフレッシュを促し 404 を軽減
   var url = API_URL+'?action=saveHaitatsu&data='+dataStr+'&_cb='+Date.now()+'_'+attempt;
   jsonp(url, 'cb_save', function(res){
     if(res && res.success){
-      hideLoading();
-      state.dirty = false;
-      state.origData = JSON.parse(JSON.stringify(payload));
-      var nd=new Date();
-      state.lastUpdated = nd.getFullYear()+'-'+String(nd.getMonth()+1).padStart(2,'0')+'-'+String(nd.getDate()).padStart(2,'0')+' '+String(nd.getHours()).padStart(2,'0')+':'+String(nd.getMinutes()).padStart(2,'0')+':'+String(nd.getSeconds()).padStart(2,'0');
-      // localStorageキャッシュ更新（保存本人は即時反映を体感できる。他閲覧者はスナップショット更新間隔待ち）
-      _writeCache({ items: payload, lastUpdated: state.lastUpdated });
-      // 旧キーも互換で更新（既存フォールバックのため）
-      try { localStorage.setItem(LS_HAITATSU_LATEST, JSON.stringify(payload)); } catch(e){}
-      state.dataStale = false;
-      renderRoute();
-      showToast(attempt>0 ? ('✅ 保存しました（再試行'+attempt+'回で成功）') : '✅ 保存しました（'+res.saved+'件）');
+      _saveSucceeded(payload, attempt>0 ? ('✅ 保存しました（再送'+attempt+'回で成功）') : '✅ 保存しました（'+res.saved+'件）');
+    } else if(res && res.retryable){
+      // GAS 側が ScriptLock を取れなかった（他の処理と競合）→ 時間差で再送
+      _verifyThenRetry(attempt, payload, 'ロック競合');
     } else {
-      // GAS が応答したが success:false はデータ起因（invalid data 等）で、
+      // GAS が応答した success:false はデータ起因（invalid data 等）で、
       // 同じ data を再送しても結果は変わらないため即エラー表示（無駄な再送を避ける）。
       hideLoading();
       alert('保存に失敗しました\n'+((res&&res.error)||'')+'\nもう一度お試しください。');
     }
   }, function(){
-    // 通信失敗（404 等）→ 残り試行があれば自動リトライ
-    if(attempt < SAVE_MAX_ATTEMPTS-1){
-      setTimeout(function(){ _doSaveAttempt(attempt+1); }, SAVE_RETRY_WAIT);
-    } else {
-      hideLoading();
-      alert('通信エラーで保存できませんでした（'+SAVE_MAX_ATTEMPTS+'回試行）。\n通信状況を確認して、もう一度お試しください。');
-    }
+    // 通信失敗（404/タイムアウト等）。JSONP はリクエストをキャンセルできないので、
+    // サーバ側では書き込みが成立している可能性がある。再送の前に必ず確認する。
+    _verifyThenRetry(attempt, payload, '通信エラー');
   }, SAVE_TIMEOUT);
+}
+
+// 失敗検知後：サーバに実際に保存されたかを確認し、
+//   保存済み → 成功扱い（誤った失敗表示と無駄な再送を止める）
+//   未保存   → 残り試行があれば再送、無ければ入力を退避して案内
+function _verifyThenRetry(attempt, payload, reason){
+  showLoading('保存を確認中...');
+  setTimeout(function(){
+    jsonp(API_URL+'?action=getHaitatsu&_cb='+Date.now(), 'cb_verify', function(res){
+      if(res && res.success && _payloadMatches(res.items, payload)){
+        _saveSucceeded(payload, '✅ 保存されていました（'+reason+'後にサーバで確認）');
+        return;
+      }
+      _retryOrGiveUp(attempt, payload, reason);
+    }, function(){
+      // 確認自体も失敗 → 保存できたか不明。再送で確定させる
+      _retryOrGiveUp(attempt, payload, reason);
+    }, VERIFY_TIMEOUT);
+  }, VERIFY_WAIT);
+}
+
+function _retryOrGiveUp(attempt, payload, reason){
+  if(attempt < SAVE_MAX_ATTEMPTS-1){
+    showLoading('保存中...（再送 '+(attempt+1)+'/'+(SAVE_MAX_ATTEMPTS-1)+'）');
+    setTimeout(function(){ _doSaveAttempt(attempt+1, payload); }, SAVE_RETRY_WAIT);
+  } else {
+    hideLoading();
+    _writePending(payload);
+    _updatePendingBanner();
+    alert('保存できませんでした（'+reason+'・'+SAVE_MAX_ATTEMPTS+'回試行）。\n'
+      +'入力内容は端末に保存してあります。画面上部の「未送信の入力があります」から\n'
+      +'あとで再送できます（数分おいてから試すと成功しやすいです）。');
+  }
+}
+
+// ---- 未送信入力の退避と再送導線 ----
+function _writePending(payload){
+  try {
+    localStorage.setItem(LS_HAITATSU_PENDING, JSON.stringify({ items: payload, at: _nowStamp() }));
+  } catch(e){}
+}
+function _clearPending(){
+  try { localStorage.removeItem(LS_HAITATSU_PENDING); } catch(e){}
+  var el = document.getElementById('pending_notice');
+  if(el && el.parentNode) el.parentNode.removeChild(el);
+}
+function _readPending(){
+  try {
+    var raw = localStorage.getItem(LS_HAITATSU_PENDING);
+    if(!raw) return null;
+    var o = JSON.parse(raw);
+    return (o && o.items) ? o : null;
+  } catch(e){ return null; }
+}
+function _updatePendingBanner(){
+  var p = _readPending();
+  var el = document.getElementById('pending_notice');
+  if(!p){ if(el && el.parentNode) el.parentNode.removeChild(el); return; }
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'pending_notice';
+    el.style.cssText = 'background:#fdecea;color:#b71c1c;border:1px solid #ef9a9a;border-radius:8px;padding:8px 10px;margin:0 16px 8px;font-size:12px;text-align:center;font-weight:600';
+    var app = document.getElementById('app');
+    if(app && app.parentNode) app.parentNode.insertBefore(el, app);
+  }
+  el.innerHTML = '⚠️ 未送信の入力があります（'+eH(p.at||'')+'）'
+    +' <button onclick="resendPending()" style="margin-left:6px;background:#b71c1c;color:#fff;border:none;border-radius:6px;padding:5px 12px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">再送する</button>'
+    +' <button onclick="discardPending()" style="margin-left:4px;background:none;border:1px solid #ef9a9a;border-radius:6px;padding:5px 10px;font-family:inherit;font-size:12px;color:#b71c1c;cursor:pointer">破棄</button>';
+}
+function resendPending(){
+  var p = _readPending();
+  if(!p){ _updatePendingBanner(); return; }
+  state.data = JSON.parse(JSON.stringify(p.items));
+  state.dirty = true;
+  renderRoute();
+  _doSaveAttempt(0, state.data);
+}
+function discardPending(){
+  if(!confirm('未送信の入力を破棄します。よろしいですか？')) return;
+  _clearPending();
+  showToast('未送信の入力を破棄しました');
 }
 
 // ============ SWR初期読み込み ============
@@ -948,6 +1072,8 @@ function _fetchZaikoGas(attempt){
 
 renderRouteTabs();
 loadInitial();
+// 前回の保存が全滅して端末に退避された入力があれば、再送導線を出す
+_updatePendingBanner();
 </script>
 </body>
 </html>
