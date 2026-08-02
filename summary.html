@@ -214,7 +214,9 @@ function _writeSummaryCache(data){
 }
 
 // 「最新確認中…」「取得失敗（前回キャッシュ表示中）」等の控えめな通知バー
-function _updateSummaryStale(msg){
+// withRetry=true のとき「今すぐ再取得」ボタンを併記する（取得失敗時のみ）。
+// textContent の代入で既存の子要素（前回のボタン）は消えるのでボタンは重複しない。
+function _updateSummaryStale(msg, withRetry){
   var el = document.getElementById('summaryStale');
   if(!msg){ if(el) el.parentNode.removeChild(el); return; }
   if(!el){
@@ -225,6 +227,16 @@ function _updateSummaryStale(msg){
     if(host && host.parentNode) host.parentNode.insertBefore(el, host);
   }
   el.textContent = msg;
+  if(withRetry){
+    var b = document.createElement('button');
+    b.textContent = '今すぐ再取得';
+    b.style.cssText='margin-left:8px;padding:3px 10px;font-size:12px;font-weight:600;color:#e65100;background:#fff;border:1px solid #ffb74d;border-radius:6px;cursor:pointer';
+    b.onclick = function(){
+      b.disabled = true; b.textContent = '取得中…';
+      _fetchAllDataFromGas(RETRY_DELAYS.length, true);   // 1回だけ即試行
+    };
+    el.appendChild(b);
+  }
 }
 
 // スナップショット取得（generated_at検証、鮮度確認）
@@ -300,16 +312,75 @@ function handleEsmarcheStatus(d){
     el.textContent='🛒 ヤオコー売上 未反映';
   }
 }
+// ──── GAS取得ドライバ（初回・リトライ・自動再取得・手動再取得の共通経路）────
+// GASは混雑時に404/タイムアウトを返すことがある（収集バッチ併走時に実測）。
+// 1回の失敗で諦めず、5秒後→15秒後まで自動リトライし、それでも駄目なら
+// 警告バー＋「今すぐ再取得」ボタンを出したうえで60秒ごとに裏で試し続ける。
+// 成功した時点でバーを消して表示を差し替えるので、放置していても復旧する。
+var RETRY_DELAYS  = [5000, 15000];  // 初回失敗→5秒後→15秒後（計3回）
+var AUTO_RETRY_MS = 60000;          // 警告バー表示中の自動再取得間隔
+var startupCache  = null;           // 直近に取得成功したキャッシュ（「表示は◯時点」の表示用）
+var autoRetryTimer = null;
+
+function _startAutoRetry(){
+  if(autoRetryTimer) return;
+  autoRetryTimer = setInterval(function(){
+    _fetchAllDataFromGas(RETRY_DELAYS.length, true);   // 1回だけ静かに試す
+  }, AUTO_RETRY_MS);
+}
+function _stopAutoRetry(){
+  if(autoRetryTimer){ clearInterval(autoRetryTimer); autoRetryTimer = null; }
+}
+
+function applyFromGas(data){
+  // ユーザーが手動で日付を選んだ時のみ選択を維持。未選択(自動)なら最新日(=当日があれば当日)を表示。
+  // これにより、朝の初回描画で前日を自動選択後に getAllData が当日を返したら当日へ更新される
+  // （日報送信→即・当日反映。エスマルシェ収集とは独立）。
+  _stopAutoRetry();
+  var prevSel = userPickedDate ? document.getElementById('dateSelect').value : null;
+  _applyAllData(data, prevSel);
+  _writeSummaryCache({availableDates:data.availableDates||[], allData:data.allData||{}, esmarcheStatus:null});
+  startupCache = _readSummaryCache();   // 次に失敗した時に出す「表示は◯時点」を最新化
+  var ed = document.getElementById('error'); if(ed) ed.style.display='none';
+  _updateSummaryStale(null);
+}
+
+// attempt: 0=初回。RETRY_DELAYS.length に達したら打ち切り（=自動再取得へ移行）。
+// silent=true: 自動／手動の再取得。既存の警告バーを保ったまま裏で1回だけ試す。
+function _fetchAllDataFromGas(attempt, silent){
+  jsonp(API_URL+'?action=getAllData', applyFromGas, function(){
+    if(attempt < RETRY_DELAYS.length){
+      if(!silent){
+        _updateSummaryStale('🔄 再取得中…');
+        if(!startupCache) document.getElementById('loading').innerHTML='<div class="spinner"></div><br>再取得中...<br><small>しばらくお待ちください</small>';
+      }
+      setTimeout(function(){ _fetchAllDataFromGas(attempt+1, silent); }, RETRY_DELAYS[attempt]);
+      return;
+    }
+    // 打ち切り：キャッシュ表示は維持したまま警告＋手動ボタン。以後60秒ごとに自動再取得。
+    if(startupCache){
+      var when = new Date(startupCache.cachedAt).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
+      _updateSummaryStale('⚠️ 最新の取得に失敗（表示は '+when+' 時点）', true);
+    } else {
+      document.getElementById('loading').style.display='none';
+      document.getElementById('error').innerHTML='データ取得に失敗しました。<br>自動で再取得を続けます。';
+      document.getElementById('error').style.display='block';
+      _updateSummaryStale('⚠️ 最新の取得に失敗（自動再取得中）', true);
+    }
+    _startAutoRetry();
+  });
+}
+
 window.onload=function(){
   // ──── SWR起動フロー ────
   // Step 1: localStorage キャッシュがあれば即描画（0秒表示）
   // Step 2: GAS(getAllData)で最新を取得して差替（即時性最優先・スナップショット非依存）
-  // Step 3: 失敗なら5秒後リトライ→最終フォールバック（キャッシュ維持＋警告）
-  var cache = _readSummaryCache();
+  // Step 3: 失敗なら5秒後→15秒後にリトライ→なお駄目なら警告バー＋60秒ごとの自動再取得
+  startupCache = _readSummaryCache();
 
-  if(cache && cache.availableDates && cache.availableDates.length){
-    _applyAllData({availableDates:cache.availableDates, allData:cache.allData}, null);
-    if(cache.esmarcheStatus) handleEsmarcheStatus(cache.esmarcheStatus);
+  if(startupCache && startupCache.availableDates && startupCache.availableDates.length){
+    _applyAllData({availableDates:startupCache.availableDates, allData:startupCache.allData}, null);
+    if(startupCache.esmarcheStatus) handleEsmarcheStatus(startupCache.esmarcheStatus);
     _updateSummaryStale('🔄 最新確認中…');
   }
 
@@ -317,34 +388,8 @@ window.onload=function(){
   // 数秒で反映される必要がある）のため、裏の確認先を常に GAS(getAllData) にする。
   // localStorage 即時表示(SWR)は上の cache 描画で維持されるので体感速度は変わらない。
   // ※ haitatsu 側のスナップショットは夜入力・翌朝閲覧で即時性不要のため据え置き。
-  var applyFromGas = function(data){
-    // ユーザーが手動で日付を選んだ時のみ選択を維持。未選択(自動)なら最新日(=当日があれば当日)を表示。
-    // これにより、朝の初回描画で前日を自動選択後に getAllData が当日を返したら当日へ更新される
-    // （日報送信→即・当日反映。エスマルシェ収集とは独立）。
-    var prevSel = userPickedDate ? document.getElementById('dateSelect').value : null;
-    _applyAllData(data, prevSel);
-    _writeSummaryCache({availableDates:data.availableDates||[], allData:data.allData||{}, esmarcheStatus:null});
-    _updateSummaryStale(null);
-  };
   jsonp(API_URL+'?action=getEsmarcheStatus',handleEsmarcheStatus,function(){});
-  jsonp(API_URL+'?action=getAllData',applyFromGas,function(){
-    // GAS1回目失敗→5秒後リトライ
-    if(!cache) document.getElementById('loading').innerHTML='<div class="spinner"></div><br>再取得中...<br><small>しばらくお待ちください</small>';
-    _updateSummaryStale('🔄 再取得中…');
-    setTimeout(function(){
-      jsonp(API_URL+'?action=getAllData',applyFromGas,function(){
-        if(cache){
-          // キャッシュ表示継続＋警告
-          var when = new Date(cache.cachedAt).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
-          _updateSummaryStale('⚠️ 最新の取得に失敗（表示は '+when+' 時点）');
-        } else {
-          document.getElementById('loading').style.display='none';
-          document.getElementById('error').innerHTML='データ取得に失敗しました。<br>しばらく待ってから更新してください。';
-          document.getElementById('error').style.display='block';
-        }
-      });
-    },5000);
-  });
+  _fetchAllDataFromGas(0, false);
 };
 
 function showReport(date){
