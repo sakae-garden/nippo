@@ -1173,47 +1173,75 @@ function _setSubmitBtnDisabled(d){
 // ---- 未送信日報の退避と再送導線 ----
 // 保存するのは「そのまま再送できる完全な送信内容」。reqId も一緒に持つので、
 // 再送しても GAS 側の同一 date × reqId 重複検知で二重記録にならない。
-function _writeSubmitPending(p){
-  try{ localStorage.setItem(LS_SUBMIT_PENDING, JSON.stringify(p)); }catch(e){}
-}
-function _readSubmitPending(){
+//
+// 【店舗ごとに保持する】配達員は1経路で3〜6店舗を順に回り、店舗ごとに送信する。
+// 退避枠が1つしかないと「寄居店が失敗 → 次のみどりが丘店を送信 → 寄居店の
+// 退避が上書きされ、みどりが丘店の成功で消える」で失敗分の入力が消えてしまう。
+// 店舗名をキーにしたマップで持ち、成功した店舗の分だけを消す。
+function _readPendingMap(){
   try{
     var raw=localStorage.getItem(LS_SUBMIT_PENDING);
-    if(!raw) return null;
-    var o=JSON.parse(raw);
-    if(!o||!o.storeName||!o.reqId||!o.items) return null;
-    if(o.date!==todayStr) return null;      // 日付が変わったものは出さない
-    return o;
-  }catch(e){ return null; }
+    if(!raw) return {};
+    var m=JSON.parse(raw);
+    if(!m||typeof m!=='object'||Array.isArray(m)) return {};
+    // 当日分だけを残す（日付が変わったものは自然に消える）
+    var out={};
+    Object.keys(m).forEach(function(k){
+      var o=m[k];
+      if(o&&o.storeName&&o.reqId&&o.items&&o.date===todayStr) out[k]=o;
+    });
+    return out;
+  }catch(e){ return {}; }
 }
-function _clearSubmitPending(){
-  try{ localStorage.removeItem(LS_SUBMIT_PENDING); }catch(e){}
-  var el=document.getElementById('submit_pending_notice');
-  if(el&&el.parentNode) el.parentNode.removeChild(el);
+function _savePendingMap(m){
+  try{
+    if(!m||Object.keys(m).length===0) localStorage.removeItem(LS_SUBMIT_PENDING);
+    else localStorage.setItem(LS_SUBMIT_PENDING, JSON.stringify(m));
+  }catch(e){}
+}
+function _writeSubmitPending(p){
+  var m=_readPendingMap(); m[p.storeName]=p; _savePendingMap(m);
+}
+function _clearSubmitPendingFor(storeName){
+  var m=_readPendingMap(); delete m[storeName]; _savePendingMap(m);
+}
+function _readSubmitPendingFor(storeName){
+  return _readPendingMap()[storeName] || null;
+}
+function _listSubmitPending(){
+  var m=_readPendingMap();
+  return Object.keys(m).map(function(k){ return m[k]; });
 }
 function _updateSubmitPendingBanner(){
-  var p=_readSubmitPending();
+  var list=_listSubmitPending();
   var el=document.getElementById('submit_pending_notice');
-  if(!p){ if(el&&el.parentNode) el.parentNode.removeChild(el); return; }
+  if(list.length===0){ if(el&&el.parentNode) el.parentNode.removeChild(el); return; }
   if(!el){
     el=document.createElement('div');
     el.id='submit_pending_notice';
-    el.style.cssText='background:#fdecea;color:#b71c1c;border:1px solid #ef9a9a;border-radius:8px;padding:9px 10px;margin:0 16px 8px;font-size:12px;text-align:center;font-weight:600;line-height:1.7';
+    el.style.cssText='background:#fdecea;color:#b71c1c;border:1px solid #ef9a9a;border-radius:8px;padding:10px;margin:0 16px 8px;font-size:12px;text-align:center;font-weight:600;line-height:1.8';
     var app=document.getElementById('app');
     if(app&&app.parentNode) app.parentNode.insertBefore(el,app);
   }
-  el.innerHTML='⚠️ 未送信の日報があります<br>'+eH(p.storeName)+'（'+eH(p.staff)+'・'+eH(p.at||'')+'）'
-    +'<br><button onclick="resendSubmitPending()" style="margin-top:6px;background:#b71c1c;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">再送する</button>'
-    +' <button onclick="discardSubmitPending()" style="margin-top:6px;margin-left:4px;background:none;border:1px solid #ef9a9a;border-radius:6px;padding:6px 10px;font-family:inherit;font-size:12px;color:#b71c1c;cursor:pointer">破棄</button>';
+  var h='⚠️ 未送信の日報があります（'+list.length+'件）<br>入力内容は端末に残してあります。';
+  list.forEach(function(p){
+    var sn=p.storeName.replace(/'/g,'');
+    h+='<div style="margin-top:7px;padding-top:7px;border-top:1px solid #f3c4c0">'
+      +eH(p.storeName)+'（'+eH(p.staff)+'・'+eH(p.at||'')+'）<br>'
+      +'<button onclick="resendSubmitPending(\''+sn+'\')" style="margin-top:5px;background:#b71c1c;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">再送する</button>'
+      +' <button onclick="discardSubmitPending(\''+sn+'\')" style="margin-top:5px;margin-left:4px;background:none;border:1px solid #ef9a9a;border-radius:6px;padding:6px 10px;font-family:inherit;font-size:12px;color:#b71c1c;cursor:pointer">破棄</button>'
+      +'</div>';
+  });
+  el.innerHTML=h;
 }
-function resendSubmitPending(){
-  var p=_readSubmitPending();
+function resendSubmitPending(storeName){
+  var p=_readSubmitPendingFor(storeName);
   if(!p){ _updateSubmitPendingBanner(); return; }
   _runSubmit(p, true);
 }
-function discardSubmitPending(){
-  if(!confirm('未送信の日報を破棄します。よろしいですか？')) return;
-  _clearSubmitPending();
+function discardSubmitPending(storeName){
+  if(!confirm(storeName+' の未送信日報を破棄します。よろしいですか？')) return;
+  _clearSubmitPendingFor(storeName);
   _updateSubmitPendingBanner();
 }
 
@@ -1253,7 +1281,7 @@ function _runSubmit(pending, isResend){
   function succeed(){
     endSess();
     _submitBusy=false; hideLoading(); _setSubmitBtnDisabled(false);
-    _clearSubmitPending();
+    _clearSubmitPendingFor(pending.storeName);   // 成功した店舗の分だけ消す
     _updateSubmitPendingBanner();
     if(isResend){
       alert('✅ 未送信だった日報を送信しました。\n'+pending.storeName);
@@ -1523,16 +1551,16 @@ function saveCfg(){
 // 閉じた・リロードした場合は実際にはサーバに記録済みのことがある。reqId で
 // 照合し、記録済みなら黙って退避を消す（誤った未送信表示で再送させない）。
 function _autoResolveSubmitPending(){
-  var p=_readSubmitPending();
-  if(!p) return;
-  jsonp(API_URL+'?action=getSubmitStatus&store='+encodeURIComponent(p.storeName)
-    +'&date='+p.date+'&reqId='+encodeURIComponent(p.reqId)+'&_cb='+Date.now(),
-    'cb_pend_chk',function(res){
-      if(res&&res.success&&res.found){
-        _clearSubmitPending();
-        _updateSubmitPendingBanner();
-      }
-    },function(){},CONFIRM_TIMEOUT);
+  _listSubmitPending().forEach(function(p){
+    jsonp(API_URL+'?action=getSubmitStatus&store='+encodeURIComponent(p.storeName)
+      +'&date='+p.date+'&reqId='+encodeURIComponent(p.reqId)+'&_cb='+Date.now(),
+      'cb_pend_chk',function(res){
+        if(res&&res.success&&res.found){
+          _clearSubmitPendingFor(p.storeName);
+          _updateSubmitPendingBanner();
+        }
+      },function(){},CONFIRM_TIMEOUT);
+  });
 }
 
 // 当日の任意発行累計を localStorage から復元（リロードでアラートが復活しないように）
