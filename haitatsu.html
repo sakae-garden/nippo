@@ -185,26 +185,58 @@ var todayStr = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0'
 document.getElementById('hDate').textContent = today.getFullYear()+'年'+(today.getMonth()+1)+'月'+today.getDate()+'日（'+DAYS[today.getDay()]+'）';
 
 // ============ jsonp ============
-// 強化: script.onload で「スクリプトはロードされたがコールバック未呼出」
-//       （Drive 404 HTML が返ったケース等）を検知して onErr に倒す。
-// タイムアウトは45秒（GASコールドスタートの10秒スパイクを吸収するため長め）。
-// SWR配信下では初期描画がGCS由来なので、この裏側時間はユーザに見えない。
+// 強化1: script.onload で「スクリプトはロードされたがコールバック未呼出」
+//        （Drive 404 HTML が返ったケース等）を検知して onErr に倒す。
+//        ※ただしこれは HTTP 応答が届いてからしか判定できない。実測では
+//          GAS が 404/HTML中間ページを返すケースは応答自体が 30〜70秒
+//          かかるため、onload 検知だけでは早期失敗にならない。早期に
+//          見切るのは timeoutMs の役目で、下の「遅延到着」で無駄を消す。
+// 強化2: 遅延到着(late arrival)の受け取り。JSONP はリクエストをキャンセル
+//        できないので、タイムアウトで見切った後に応答が届くことがある。
+//        opts.onLate を渡すと、タイムアウト後 opts.lateGraceMs の間だけ
+//        コールバックと script タグを残し、遅れて届いた応答を拾う。
+//        → 「短いタイムアウトで素早く確認導線へ入る」のに、実際には
+//           成立していた保存を捨てずに済む（無駄な再送を止められる）。
+// 実測(2026-08-05, テストGAS): submit/saveHaitatsu とも p50≈3〜5秒・
+// p90≈9〜13秒。まれに 20〜70秒の外れ値と 404/HTML中間ページが出る。
 var cbIdx=0;
-function jsonp(url,base,onOk,onErr,timeoutMs){
+function jsonp(url,base,onOk,onErr,timeoutMs,opts){
+  opts = opts || {};
   var n=base+'_'+(cbIdx++), s=document.createElement('script');
-  var called=false;
-  var t=setTimeout(function(){cleanup();if(!called){called=true;if(onErr)onErr();}},timeoutMs||45000);
-  function cleanup(){clearTimeout(t);delete window[n];if(s.parentNode)s.parentNode.removeChild(s);}
-  window[n]=function(d){if(called)return;called=true;cleanup();onOk(d);};
+  var settled=false;   // onOk/onErr のいずれかを呼び終えた
+  var disposed=false;  // 後片付け済み
+  var t=null, lt=null;
+  function dispose(){
+    if(disposed) return; disposed=true;
+    clearTimeout(t); clearTimeout(lt);
+    try{ delete window[n]; }catch(e){ window[n]=undefined; }
+    if(s.parentNode) s.parentNode.removeChild(s);
+  }
+  window[n]=function(d){
+    clearTimeout(t);
+    if(!settled){ settled=true; dispose(); onOk(d); return; }
+    // タイムアウト後に遅れて届いた応答
+    dispose();
+    if(opts.onLate){ try{ opts.onLate(d); }catch(e){} }
+  };
+  function failNow(){
+    if(settled) return;
+    settled=true;
+    if(opts.onLate && opts.lateGraceMs>0){
+      // script タグとコールバックは猶予時間だけ残し、遅延到着を拾えるようにする
+      lt=setTimeout(dispose, opts.lateGraceMs);
+    } else {
+      dispose();
+    }
+    if(onErr) onErr();
+  }
+  t=setTimeout(failNow, timeoutMs||45000);
   s.onload=function(){
     // script は実行完了したが window[n] が呼ばれていなければ失敗扱い
-    if(called) return;
-    setTimeout(function(){
-      if(called) return;
-      called=true; cleanup(); if(onErr)onErr();
-    },200);
+    if(settled) return;
+    setTimeout(function(){ if(!settled) failNow(); },200);
   };
-  s.onerror=function(){if(called)return;called=true;cleanup();if(onErr)onErr();};
+  s.onerror=function(){ failNow(); };
   s.src=url+(url.indexOf('?')>-1?'&':'?')+'callback='+n;
   document.body.appendChild(s);
 }
@@ -584,20 +616,65 @@ function _renderRouteUnsafe(){
 // だったため、1回目が遅延すると後続リトライが全部 ScriptLock の行列に並び、
 // 必ず 15秒で打ち切られる＝「全滅表示なのにサーバには書けている」状態に陥った
 // （実際に 2026-07-29 23:11:35 の書き込みが成立していた）。
-// 対策:
-//   1) タイムアウトを GAS のロック待ち上限より十分長くする（30秒）
-//   2) 通信失敗したら再送の前に getHaitatsu で「実際に保存されたか」を確認し、
-//      保存済みなら成功として扱う（upsert なので二重記録の危険はない）
-//   3) 再送回数を絞る（無駄打ちが行列を悪化させるため）
-//   4) 全滅時は入力を localStorage に退避し、後から再送できる導線を出す
-var SAVE_MAX_ATTEMPTS = 3;    // 合計試行回数（各失敗後にサーバ確認を挟む）
-var SAVE_RETRY_WAIT   = 2000; // リトライ間隔(ms)
-var SAVE_TIMEOUT      = 30000;// save 専用タイムアウト(ms)。GAS 側ロック待ち(最大10秒)＋コールドスタートを吸収
-var VERIFY_WAIT       = 1500; // 失敗検知からサーバ確認までの待ち(ms)。遅延書き込みの着地を待つ
-var VERIFY_TIMEOUT    = 25000;// 保存確認(getHaitatsu)のタイムアウト(ms)
+// 【2026-08-05 再設計：待つのをやめ、早く見切って素早く確定させる】
+// 直前の対策（タイムアウト30秒・3回・確認導線）は「安全だが遅い」に振れすぎていた。
+// 最悪 30+1.5+25+2+30+1.5+25+2+30+1.5+25 ≒ 173秒 かかり実用に耐えなかった。
+//
+// 実測（テストGAS・2026-08-05）:
+//   saveHaitatsu  : GAS実行 0.8〜6.1秒 / 総応答 p50≈4秒・p90≈9秒
+//   getHaitatsu   : p50≈2.5秒・p90≈12秒
+//   ScriptLock 待ち: 5並列でも最大 3.4秒（＝ロック競合は律速ではない）
+//   まれに 20〜70秒の外れ値・404/HTML中間ページが出る（Google側の転送レイヤ起因）
+// つまり「30秒待つ」のは p90 の3倍以上を無駄に待つ設計だった。
+//
+// 新方針:
+//   1) タイムアウトは p90 相当（10秒）。ここで見切って即座に確認導線へ入る
+//   2) ただし JSONP はキャンセルできないので、見切った後も遅延到着を拾い続ける
+//      （jsonp の onLate）。遅れて success が届いたらその場で確定し再送を打ち切る
+//   3) 確認(getHaitatsu)も 8秒で見切る
+//   4) 全体締切 SAVE_DEADLINE を持ち、超えたら即バナーへ倒す（待たせ続けない）
+//   5) 送信前に必ず localStorage へ退避。以降どこで失敗しても入力は消えない
+//   6) バナーへ倒した後もバックグラウンドで再確認し、実は保存されていたら自動解消
+var SAVE_MAX_ATTEMPTS = 3;    // 合計試行回数
+var SAVE_RETRY_WAIT   = 600;  // リトライ間隔(ms)
+var SAVE_TIMEOUT      = 10000;// save 専用タイムアウト(ms)。実測 p90≈9秒
+var SAVE_LATE_GRACE   = 25000;// 見切った後に遅延到着を拾う猶予(ms)
+var VERIFY_WAIT       = 700;  // 失敗検知からサーバ確認までの待ち(ms)
+var VERIFY_TIMEOUT    = 8000; // 保存確認(getHaitatsu)のタイムアウト(ms)
+var SAVE_DEADLINE     = 20000;// 新しい試行を始めてよい上限(ms)。超えたらバナーへ
+var SAVE_RECHECK_MS   = [6000, 15000];  // バナー後の自動再確認タイミング(ms)
 var LS_HAITATSU_PENDING = lsKey('haitatsu_pending_v1');
 
-function doSave(){ _doSaveAttempt(0, state.data || {}); }
+// 保存セッション。1回の「保存」操作に属する試行・確認・遅延到着をまとめ、
+// どれか1つが成功したら以降を全て無視する（多重確定・無駄な再送を防ぐ）。
+var _saveSess = null;
+function _newSaveSession(payload){
+  return { id: 'S'+Date.now()+'_'+Math.random().toString(36).slice(2),
+           payload: payload, t0: Date.now(), done: false, timers: [] };
+}
+function _sessAlive(sess){ return !!sess && !sess.done && _saveSess === sess; }
+function _sessTimer(sess, fn, ms){
+  var h = setTimeout(function(){ if(_sessAlive(sess)) fn(); }, ms);
+  sess.timers.push(h); return h;
+}
+function _sessEnd(sess){
+  if(!sess) return;
+  sess.done = true;
+  sess.timers.forEach(function(h){ clearTimeout(h); });
+  sess.timers = [];
+}
+function _elapsed(sess){ return Date.now() - sess.t0; }
+
+function doSave(){
+  var payload = JSON.parse(JSON.stringify(state.data || {}));
+  // 【最優先】送信を始める前に端末へ退避する。この時点以降、通信・タブ閉じ・
+  // 端末再起動のいずれが起きても入力内容は失われない。
+  _writePending(payload);
+  _sessEnd(_saveSess);
+  var sess = _newSaveSession(payload);
+  _saveSess = sess;
+  _doSaveAttempt(0, payload, sess);
+}
 
 // 送った payload がサーバに反映されているかを比較する。
 // getHaitatsu は空値を落として返す・数値を文字列で返すため、両者を正規化して突合。
@@ -638,7 +715,8 @@ function _saveSucceeded(payload, toastMsg){
   showToast(toastMsg);
 }
 
-function _doSaveAttempt(attempt, payload){
+function _doSaveAttempt(attempt, payload, sess){
+  if(!_sessAlive(sess)) return;
   // リトライ中もローディングを継続表示（試行回数を明示し、途切れさせない）
   showLoading(attempt>0 ? ('保存中...（再送 '+attempt+'/'+(SAVE_MAX_ATTEMPTS-1)+'）') : '保存中...');
   var dataStr = encodeURIComponent(JSON.stringify(payload));
@@ -646,55 +724,128 @@ function _doSaveAttempt(attempt, payload){
   // _cb: キャッシュバスター。Google 側リダイレクト状態のリフレッシュを促し 404 を軽減
   var url = API_URL+'?action=saveHaitatsu&data='+dataStr+'&_cb='+Date.now()+'_'+attempt;
   jsonp(url, 'cb_save', function(res){
+    if(!_sessAlive(sess)) return;
     if(res && res.success){
-      _saveSucceeded(payload, attempt>0 ? ('✅ 保存しました（再送'+attempt+'回で成功）') : '✅ 保存しました（'+res.saved+'件）');
+      _saveSucceeded2(sess, payload, attempt>0 ? ('✅ 保存しました（再送'+attempt+'回で成功）') : '✅ 保存しました（'+res.saved+'件）');
     } else if(res && res.retryable){
-      // GAS 側が ScriptLock を取れなかった（他の処理と競合）→ 時間差で再送
-      _verifyThenRetry(attempt, payload, 'ロック競合');
+      // GAS 側が ScriptLock を取れなかった（他の処理と競合）。
+      // 書き込みは行われていないので確認を挟まず、短い間隔ですぐ再送する。
+      _retryOrGiveUp(attempt, payload, 'サーバ混雑', sess);
     } else {
       // GAS が応答した success:false はデータ起因（invalid data 等）で、
       // 同じ data を再送しても結果は変わらないため即エラー表示（無駄な再送を避ける）。
+      _sessEnd(sess);
       hideLoading();
       alert('保存に失敗しました\n'+((res&&res.error)||'')+'\nもう一度お試しください。');
     }
   }, function(){
-    // 通信失敗（404/タイムアウト等）。JSONP はリクエストをキャンセルできないので、
-    // サーバ側では書き込みが成立している可能性がある。再送の前に必ず確認する。
-    _verifyThenRetry(attempt, payload, '通信エラー');
-  }, SAVE_TIMEOUT);
+    // タイムアウト or 通信失敗。JSONP はキャンセルできないのでサーバ側では
+    // 書き込みが成立している可能性がある。再送の前に必ず確認する。
+    if(!_sessAlive(sess)) return;
+    _verifyThenRetry(attempt, payload, '応答待ち切れ', sess);
+  }, SAVE_TIMEOUT, {
+    lateGraceMs: SAVE_LATE_GRACE,
+    // 見切った後に本来の応答が届いた場合。成功していれば即確定し、
+    // 進行中の確認・再送を全部止める（2〜3分コースに入るのを防ぐ主役）。
+    onLate: function(res){
+      if(!_sessAlive(sess)) return;
+      if(res && res.success){
+        _saveSucceeded2(sess, payload, '✅ 保存しました（応答が遅れて到着）');
+      }
+    }
+  });
 }
 
 // 失敗検知後：サーバに実際に保存されたかを確認し、
 //   保存済み → 成功扱い（誤った失敗表示と無駄な再送を止める）
 //   未保存   → 残り試行があれば再送、無ければ入力を退避して案内
-function _verifyThenRetry(attempt, payload, reason){
+function _verifyThenRetry(attempt, payload, reason, sess){
+  if(!_sessAlive(sess)) return;
   showLoading('保存を確認中...');
-  setTimeout(function(){
+  _sessTimer(sess, function(){
     jsonp(API_URL+'?action=getHaitatsu&_cb='+Date.now(), 'cb_verify', function(res){
+      if(!_sessAlive(sess)) return;
       if(res && res.success && _payloadMatches(res.items, payload)){
-        _saveSucceeded(payload, '✅ 保存されていました（'+reason+'後にサーバで確認）');
+        _saveSucceeded2(sess, payload, '✅ 保存されていました（サーバで確認）');
         return;
       }
-      _retryOrGiveUp(attempt, payload, reason);
+      _retryOrGiveUp(attempt, payload, reason, sess);
     }, function(){
       // 確認自体も失敗 → 保存できたか不明。再送で確定させる
-      _retryOrGiveUp(attempt, payload, reason);
-    }, VERIFY_TIMEOUT);
+      if(!_sessAlive(sess)) return;
+      _retryOrGiveUp(attempt, payload, reason, sess);
+    }, VERIFY_TIMEOUT, {
+      lateGraceMs: SAVE_LATE_GRACE,
+      onLate: function(res){
+        if(!_sessAlive(sess)) return;
+        if(res && res.success && _payloadMatches(res.items, payload)){
+          _saveSucceeded2(sess, payload, '✅ 保存されていました（確認応答が遅れて到着）');
+        }
+      }
+    });
   }, VERIFY_WAIT);
 }
 
-function _retryOrGiveUp(attempt, payload, reason){
-  if(attempt < SAVE_MAX_ATTEMPTS-1){
+function _retryOrGiveUp(attempt, payload, reason, sess){
+  if(!_sessAlive(sess)) return;
+  // 全体締切を超えていたら、残り試行があっても待たせない。
+  // 入力は退避済みで、この後もバックグラウンド再確認と再送導線が効く。
+  if(attempt < SAVE_MAX_ATTEMPTS-1 && _elapsed(sess) < SAVE_DEADLINE){
     showLoading('保存中...（再送 '+(attempt+1)+'/'+(SAVE_MAX_ATTEMPTS-1)+'）');
-    setTimeout(function(){ _doSaveAttempt(attempt+1, payload); }, SAVE_RETRY_WAIT);
+    _sessTimer(sess, function(){ _doSaveAttempt(attempt+1, payload, sess); }, SAVE_RETRY_WAIT);
   } else {
-    hideLoading();
-    _writePending(payload);
-    _updatePendingBanner();
-    alert('保存できませんでした（'+reason+'・'+SAVE_MAX_ATTEMPTS+'回試行）。\n'
-      +'入力内容は端末に保存してあります。画面上部の「未送信の入力があります」から\n'
-      +'あとで再送できます（数分おいてから試すと成功しやすいです）。');
+    _giveUpToBanner(payload, reason, sess);
   }
+}
+
+// 見切り。入力は退避済みなので失われない。以降はバックグラウンドで
+// 「実は保存されていた」を拾いにいき、拾えたらバナーを自動で消す。
+function _giveUpToBanner(payload, reason, sess){
+  _sessEnd(sess);
+  hideLoading();
+  _writePending(payload);
+  _updatePendingBanner();
+  _scheduleRecheck(payload);
+  alert('保存の確認が取れませんでした（'+reason+'）。\n'
+    +'入力内容は端末に保存してあります。サーバ側で保存が成立していれば\n'
+    +'まもなく自動で解消されます。解消されない場合は画面上部の\n'
+    +'「未送信の入力があります」から再送してください。');
+}
+
+// バナーへ倒した後の自動再確認。GAS の応答が数十秒遅れて成立するケースを
+// ユーザーの操作なしで回収する（配達員・担当者を待たせない）。
+var _recheckTimers = [];
+function _scheduleRecheck(payload, delaysMs){
+  _recheckTimers.forEach(function(h){ clearTimeout(h); });
+  _recheckTimers = (delaysMs || SAVE_RECHECK_MS).map(function(ms){
+    return setTimeout(function(){
+      if(!_readPending()) return;   // 既に解消済み
+      jsonp(API_URL+'?action=getHaitatsu&_cb='+Date.now(), 'cb_recheck', function(res){
+        if(!_readPending()) return;
+        if(!(res && res.success && _payloadMatches(res.items, payload))) return;
+        _clearPending();
+        try { localStorage.setItem(LS_HAITATSU_LATEST, JSON.stringify(payload)); } catch(e){}
+        // 画面状態の更新は初期ロード完了後だけ（読み込み中に横入りして
+        // 描画を壊さないようにする）。未完了ならバナー解消のみで十分。
+        if(state && state.data){
+          state.dirty = false;
+          state.origData = JSON.parse(JSON.stringify(payload));
+          state.lastUpdated = _nowStamp();
+          _writeCache({ items: payload, lastUpdated: state.lastUpdated });
+          renderRoute();
+        }
+        showToast('✅ 保存が確認できました');
+      }, function(){}, VERIFY_TIMEOUT);
+    }, ms);
+  });
+}
+
+// セッション付きの成功確定。二重確定を防ぎつつ既存の成功処理へ委譲する。
+function _saveSucceeded2(sess, payload, msg){
+  _sessEnd(sess);
+  _recheckTimers.forEach(function(h){ clearTimeout(h); });
+  _recheckTimers = [];
+  _saveSucceeded(payload, msg);
 }
 
 // ---- 未送信入力の退避と再送導線 ----
@@ -737,7 +888,7 @@ function resendPending(){
   state.data = JSON.parse(JSON.stringify(p.items));
   state.dirty = true;
   renderRoute();
-  _doSaveAttempt(0, state.data);
+  doSave();
 }
 function discardPending(){
   if(!confirm('未送信の入力を破棄します。よろしいですか？')) return;
@@ -1055,8 +1206,15 @@ function _fetchZaikoGas(attempt){
 
 renderRouteTabs();
 loadInitial();
-// 前回の保存が全滅して端末に退避された入力があれば、再送導線を出す
+// 端末に退避された未送信入力があれば再送導線を出す。
+// ただし退避は「送信を始める前」に書くので、保存中にリロード・タブ復帰した場合は
+// 実際には保存が成立していることがある。まずサーバへ確認し、一致していれば
+// バナーを出さずに黙って解消する（誤った未送信表示で不安にさせない）。
 _updatePendingBanner();
+(function(){
+  var p = _readPending();
+  if(p && p.items) _scheduleRecheck(p.items, [300, 6000, 15000]);
+})();
 </script>
 </body>
 </html>

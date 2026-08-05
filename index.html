@@ -371,23 +371,46 @@ function getDefaultConfig() {
 // JSONP。GASの /exec は HTTP 200 で HTML 中間ページ（ログイン/リダイレクト）を返すことがあり、
 // その場合スクリプトは「読み込み成功」扱いになり onerror も発火しないため、コールバックが
 // 呼ばれたかを onload 後に確認して失敗判定する（無検知だとタイムアウトまで無言でぶら下がる）。
-// called ラッチで onOk/onErr の二重呼び出しを防ぐ。timeoutMs は呼び出し側で指定可（既定30秒）。
+// 【注意】この onload 検知は HTTP 応答が届いてからしか働かない。実測では GAS が
+// 404/HTML中間ページを返すケースは応答自体に 30〜70秒かかるため、onload 検知は
+// 「早期失敗」の手段にはならない。早く見切るのは timeoutMs の役目。
+//
+// 遅延到着(late arrival): JSONP はリクエストをキャンセルできないので、タイムアウトで
+// 見切った後に本来の応答が届くことがある。opts.onLate を渡すと opts.lateGraceMs の間
+// コールバックを残して拾う。短いタイムアウトで素早く確認導線に入りつつ、実際には
+// 成立していた送信を捨てずに済む。
+// settled ラッチで onOk/onErr の二重呼び出しを防ぐ。timeoutMs は呼び出し側で指定可（既定30秒）。
 var cbIdx=0;
-function jsonp(url,base,onOk,onErr,timeoutMs) {
+function jsonp(url,base,onOk,onErr,timeoutMs,opts) {
+  opts = opts || {};
   var n=base+'_'+(cbIdx++), s=document.createElement('script');
-  var called=false;
-  var t=setTimeout(function(){cleanup();if(!called){called=true;if(onErr)onErr();}},timeoutMs||30000);
-  function cleanup(){clearTimeout(t);delete window[n];if(s.parentNode)s.parentNode.removeChild(s);}
-  window[n]=function(d){if(called)return;called=true;cleanup();onOk(d);};
+  var settled=false, disposed=false, t=null, lt=null;
+  function dispose(){
+    if(disposed) return; disposed=true;
+    clearTimeout(t); clearTimeout(lt);
+    try{ delete window[n]; }catch(e){ window[n]=undefined; }
+    if(s.parentNode) s.parentNode.removeChild(s);
+  }
+  window[n]=function(d){
+    clearTimeout(t);
+    if(!settled){ settled=true; dispose(); onOk(d); return; }
+    dispose();
+    if(opts.onLate){ try{ opts.onLate(d); }catch(e){} }
+  };
+  function failNow(){
+    if(settled) return;
+    settled=true;
+    if(opts.onLate && opts.lateGraceMs>0){ lt=setTimeout(dispose, opts.lateGraceMs); }
+    else { dispose(); }
+    if(onErr) onErr();
+  }
+  t=setTimeout(failNow, timeoutMs||30000);
   s.onload=function(){
     // script は実行完了したが window[n] が呼ばれていなければ失敗扱い（HTML中間ページ等）
-    if(called) return;
-    setTimeout(function(){
-      if(called) return;
-      called=true; cleanup(); if(onErr)onErr();
-    },200);
+    if(settled) return;
+    setTimeout(function(){ if(!settled) failNow(); },200);
   };
-  s.onerror=function(){if(called)return;called=true;cleanup();if(onErr)onErr();};
+  s.onerror=function(){ failNow(); };
   s.src=url+(url.indexOf('?')>-1?'&':'?')+'callback='+n;
   document.body.appendChild(s);
 }
@@ -461,6 +484,8 @@ function renderHome() {
   });
   html+='</div>';
   document.getElementById('app').innerHTML=html;
+  // 未送信の日報が端末に残っていれば、店舗一覧の先頭に再送導線を出す
+  _updateSubmitPendingBanner();
 }
 
 // ============ ラベル在庫アラート（②産地シール / ③値段シール） ============
@@ -696,7 +721,7 @@ function _postIssue(baseUrl,key,n){
 }
 
 function openStore(id) {
-  state.store=STORE_DEFS[id]; state.formData={}; state.staff=''; state.extraPrices=[]; state.screen='form';
+  state.store=STORE_DEFS[id]; state.storeId=id; state.formData={}; state.staff=''; state.extraPrices=[]; state.screen='form';
   // 配達商品情報（haitatsu）の当日分があれば納品数のデフォルト値として反映（localStorage 即読み・0ms）
   applyHaitatsuDefault(id);
   // 同一日・同一経路で先に送信した担当者があれば自動選択（誤タップ抑止のため送信成功時のみ記憶）
@@ -1096,53 +1121,231 @@ function tryLoadDate(date, isFallback) {
 //      値を直しての「別の送信操作」は別 reqId → 従来どおり追記＋読み側マージで反映。
 //   C) 全試行が通信エラーで終わったら getSubmitStatus で記録の有無を確認し、
 //      入っていれば成功扱い（誤った再送信＝別reqIdでの真の二重行を防ぐ）。
+// 【2026-08-05 再設計：配達員を1〜2分待たせない・入力を絶対に失わない】
+// 旧設計は 30秒タイムアウト×3回＋確認30秒＝最大124秒待たせてから失敗表示していた。
+// しかも入力の退避が無く、失敗後に画面を離れると入力が消えた。
+//
+// 実測（テストGAS・2026-08-05）:
+//   submitForm      : GAS実行 0.9〜6.1秒 / 総応答 p50≈5秒・p90≈13秒
+//   getSubmitStatus : p50≈3.1秒・p90≈3.8秒
+//   ScriptLock 待ち : 配達員3名同時送信でも最大 3.4秒。5並列(3名同時送信＋
+//                     サマリー閲覧＋配達商品情報保存)25回でもロック競合ゼロ
+//                     → 「同時送信によるロック競合」は主因ではなかった
+//   まれに 20〜70秒の外れ値・404/HTML中間ページ（Google側の転送レイヤ起因）
+//
+// 新方針:
+//   1) タイムアウトは p90 相当（12秒）で見切り、すぐ getSubmitStatus 確認へ
+//   2) 見切った後も遅延到着を拾い、遅れて success が届いたら即完了にする
+//   3) 全体締切 SUBMIT_DEADLINE を超えたら新しい試行を始めない
+//   4) 送信前に必ず localStorage へ退避。失敗しても入力は消えず、
+//      店舗一覧のバナーからいつでも再送できる（reqId 据え置きで二重記録なし）
 var SUBMIT_MAX_ATTEMPTS = 3;
-var SUBMIT_RETRY_WAIT   = 2000;
-var SUBMIT_TIMEOUT      = 30000;
+var SUBMIT_RETRY_WAIT   = 600;
+var SUBMIT_TIMEOUT      = 12000;  // 実測 p90≈13秒
+var SUBMIT_LATE_GRACE   = 25000;  // 見切り後に遅延到着を拾う猶予(ms)
+var CONFIRM_TIMEOUT     = 8000;   // getSubmitStatus 実測 p90≈3.8秒
+var SUBMIT_DEADLINE     = 22000;  // 新しい試行を始めてよい上限(ms)
+var LS_SUBMIT_PENDING   = lsKey('nippo_submit_pending_v1');
 var _submitBusy = false;
+var _submitSess = null;
 function _setSubmitBtnDisabled(d){
   var b=document.getElementById('submitBtn');
   if(b) b.disabled=!!d;
 }
+
+// ---- 未送信日報の退避と再送導線 ----
+// 保存するのは「そのまま再送できる完全な送信内容」。reqId も一緒に持つので、
+// 再送しても GAS 側の同一 date × reqId 重複検知で二重記録にならない。
+//
+// 【店舗ごとに保持する】配達員は1経路で3〜6店舗を順に回り、店舗ごとに送信する。
+// 退避枠が1つしかないと「寄居店が失敗 → 次のみどりが丘店を送信 → 寄居店の
+// 退避が上書きされ、みどりが丘店の成功で消える」で失敗分の入力が消えてしまう。
+// 店舗名をキーにしたマップで持ち、成功した店舗の分だけを消す。
+function _readPendingMap(){
+  try{
+    var raw=localStorage.getItem(LS_SUBMIT_PENDING);
+    if(!raw) return {};
+    var m=JSON.parse(raw);
+    if(!m||typeof m!=='object'||Array.isArray(m)) return {};
+    // 当日分だけを残す（日付が変わったものは自然に消える）
+    var out={};
+    Object.keys(m).forEach(function(k){
+      var o=m[k];
+      if(o&&o.storeName&&o.reqId&&o.items&&o.date===todayStr) out[k]=o;
+    });
+    return out;
+  }catch(e){ return {}; }
+}
+function _savePendingMap(m){
+  try{
+    if(!m||Object.keys(m).length===0) localStorage.removeItem(LS_SUBMIT_PENDING);
+    else localStorage.setItem(LS_SUBMIT_PENDING, JSON.stringify(m));
+  }catch(e){}
+}
+function _writeSubmitPending(p){
+  var m=_readPendingMap(); m[p.storeName]=p; _savePendingMap(m);
+}
+function _clearSubmitPendingFor(storeName){
+  var m=_readPendingMap(); delete m[storeName]; _savePendingMap(m);
+}
+function _readSubmitPendingFor(storeName){
+  return _readPendingMap()[storeName] || null;
+}
+function _listSubmitPending(){
+  var m=_readPendingMap();
+  return Object.keys(m).map(function(k){ return m[k]; });
+}
+function _updateSubmitPendingBanner(){
+  var list=_listSubmitPending();
+  var el=document.getElementById('submit_pending_notice');
+  if(list.length===0){ if(el&&el.parentNode) el.parentNode.removeChild(el); return; }
+  if(!el){
+    el=document.createElement('div');
+    el.id='submit_pending_notice';
+    el.style.cssText='background:#fdecea;color:#b71c1c;border:1px solid #ef9a9a;border-radius:8px;padding:10px;margin:0 16px 8px;font-size:12px;text-align:center;font-weight:600;line-height:1.8';
+    var app=document.getElementById('app');
+    if(app&&app.parentNode) app.parentNode.insertBefore(el,app);
+  }
+  var h='⚠️ 未送信の日報があります（'+list.length+'件）<br>入力内容は端末に残してあります。';
+  list.forEach(function(p){
+    var sn=p.storeName.replace(/'/g,'');
+    h+='<div style="margin-top:7px;padding-top:7px;border-top:1px solid #f3c4c0">'
+      +eH(p.storeName)+'（'+eH(p.staff)+'・'+eH(p.at||'')+'）<br>'
+      +'<button onclick="resendSubmitPending(\''+sn+'\')" style="margin-top:5px;background:#b71c1c;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">再送する</button>'
+      +' <button onclick="discardSubmitPending(\''+sn+'\')" style="margin-top:5px;margin-left:4px;background:none;border:1px solid #ef9a9a;border-radius:6px;padding:6px 10px;font-family:inherit;font-size:12px;color:#b71c1c;cursor:pointer">破棄</button>'
+      +'</div>';
+  });
+  el.innerHTML=h;
+}
+function resendSubmitPending(storeName){
+  var p=_readSubmitPendingFor(storeName);
+  if(!p){ _updateSubmitPendingBanner(); return; }
+  _runSubmit(p, true);
+}
+function discardSubmitPending(storeName){
+  if(!confirm(storeName+' の未送信日報を破棄します。よろしいですか？')) return;
+  _clearSubmitPendingFor(storeName);
+  _updateSubmitPendingBanner();
+}
+
 function doSubmit() {
   if(_submitBusy) return;                    // 送信中の再タップを無視
   if(!state.staff){alert('担当者を選択してください');return;}
   var items=[];
   Object.keys(state.formData).forEach(function(k){var v=state.formData[k];if(v!==''&&v!==null&&v!==undefined)items.push({key:k,value:String(v)});});
-  var store=state.store, staff=state.staff;
-  var reqId=_uuid();
-  var url=API_URL+'?action=submit&store='+encodeURIComponent(store.name)+'&date='+todayStr
-    +'&staff='+encodeURIComponent(staff)+'&items='+encodeURIComponent(JSON.stringify(items))
-    +'&reqId='+encodeURIComponent(reqId);
+  var d=new Date();
+  var pending={
+    storeName: state.store.name,
+    storeId:   state.storeId || '',
+    staff:     state.staff,
+    date:      todayStr,
+    items:     items,
+    reqId:     _uuid(),
+    at:        String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')
+  };
+  // 【最優先】送信を始める前に端末へ退避。以降どこで失敗しても入力は失われない。
+  _writeSubmitPending(pending);
+  _runSubmit(pending, false);
+}
+
+function _runSubmit(pending, isResend){
+  if(_submitBusy) return;
+  var sess={ done:false, timers:[], t0:Date.now() };
+  _submitSess=sess;
+  function alive(){ return !sess.done && _submitSess===sess; }
+  function endSess(){ sess.done=true; sess.timers.forEach(function(h){clearTimeout(h);}); sess.timers=[]; }
+  function later(fn,ms){ var h=setTimeout(function(){ if(alive()) fn(); },ms); sess.timers.push(h); }
+
+  var url=API_URL+'?action=submit&store='+encodeURIComponent(pending.storeName)+'&date='+pending.date
+    +'&staff='+encodeURIComponent(pending.staff)+'&items='+encodeURIComponent(JSON.stringify(pending.items))
+    +'&reqId='+encodeURIComponent(pending.reqId);
   _submitBusy=true; _setSubmitBtnDisabled(true);
-  function fail(msg){ _submitBusy=false; hideLoading(); _setSubmitBtnDisabled(false); alert(msg); }
-  function succeed(){ _submitBusy=false; hideLoading(); rememberStaff(store, staff); renderDone(); }
-  // 全試行が通信エラー。記録されたかを reqId でサーバに確認する。
-  function confirmOrFailSubmit(){
-    hideLoading(); showLoading('送信を確認中...');
-    jsonp(API_URL+'?action=getSubmitStatus&store='+encodeURIComponent(store.name)
-      +'&date='+todayStr+'&reqId='+encodeURIComponent(reqId)+'&_cb='+Date.now(),
-      'cb_sub_confirm',function(res){
-        if(res&&res.success&&res.found){ succeed(); return; }
-        fail('通信エラーが発生しました。\nインターネット接続を確認してください。');
-      },function(){
-        fail('通信エラーが発生しました。\n送信されたか不明です。時間をおいてサマリーをご確認ください。');
-      },SUBMIT_TIMEOUT);
+
+  function succeed(){
+    endSess();
+    _submitBusy=false; hideLoading(); _setSubmitBtnDisabled(false);
+    _clearSubmitPendingFor(pending.storeName);   // 成功した店舗の分だけ消す
+    _updateSubmitPendingBanner();
+    if(isResend){
+      alert('✅ 未送信だった日報を送信しました。\n'+pending.storeName);
+      renderHome();
+    } else {
+      rememberStaff(state.store, pending.staff);
+      renderDone();
+    }
   }
+  // 見切り。入力は退避済みなので失われない。店舗一覧のバナーから再送できる。
+  function giveUp(msg){
+    endSess();
+    _submitBusy=false; hideLoading(); _setSubmitBtnDisabled(false);
+    _updateSubmitPendingBanner();
+    alert(msg+'\n\n入力内容は端末に保存してあります。\n'
+      +'店舗一覧の「未送信の日報があります」から再送できます\n'
+      +'（同じ送信IDで送るので二重記録にはなりません）。');
+    if(isResend) renderHome();
+  }
+  // データ起因の失敗は再送しても変わらないので退避を残したまま即通知
+  function hardFail(msg){
+    endSess();
+    _submitBusy=false; hideLoading(); _setSubmitBtnDisabled(false);
+    _updateSubmitPendingBanner();
+    alert(msg);
+  }
+  // 見切った後に遅れて届いた応答。成功なら即完了にして再送を打ち切る。
+  function lateOk(res){ if(alive() && res && res.success) succeed(); }
+
+  // 記録されたかを reqId でサーバに確認する（誤った再送信＝別reqIdでの二重行を防ぐ）
+  function confirmSubmit(onNotFound){
+    if(!alive()) return;
+    hideLoading(); showLoading('送信を確認中...');
+    jsonp(API_URL+'?action=getSubmitStatus&store='+encodeURIComponent(pending.storeName)
+      +'&date='+pending.date+'&reqId='+encodeURIComponent(pending.reqId)+'&_cb='+Date.now(),
+      'cb_sub_confirm',function(res){
+        if(!alive()) return;
+        if(res&&res.success&&res.found){ succeed(); return; }
+        onNotFound();
+      },function(){
+        if(!alive()) return;
+        onNotFound();
+      },CONFIRM_TIMEOUT,{
+        lateGraceMs: SUBMIT_LATE_GRACE,
+        onLate: function(res){ if(alive() && res && res.success && res.found) succeed(); }
+      });
+  }
+
   function attempt(i){
+    if(!alive()) return;
     hideLoading();
     showLoading(i===0?'送信中...':'再送信中...（'+i+'/'+(SUBMIT_MAX_ATTEMPTS-1)+'）');
     // _cb はGoogle側リダイレクト状態のリフレッシュ用（冪等キーではない）
     jsonp(url+'&_cb='+Date.now()+'_'+i,'cb_sub',function(res){
+      if(!alive()) return;
       // duplicate:true（同じreqIdの再送）も success として扱う
       if(res&&res.success){ succeed(); return; }
-      // ロック競合など retryable なサーバエラーは同じ reqId で再送
-      if(res&&res.retryable&&i+1<SUBMIT_MAX_ATTEMPTS){ setTimeout(function(){attempt(i+1);},SUBMIT_RETRY_WAIT); return; }
-      fail('送信に失敗しました。\n'+((res&&res.error)||'')+'\nもう一度お試しください。');
+      if(res&&res.retryable){
+        // GAS が ScriptLock を取れなかった＝書き込みは起きていない。
+        // 確認を挟まず短い間隔ですぐ再送する（長時間ブロックしない）。
+        if(i+1<SUBMIT_MAX_ATTEMPTS && Date.now()-sess.t0<SUBMIT_DEADLINE){
+          showLoading('他の送信と重なりました。すぐに再送します...');
+          later(function(){attempt(i+1);},SUBMIT_RETRY_WAIT);
+          return;
+        }
+        giveUp('他の配達員の送信と重なり、順番待ちが解消しませんでした。');
+        return;
+      }
+      hardFail('送信に失敗しました。\n'+((res&&res.error)||'')+'\nもう一度お試しください。');
     },function(){
-      if(i+1<SUBMIT_MAX_ATTEMPTS){ setTimeout(function(){attempt(i+1);},SUBMIT_RETRY_WAIT); return; }
-      confirmOrFailSubmit();
-    },SUBMIT_TIMEOUT);
+      // タイムアウト/通信失敗。JSONP はキャンセルできず書き込みが成立している
+      // 可能性があるので、再送の前に必ず reqId で確認する。
+      if(!alive()) return;
+      confirmSubmit(function(){
+        if(i+1<SUBMIT_MAX_ATTEMPTS && Date.now()-sess.t0<SUBMIT_DEADLINE){
+          later(function(){attempt(i+1);},SUBMIT_RETRY_WAIT);
+          return;
+        }
+        giveUp('送信の確認が取れませんでした。');
+      });
+    },SUBMIT_TIMEOUT,{ lateGraceMs: SUBMIT_LATE_GRACE, onLate: lateOk });
   }
   attempt(0);
 }
@@ -1327,10 +1530,26 @@ function saveCfg(){
     },function(){ failed('通信エラーが発生しました'); },SAVECFG_TIMEOUT);
 }
 
+// 未送信日報の自動照合。退避は「送信を始める前」に書くので、送信中にアプリを
+// 閉じた・リロードした場合は実際にはサーバに記録済みのことがある。reqId で
+// 照合し、記録済みなら黙って退避を消す（誤った未送信表示で再送させない）。
+function _autoResolveSubmitPending(){
+  _listSubmitPending().forEach(function(p){
+    jsonp(API_URL+'?action=getSubmitStatus&store='+encodeURIComponent(p.storeName)
+      +'&date='+p.date+'&reqId='+encodeURIComponent(p.reqId)+'&_cb='+Date.now(),
+      'cb_pend_chk',function(res){
+        if(res&&res.success&&res.found){
+          _clearSubmitPendingFor(p.storeName);
+          _updateSubmitPendingBanner();
+        }
+      },function(){},CONFIRM_TIMEOUT);
+  });
+}
+
 // 当日の任意発行累計を localStorage から復元（リロードでアラートが復活しないように）
 state.sanchiIssuedToday = _loadSanchiIssuedToday();
 renderRouteTabs();
-loadConfig(function(){ renderHome(); fetchHaitatsuBackground(); fetchLabelAlert(); fetchLabelIssuedTotal(); });
+loadConfig(function(){ renderHome(); fetchHaitatsuBackground(); fetchLabelAlert(); fetchLabelIssuedTotal(); _autoResolveSubmitPending(); });
 </script>
 
 <footer style="position:fixed;bottom:0;left:0;width:100%;height:52px;background:#1c1c1e;display:flex;align-items:center;justify-content:center;z-index:100">
