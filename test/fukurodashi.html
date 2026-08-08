@@ -13,6 +13,8 @@
   --sub:#777; --green:#2d7a4f; --green-bg:#edf7f1; --yellow:#f9a825; --yellow-bg:#fffde7;
   --blue:#1976d2; --blue-bg:#e3f2fd; --orange:#e65100; --purple:#6a4c93; --purple-bg:#f2edf9;
   --r:14px; --shadow:0 1px 3px rgba(0,0,0,.06);
+  /* カレンダーの区切り線はこの1色・1px のみ（太線/細線を混在させない） */
+  --line:#e6e0d3;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh;color:var(--ink);padding-bottom:64px}
@@ -55,26 +57,37 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .legend i{width:9px;height:9px;border-radius:2px;display:inline-block}
 .lg-tsuki{background:var(--purple)}.lg-sakae{background:#c48b1e}.lg-act{background:var(--green)}
 
-/* カレンダー */
-.cal{background:var(--card);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow)}
-.cal-dow{display:grid;grid-template-columns:repeat(7,1fr);background:#f5f3ee;border-bottom:1px solid var(--border)}
-.cal-dow div{text-align:center;font-size:11px;font-weight:700;color:#666;padding:6px 0;letter-spacing:.04em}
+/* ============================================================
+   カレンダー
+   ------------------------------------------------------------
+   【罫線ルール（1本化）】区切り線は --line（1px ヘアライン）の1種類だけ。
+   外枠・曜日ヘッダ下・セル間すべて同じ太さ・同じ色にする。
+   太線・点線・囲みリングを足さないこと（混在すると格子が不揃いに見える）。
+   当日は「線」ではなく背景色と文字色だけで示す。
+   ============================================================ */
+.cal{background:var(--card);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow)}
+.cal-dow{display:grid;grid-template-columns:repeat(7,1fr);background:#f7f5f0;border-bottom:1px solid var(--line)}
+.cal-dow div{text-align:center;font-size:11px;font-weight:700;color:#6b665c;padding:7px 0;letter-spacing:.04em}
 .cal-dow div.sun{color:#c62828}.cal-dow div.sat{color:#1565c0}
-.cal-grid{display:grid;grid-template-columns:repeat(7,1fr)}
-.cal-cell{border-right:1px solid #f0ebe0;border-bottom:1px solid #f0ebe0;min-height:62px;padding:3px 2px 4px;background:#fff;font-family:inherit;text-align:center;display:flex;flex-direction:column;align-items:center;gap:1px;cursor:pointer;min-width:0;-webkit-tap-highlight-color:transparent}
+/* 最終行の下罫線とカード外枠が重なって 2px に見えるのを避ける */
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);margin-bottom:-1px}
+.cal-cell{border-right:1px solid var(--line);border-bottom:1px solid var(--line);min-height:74px;padding:5px 2px 6px;background:#fff;font-family:inherit;text-align:center;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;min-width:0;-webkit-tap-highlight-color:transparent}
 .cal-cell:nth-child(7n){border-right:none}
 .cal-cell:active{background:#f3efe5}
-.cal-cell.blank{background:#faf8f3;cursor:default}
-.cal-cell.today{background:var(--yellow-bg);box-shadow:inset 0 0 0 2px #f6c453}
-.cd-num{font-family:'Inter','Noto Sans JP',sans-serif;font-size:12px;font-weight:700;color:#555;line-height:1.2}
+.cal-cell.blank{background:#fbfaf6;cursor:default}
+.cal-cell.today{background:var(--yellow-bg)}
+.cd-num{font-family:'Inter','Noto Sans JP',sans-serif;font-size:12px;font-weight:700;color:#6b665c;line-height:1.1}
 .cal-cell.sun .cd-num{color:#c62828}.cal-cell.sat .cd-num{color:#1565c0}
-.cd-plan{font-size:10px;line-height:1.25;font-family:'Inter','Noto Sans JP',sans-serif;white-space:nowrap}
-.cd-plan .pt{color:var(--purple);font-weight:700}
-.cd-plan .ps{color:#c48b1e;font-weight:700}
-.cd-plan em{font-style:normal;font-size:8px;opacity:.75;margin-right:1px}
-.cd-act{font-family:'Inter','Noto Sans JP',sans-serif;font-size:15px;font-weight:700;color:var(--green);line-height:1.1;margin-top:auto}
-.cd-act.none{color:#d8d4ca;font-size:12px;font-weight:500}
-.cd-empty{font-size:10px;color:#ddd;line-height:1.25}
+.cal-cell.today .cd-num{color:#b26a00}
+/* 予定（主役）：月完熟・栄完熟を2行に分けて縦に並べる */
+.cd-plan{display:flex;flex-direction:column;align-items:stretch;width:100%;gap:1px;margin-top:1px}
+.cd-plan .pl{display:flex;align-items:baseline;justify-content:center;gap:3px;line-height:1.1;white-space:nowrap;font-family:'Inter','Noto Sans JP',sans-serif}
+.cd-plan em{font-style:normal;font-size:9px;font-weight:700;opacity:.8}
+.cd-plan b{font-size:14px;font-weight:700;letter-spacing:-.02em}
+.cd-plan .pt{color:var(--purple)}
+.cd-plan .ps{color:#b8801a}
+/* 実績（従属）：予定より一段小さく、淡い緑のピルで種別を示す */
+.cd-act{font-family:'Inter','Noto Sans JP',sans-serif;font-size:11px;font-weight:700;color:var(--green);background:var(--green-bg);border-radius:4px;padding:1px 6px;line-height:1.3;margin-top:auto;white-space:nowrap}
 
 /* 状態表示 */
 .state-line{font-size:11px;color:#9a958a;text-align:center;padding:8px 0 0;letter-spacing:.02em}
@@ -127,9 +140,11 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 @media (max-width:359px){
   #app{padding:12px 8px}
   .sum-val{font-size:26px}
-  .cal-cell{min-height:56px}
-  .cd-plan{font-size:9px}
-  .cd-act{font-size:14px}
+  .cal-cell{min-height:70px;padding:4px 1px 5px}
+  .cd-plan .pl{gap:2px}
+  .cd-plan em{font-size:8px}
+  .cd-plan b{font-size:12px}
+  .cd-act{font-size:10px;padding:1px 4px}
   .m-row input{width:88px}
 }
 </style>
@@ -373,16 +388,16 @@ function renderCalendar(){
     var pt=nrm(it.planTsuki), ps=nrm(it.planSakae), ac=nrm(it.actual);
     h+='<button class="'+cls+'" onclick="openDay(\''+ds+'\')">';
     h+='<span class="cd-num">'+d+'</span>';
+    // 予定は月完熟／栄完熟を必ず2行で表示する。片方だけ入力されている日は
+    // もう片方を '‑' にして、月・栄の並び（行位置）を全セルで揃える。
     if(pt!==''||ps!==''){
       h+='<span class="cd-plan">'
-        +(pt!==''?'<span class="pt"><em>月</em>'+pt+'</span>':'')
-        +((pt!==''&&ps!=='')?' ':'')
-        +(ps!==''?'<span class="ps"><em>栄</em>'+ps+'</span>':'')
+        +'<span class="pl pt"><em>月</em><b>'+(pt!==''?pt:'‑')+'</b></span>'
+        +'<span class="pl ps"><em>栄</em><b>'+(ps!==''?ps:'‑')+'</b></span>'
         +'</span>';
-    } else {
-      h+='<span class="cd-empty">‑</span>';
     }
-    h+='<span class="cd-act'+(ac===''?' none':'')+'">'+(ac===''?'‑':ac)+'</span>';
+    // 実績は入力がある日だけ出す（空セルに記号を並べると格子が読みにくくなる）
+    if(ac!=='') h+='<span class="cd-act">'+ac+'</span>';
     h+='</button>';
   }
   var tail=(7-((lead+days)%7))%7;
