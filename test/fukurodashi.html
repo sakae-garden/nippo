@@ -43,6 +43,8 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .sum-card.act .sum-val{color:var(--green)}
 .sum-unit{font-size:12px;font-weight:700;margin-left:3px;color:#999}
 .sum-sub{font-size:11px;color:var(--sub);margin-top:5px;line-height:1.5}
+/* 「726 個」のように数字と単位の間で改行されないよう、意味のまとまりで折り返す */
+.sum-sub .nb{white-space:nowrap}
 .sum-sub b{font-size:13px;color:var(--green);font-family:'Inter','Noto Sans JP',sans-serif}
 .sum-bar{height:6px;background:#eceae4;border-radius:3px;margin-top:7px;overflow:hidden}
 .sum-bar i{display:block;height:100%;background:var(--green);border-radius:3px;transition:width .3s}
@@ -335,14 +337,16 @@ function renderSummary(){
   var rateStr = (rate===null) ? '—' : (Math.round(rate*10)/10)+'%';
   var rest = t.plan - t.actual;
   var restStr = (t.plan>0) ? (rest>0 ? ('残り '+fmt(rest)+'個') : ('予定超過 +'+fmt(-rest)+'個')) : '予定未入力';
+  restStr = '<span class="nb">'+restStr+'</span>';
   var barW = (rate===null) ? 0 : Math.max(0, Math.min(100, rate));
   var h='<div class="sum-wrap">';
   h+='<div class="sum-card plan"><div class="sum-lbl">当月袋出し予定数</div>'
     +'<div class="sum-val">'+fmt(t.plan)+'<span class="sum-unit">個</span></div>'
-    +'<div class="sum-sub">月完熟 '+fmt(t.tsuki)+' ／ 栄完熟 '+fmt(t.sakae)+'<br>予定入力 '+t.planDays+'日</div></div>';
+    +'<div class="sum-sub"><span class="nb">月完熟 '+fmt(t.tsuki)+'</span> ／ <span class="nb">栄完熟 '+fmt(t.sakae)+'</span>'
+    +'<br><span class="nb">予定入力 '+t.planDays+'日</span></div></div>';
   h+='<div class="sum-card act"><div class="sum-lbl">当月袋出し進捗数</div>'
     +'<div class="sum-val">'+fmt(t.actual)+'<span class="sum-unit">個</span></div>'
-    +'<div class="sum-sub">進捗率 <b>'+rateStr+'</b>　'+restStr+'</div>'
+    +'<div class="sum-sub"><span class="nb">進捗率 <b>'+rateStr+'</b></span>　'+restStr+'</div>'
     +'<div class="sum-bar"><i style="width:'+barW+'%"></i></div></div>';
   h+='</div>';
   h+='<div class="legend"><span><i class="lg-tsuki"></i>予定：月完熟</span>'
