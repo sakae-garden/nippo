@@ -424,6 +424,9 @@ function _writePending(date,site,payload){
 function _clearPending(){ try{ localStorage.removeItem(LS_FUKURODASHI_PENDING); }catch(e){} }
 
 // ============ 集計 ============
+// 値が「入っている」か。未入力は null か undefined（データが無い日は {} が返る）。
+// 0 は入力済みなので true を返すこと。
+function hasVal(v){ return v!==null && v!==undefined; }
 function monthTotals(){
   var t={ plan:0, tsuki:0, sakae:0, g:0, actual:0, planDays:0 };
   var days=daysInMonth(state.ym);
@@ -432,7 +435,7 @@ function monthTotals(){
     var v=viewOf(ds);
     t.tsuki+=numOr0(v.planTsuki); t.sakae+=numOr0(v.planSakae); t.g+=numOr0(v.planG);
     t.actual+=numOr0(v.actual);
-    if(v.planTsuki!==null||v.planSakae!==null||v.planG!==null) t.planDays++;
+    if(hasVal(v.planTsuki)||hasVal(v.planSakae)||hasVal(v.planG)) t.planDays++;
   }
   t.plan=t.tsuki+t.sakae+t.g;
   return t;
