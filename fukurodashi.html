@@ -1,0 +1,1029 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>袋出し記録 | 栄ガーデン</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap');
+:root{
+  --ink:#1c1c1e; --paper:#fdfbf7; --bg:#f5f1e8; --card:#fff; --border:#e8e2d5;
+  --sub:#777; --green:#2d7a4f; --green-bg:#edf7f1; --yellow:#f9a825; --yellow-bg:#fffde7;
+  --blue:#1976d2; --blue-bg:#e3f2fd; --orange:#e65100; --purple:#6a4c93; --purple-bg:#f2edf9;
+  --r:14px; --shadow:0 1px 3px rgba(0,0,0,.06);
+  /* カレンダーの区切り線色。線は grid の gap で作るので幅は常に 1px */
+  --line:#e2ddd2;
+  /* 予定3種の色は仕入先のイメージに合わせる。
+     月完熟(月夜野)=黄 / 栄完熟(栄ガーデン)=緑 / G完熟(グリーンフィールド)=ピンク。
+     実績は赤の蛍光ペン風（淡い赤地＋濃い赤文字）。日曜の日付色 #c0392b とは
+     「地色の有無」で見分ける（地色は日付より柔らかいトーンにしてある）。 */
+  --c-tsuki:#c98a00; --c-sakae:#2e7d32; --c-g:#d81b60;
+  --c-act:#b71c1c; --c-act-soft:#c62828; --c-act-bg:#ffe2e2;
+  /* 今日の塗り円・主要ボタンは基調色。栄完熟の緑と衝突させないため種別色とは別系統。 */
+  --ink2:#3a362f;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh;color:var(--ink);padding-bottom:64px}
+
+/* ヘッダ（配達商品情報と同系統） */
+.hdr{background:var(--ink);color:#fff;padding:14px 16px 12px;box-shadow:0 2px 6px rgba(0,0,0,.1)}
+.hdr-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.hdr-top h1{font-size:17px;letter-spacing:.06em;font-weight:700}
+.hdr-today{font-size:11px;color:rgba(255,255,255,.6);letter-spacing:.02em}
+.mnav{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.mnav-btn{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:10px;width:44px;height:36px;font-family:inherit;font-size:16px;font-weight:700;cursor:pointer;flex:none}
+.mnav-btn:active{opacity:.7}
+.mnav-ttl{flex:1;text-align:center;font-size:17px;font-weight:700;letter-spacing:.04em;font-family:'Inter','Noto Sans JP',sans-serif}
+.mnav-now{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:10px;height:36px;padding:0 12px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;flex:none}
+/* 拠点タブ（日報の経路タブと同トーン） */
+.stabs{display:flex;gap:6px;margin-top:10px}
+.stab{flex:1;padding:8px 4px;background:rgba(255,255,255,.1);color:rgba(255,255,255,.6);border:none;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;border-radius:8px;transition:all .15s}
+.stab.active{background:#fff;color:var(--ink)}
+
+#app{padding:14px 12px}
+
+/* 当月サマリー */
+.sum-wrap{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.sum-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:12px 12px 11px;box-shadow:var(--shadow);min-width:0}
+.sum-card.plan{border-left:4px solid var(--ink2)}
+.sum-card.act{border-left:4px solid var(--c-act)}
+.sum-lbl{font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--sub);margin-bottom:4px;white-space:nowrap}
+.sum-card.plan .sum-lbl{color:var(--ink2)}
+.sum-card.act .sum-lbl{color:var(--c-act)}
+.sum-val{font-family:'Inter','Noto Sans JP',sans-serif;font-size:32px;font-weight:700;line-height:1.05;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.sum-card.plan .sum-val{color:var(--ink2)}
+.sum-card.act .sum-val{color:var(--c-act)}
+.sum-unit{font-size:12px;font-weight:700;margin-left:3px;color:#999}
+.sum-sub{font-size:11px;color:var(--sub);margin-top:5px;line-height:1.5}
+/* 「726 個」のように数字と単位の間で改行されないよう、意味のまとまりで折り返す */
+.sum-sub .nb{white-space:nowrap}
+.sum-sub b{font-size:13px;color:var(--c-act);font-family:'Inter','Noto Sans JP',sans-serif}
+.sum-scope{font-size:10px;color:#a9a294;letter-spacing:.04em;margin:-8px 2px 10px}
+.sum-bar{height:6px;background:#eceae4;border-radius:3px;margin-top:7px;overflow:hidden}
+.sum-bar i{display:block;height:100%;background:var(--c-act-soft);border-radius:3px;transition:width .3s}
+
+/* 凡例 + ツールバー */
+.legend{display:flex;gap:10px;align-items:center;font-size:10px;color:var(--sub);margin:0 2px 8px;flex-wrap:wrap}
+.legend span{display:inline-flex;align-items:center;gap:4px}
+.legend i{width:9px;height:9px;border-radius:2px;display:inline-block}
+.lg-tsuki{background:var(--c-tsuki)}.lg-sakae{background:var(--c-sakae)}
+.lg-g{background:var(--c-g)}.lg-act{background:var(--c-act)}
+.toolbar{display:flex;justify-content:flex-end;margin:0 0 8px}
+.bulk-btn{background:var(--ink);color:#fff;border:none;border-radius:18px;padding:8px 16px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:.02em;box-shadow:var(--shadow)}
+.bulk-btn:active{opacity:.8}
+.bulk-btn:disabled{opacity:.4;cursor:not-allowed}
+
+/* 月まとめ投入パネル */
+.bp{background:var(--card);border:1px solid var(--border);border-left:4px solid var(--c-sakae);border-radius:var(--r);padding:12px 14px;margin-bottom:12px;box-shadow:var(--shadow)}
+.bp-ttl{font-size:12px;font-weight:700;color:var(--c-sakae);letter-spacing:.06em;margin-bottom:10px}
+.bp-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.bp-row label{flex:1;font-size:12px;font-weight:700;color:#555}
+.bp-row select,.bp-row input{font-family:inherit;font-size:14px;font-weight:700;border:1.5px solid var(--border);border-radius:8px;padding:7px 8px;background:#fff;color:var(--ink);text-align:center}
+.bp-row select{min-width:118px}
+.bp-row input{width:104px;font-family:'Inter','Noto Sans JP',sans-serif;font-variant-numeric:tabular-nums}
+.bp-row input:focus,.bp-row select:focus{outline:none;border-color:var(--c-sakae)}
+.bp-note{font-size:11px;color:#9a958a;line-height:1.6;margin:6px 0 10px}
+.bp-acts{display:flex;gap:8px;margin-top:6px}
+.bp-acts button{flex:1;padding:12px;border:none;border-radius:10px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer}
+.bp-acts .prev-btn{background:#e8e3d7;color:#4a463e}
+.bp-acts .go-btn{background:var(--ink2);color:#fff;box-shadow:0 2px 8px rgba(58,54,47,.28)}
+.bp-acts .cancel-btn{background:#e8e3d7;color:#4a463e;flex:0 0 30%}
+.bp-acts button:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
+.bp-res{background:#fbf9f3;border:1px dashed #ccc4b2;border-radius:10px;padding:10px 12px;margin-top:10px;font-size:12px;color:#5a554b;line-height:1.7}
+.bp-res b{font-family:'Inter','Noto Sans JP',sans-serif;font-size:14px;color:var(--ink);font-variant-numeric:tabular-nums}
+.bp-res .warn{color:#b23c00;font-weight:700}
+.bp-res ul{margin:4px 0 0 16px;padding:0}
+.bp-res li{font-size:11px;line-height:1.6}
+.bp-err{background:#ffebee;border:1px solid #ef9a9a;border-radius:8px;padding:9px 12px;margin-top:10px;font-size:12px;color:#b71c1c;line-height:1.6;white-space:pre-line}
+
+/* ============================================================
+   カレンダー
+   ------------------------------------------------------------
+   【罫線＝grid gap 方式（この方式以外にしないこと）】
+   セルに border を一切書かない。グリッド自身の背景を線色にし、
+   gap:1px と padding:1px でセル間・外周の隙間を作って線に見せる。
+   こうすると線幅は構造上どこも必ず 1px になる
+   （border 方式は隣接セルの線が重なって内側だけ 2px になり、
+     外周 1px と不揃いになる。色を揃えても直らないので採用しない）。
+   曜日ヘッダも同じグリッドの子にして、ヘッダ下の線も同じ gap で出す。
+   当日は背景の塗りではなく、日付数字の緑の塗り円だけで示す
+   （セル全面を塗ると角丸・gap との干渉ではみ出して見える）。
+   ============================================================ */
+/* grid-auto-rows は「最も内容の多いセル（予定3行＋実績）」より少し大きい固定値。
+   こうすると全ての週が同じ行高になり、内容量で行の高さが変わらない。 */
+.cal{display:grid;grid-template-columns:repeat(7,1fr);grid-auto-rows:minmax(104px,auto);
+     gap:1px;padding:1px;background:var(--line);border-radius:10px;overflow:hidden;box-shadow:var(--shadow);
+     font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+.cal-dow{background:#f7f5f0;text-align:center;font-size:11px;font-weight:700;color:#8a857c;padding:7px 0;letter-spacing:.04em}
+.cal-dow.sun{color:#c0392b}.cal-dow.sat{color:#2f6fb0}
+.cal-cell{background:#fff;border:0;padding:4px 3px 5px;font-family:inherit;text-align:center;
+          display:flex;flex-direction:column;align-items:stretch;gap:2px;cursor:pointer;min-width:0;
+          -webkit-tap-highlight-color:transparent}
+.cal-cell:active{background:#f3efe5}
+.cal-cell.blank{background:#f6f3ec;cursor:default}
+.cal-cell.ro{cursor:default}
+.cal-cell.ro:active{background:#fff}
+/* 日付（セル左上）。行の高さを円の直径で固定し、当日/通常で行高が変わらないようにする。
+   右端の空きに自動転記の「自」印を置く（実績ピル内に入れると3桁の日にセル幅を超える）。 */
+.cd-num{display:flex;align-items:center;justify-content:space-between;height:22px;flex:none}
+.cd-num i{font-style:normal;display:inline-flex;align-items:center;justify-content:center;
+          width:22px;height:22px;border-radius:50%;font-size:12.5px;font-weight:600;color:#8a857c;line-height:1;flex:none}
+.cd-num s{text-decoration:none;font-size:9px;font-weight:700;color:#fff;background:#9a948a;
+          border-radius:3px;padding:0 3px;line-height:1.5;flex:none}
+.cal-cell.sun .cd-num i{color:#c0392b}
+.cal-cell.sat .cd-num i{color:#2f6fb0}
+.cal-cell.today .cd-num i{background:var(--ink2);color:#fff;font-weight:700}
+/* 予定：入力された種類だけを行として出す（未入力側の穴埋め表示はしない） */
+.cd-plan{display:flex;flex-direction:column;width:100%}
+.cd-plan .pl{display:flex;align-items:baseline;justify-content:center;gap:2px;line-height:1.08;white-space:nowrap}
+.cd-plan em{font-style:normal;font-size:10px;font-weight:700}
+.cd-plan b{font-size:15px;font-weight:700;letter-spacing:-.02em}
+.cd-plan .pt{color:var(--c-tsuki)}
+.cd-plan .ps{color:var(--c-sakae)}
+.cd-plan .pg{color:var(--c-g)}
+/* 月まとめ投入のプレビュー（まだ保存していない仮の値） */
+.cd-plan .pl.prev{background:#fff6e0;border:1px dashed var(--c-sakae);border-radius:5px;margin:1px 0}
+.cal-cell.prev-target{background:#fffdf5}
+/* 実績：「出」ラベル付き・淡い緑地。予定より一回り大きくする */
+.cd-act{display:flex;align-items:baseline;justify-content:center;gap:2px;white-space:nowrap;
+        background:var(--c-act-bg);border-radius:6px;padding:1px 4px;margin-top:auto;line-height:1.18}
+.cd-act em{font-style:normal;font-size:10px;font-weight:700;color:var(--c-act)}
+.cd-act b{font-size:16px;font-weight:700;color:var(--c-act);letter-spacing:-.02em}
+
+/* 状態表示 */
+.state-line{font-size:11px;color:#9a958a;text-align:center;padding:8px 0 0;letter-spacing:.02em}
+.state-line.err{color:#c62828}
+.err-box{background:#fff;border:1px solid #ffb74d;border-left:4px solid #d32f2f;border-radius:10px;padding:14px 16px;margin:14px 0;text-align:center;color:#b71c1c;font-size:13px;line-height:1.6;box-shadow:var(--shadow)}
+.err-box button{margin-top:10px;background:var(--ink);color:#fff;border:none;border-radius:8px;padding:10px 22px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.pending-banner{background:#fff3e0;border:1px solid #ffb74d;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:#8a4b00;line-height:1.6;display:flex;align-items:center;gap:10px}
+.pending-banner button{background:var(--orange);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;flex:none}
+
+/* モーダル */
+.modal-back{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center;z-index:400;padding:0}
+.modal{background:var(--paper);width:100%;max-width:480px;border-radius:16px 16px 0 0;max-height:92vh;overflow-y:auto;box-shadow:0 -4px 20px rgba(0,0,0,.2)}
+.m-hdr{position:sticky;top:0;background:var(--ink);color:#fff;padding:13px 16px;font-size:15px;font-weight:700;letter-spacing:.04em;display:flex;justify-content:space-between;align-items:center;border-radius:16px 16px 0 0}
+.m-hdr .m-site{font-size:11px;font-weight:600;color:rgba(255,255,255,.7);margin-left:8px}
+.m-close{background:none;border:none;color:rgba(255,255,255,.8);font-size:22px;line-height:1;cursor:pointer;font-family:inherit;padding:0 2px}
+.m-body{padding:14px 16px 4px}
+.m-sec{font-size:11px;font-weight:700;letter-spacing:.1em;color:var(--sub);margin:4px 0 8px}
+.m-sec.plan{color:var(--ink2)}
+.m-sec.act{color:var(--c-act);margin-top:18px}
+.m-row{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--border);border-radius:10px;padding:9px 12px;margin-bottom:8px}
+.m-row label{flex:1;font-size:14px;font-weight:700;color:var(--ink)}
+.m-row .m-dot{width:9px;height:9px;border-radius:2px;flex:none}
+.m-row input{width:104px;font-family:'Inter','Noto Sans JP',sans-serif;font-size:19px;font-weight:700;text-align:center;border:1.5px solid var(--border);border-radius:8px;padding:7px 4px;background:#fff;color:var(--ink);font-variant-numeric:tabular-nums}
+.m-row input:focus{outline:none;border-color:var(--ink2)}
+.m-row .m-unit{font-size:12px;color:#999;font-weight:600;flex:none;width:14px}
+.m-hint{font-size:11px;color:#9a958a;line-height:1.6;margin:2px 2px 0}
+.m-by{font-size:11px;font-weight:700;color:#6b5f4a;background:#f4efe2;border-radius:6px;padding:6px 10px;margin:0 0 8px;line-height:1.5}
+.m-total{background:#f2efe6;border-radius:8px;padding:8px 12px;font-size:12px;color:var(--ink2);font-weight:700;margin-bottom:4px;text-align:right}
+.m-err{background:#ffebee;border:1px solid #ef9a9a;border-radius:8px;padding:10px 12px;margin:10px 0 0;font-size:12px;color:#b71c1c;line-height:1.6;white-space:pre-line}
+.m-foot{display:flex;gap:10px;padding:14px 16px calc(16px + env(safe-area-inset-bottom));position:sticky;bottom:0;background:linear-gradient(to top,var(--paper) 70%,rgba(253,251,247,0))}
+.m-btn{flex:1;padding:14px;border:none;border-radius:var(--r);font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;letter-spacing:.04em}
+.m-btn.cancel{background:#e6e1d6;color:#555;flex:0 0 34%}
+.m-btn.save{background:var(--ink2);color:#fff;box-shadow:0 2px 8px rgba(58,54,47,.3)}
+.m-btn:disabled{opacity:.5;cursor:not-allowed}
+
+/* 共通（ローディング・トースト・フッタ） */
+#loading{text-align:center;padding:40px 0;color:#888;font-size:13px}
+.spinner{display:inline-block;width:26px;height:26px;border:3px solid #e0d9cc;border-top-color:var(--ink);border-radius:50%;animation:spin .8s linear infinite;margin-bottom:8px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.toast{position:fixed;bottom:70px;left:0;right:0;display:flex;justify-content:center;padding:0 20px;pointer-events:none;z-index:500}
+.toast-inner{background:#1c1c1e;color:#fff;padding:11px 22px;border-radius:10px;font-size:13px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.2);transform:translateY(80px);opacity:0;transition:transform .3s,opacity .3s;text-align:center}
+.toast-inner.show{transform:translateY(0);opacity:1}
+.loading-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:600}
+.loading-box{background:#fff;border-radius:14px;padding:22px 30px;text-align:center;font-size:14px;font-weight:600}
+.footer{position:fixed;bottom:0;left:0;width:100%;height:52px;background:#1c1c1e;display:flex;align-items:center;justify-content:center;z-index:100}
+.footer a{color:#fff;text-decoration:none;font-size:14px;font-weight:500}
+.nippo-link-wrap{padding:12px 16px 0}
+.nippo-link-btn{display:inline-flex;align-items:center;gap:6px;background:var(--ink);color:#fff;border-radius:18px;padding:6px 14px;text-decoration:none;font-size:12px;font-weight:600;letter-spacing:.02em;box-shadow:var(--shadow)}
+.nippo-link-btn:active{opacity:.8}
+
+/* 狭い端末（iPhone SE 幅 320px 等）でカレンダーが破綻しないよう詰める */
+@media (max-width:359px){
+  #app{padding:12px 8px}
+  .sum-val{font-size:26px}
+  .stab{font-size:12px;padding:7px 2px}
+  .cal{grid-auto-rows:minmax(96px,auto)}
+  .cal-cell{padding:3px 2px 4px}
+  .cd-num{height:20px}
+  .cd-num i{width:20px;height:20px;font-size:12px}
+  .cd-num s{font-size:8px;padding:0 2px}
+  .cd-plan em{font-size:9px}
+  .cd-plan b{font-size:14px}
+  .cd-act{padding:1px 3px}
+  .cd-act em{font-size:9px}
+  .cd-act b{font-size:15px}
+  .m-row input{width:88px}
+  .bp-row input{width:88px}
+  .bp-row select{min-width:104px}
+}
+</style>
+</head>
+<body>
+<div class="hdr">
+  <div class="hdr-top">
+    <h1>🍄 袋出し記録</h1>
+    <span class="hdr-today" id="hToday"></span>
+  </div>
+  <div class="mnav">
+    <button class="mnav-btn" onclick="shiftMonth(-1)" aria-label="前の月">‹</button>
+    <div class="mnav-ttl" id="mTtl">—</div>
+    <button class="mnav-now" onclick="goThisMonth()">今月</button>
+    <button class="mnav-btn" onclick="shiftMonth(1)" aria-label="次の月">›</button>
+  </div>
+  <div class="stabs" id="stabs"></div>
+</div>
+<div class="nippo-link-wrap"><a href="index.html" class="nippo-link-btn">📝 日報入力へ</a></div>
+<div id="app"><div id="loading"><div class="spinner"></div><br>読み込み中...</div></div>
+<div class="toast"><div class="toast-inner" id="toast"></div></div>
+<footer class="footer"><a href="https://sakae-garden.github.io/">🏠 ホームに戻る</a></footer>
+<script>
+var API_URL = 'https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkVvYc7V77OJrh7h_PZCqtuV4aUL7NYz83VsNc5lY6sXONw/exec';
+
+// ============================================================
+// 環境判定 / localStorage キー
+// ------------------------------------------------------------
+// 本番(/nippo/)とテスト(/nippo/test/)は同一オリジンで localStorage を共有する。
+// このページはスナップショットを持たないので、配信パスで環境を判定する。
+// 新しいキーは必ず lsKey() を通すこと（テスト操作が本番の表示を壊さないため）。
+// v2 = 拠点別・3種別スキーマ。旧 v1 キーとは形が違うので別キーにする。
+// ============================================================
+var IS_TEST_ENV = String(location.pathname).indexOf('/test/') > -1;
+function lsKey(base){ return base + (IS_TEST_ENV ? '_test' : ''); }
+var LS_FUKURODASHI_CACHE   = lsKey('fukurodashi_cache_v2');
+var LS_FUKURODASHI_PENDING = lsKey('fukurodashi_pending_v2');
+
+var DAYS = ['日','月','火','水','木','金','土'];
+var SITES = ['寄居','森林公園'];
+var SITE_ALL = '合計';
+var PLAN_KEYS = ['planTsuki','planSakae','planG'];
+var PLAN_LABELS = { planTsuki:'月', planSakae:'栄', planG:'G' };
+var PLAN_NAMES  = { planTsuki:'月完熟', planSakae:'栄完熟', planG:'G完熟' };
+var PLAN_CLS    = { planTsuki:'pt', planSakae:'ps', planG:'pg' };
+
+var today = new Date();
+var todayStr = ymd(today);
+document.getElementById('hToday').textContent =
+  (today.getMonth()+1)+'/'+today.getDate()+'（'+DAYS[today.getDay()]+'）';
+
+var state = {
+  ym: todayStr.substring(0,7),   // 表示中の月 'YYYY-MM'
+  site: SITES[0],                // 表示中の拠点。SITE_ALL は両拠点合算の閲覧専用
+  items: {},                     // 'YYYY-MM-DD' -> { '寄居': {planTsuki,planSakae,planG,actual,actualBy,ts}, ... }
+  loaded: false, loading: false, error: false, fromCache: false,
+  openDate: null, openSite: null, saving: false, saveErr: '', pending: null,
+  // 入力中／送信中の値。再描画（バックグラウンド取得の完了・保存失敗の表示）で
+  // モーダルを描き直しても入力を失わないための退避先。{date, site, payload}
+  draft: null,
+  // 月まとめ投入。preview は「まだ書き込んでいない仮の割り当て」。
+  bulk: { open:false, site:SITES[0], month:'', total:'', preview:null, err:'', busy:false }
+};
+
+// ============ utility ============
+function pad2(n){ return String(n).padStart(2,'0'); }
+function ymd(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
+function eH(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function fmt(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+function showToast(msg){
+  var t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
+  clearTimeout(window._tt); window._tt=setTimeout(function(){ t.classList.remove('show'); },2800);
+}
+function showLoading(msg){
+  var el=document.getElementById('lo');
+  if(!el){ el=document.createElement('div'); el.id='lo'; el.className='loading-overlay';
+    el.innerHTML='<div class="loading-box"><div class="spinner"></div><br><span id="loMsg"></span></div>';
+    document.body.appendChild(el); }
+  var m=document.getElementById('loMsg'); if(m) m.textContent=msg||'保存中...';
+}
+function hideLoading(){ var el=document.getElementById('lo'); if(el&&el.parentNode) el.parentNode.removeChild(el); }
+// 数量の正規化。'' は「未入力」、'0' は「0（袋出しなし）」。両者は別物として扱う。
+function nrm(v){
+  if(v===''||v===null||v===undefined) return '';
+  var n=parseInt(v,10);
+  return (isNaN(n)||n<0)?'':String(n);
+}
+function numOr0(v){ var n=parseInt(v,10); return isNaN(n)?0:n; }
+function monthTitle(ym){ var p=ym.split('-'); return p[0]+'年'+parseInt(p[1],10)+'月'; }
+function daysInMonth(ym){ var p=ym.split('-'); return new Date(parseInt(p[0],10), parseInt(p[1],10), 0).getDate(); }
+function shiftYm(ym, delta){
+  var p=ym.split('-'), d=new Date(parseInt(p[0],10), parseInt(p[1],10)-1+delta, 1);
+  return d.getFullYear()+'-'+pad2(d.getMonth()+1);
+}
+// 指定日・指定拠点のエントリ（無ければ空オブジェクト）
+function entryOf(ds, site){
+  var day=state.items[ds];
+  return (day && day[site]) ? day[site] : {};
+}
+// 表示用に解決した1日ぶんの値。SITE_ALL は両拠点の合算（未入力どうしの和は未入力）。
+function viewOf(ds){
+  if(state.site!==SITE_ALL) return entryOf(ds, state.site);
+  var out={ planTsuki:null, planSakae:null, planG:null, actual:null, actualBy:'' };
+  var autoAll=true, hasActual=false;
+  for(var i=0;i<SITES.length;i++){
+    var e=entryOf(ds, SITES[i]);
+    for(var k=0;k<PLAN_KEYS.length;k++){
+      var key=PLAN_KEYS[k], v=e[key];
+      if(v!==null && v!==undefined) out[key]=(out[key]===null?0:out[key])+v;
+    }
+    if(e.actual!==null && e.actual!==undefined){
+      out.actual=(out.actual===null?0:out.actual)+e.actual;
+      hasActual=true;
+      if(e.actualBy!=='自動') autoAll=false;
+    }
+  }
+  out.actualBy = (hasActual && autoAll) ? '自動' : '';
+  return out;
+}
+
+// ============ jsonp（haitatsu.html と同型。onload 検知＋遅延到着の受け取り） ============
+// JSONP はリクエストをキャンセルできない。タイムアウトで見切っても GAS 側の
+// 書き込みは成立しうるので、opts.onLate で遅れて届いた応答を拾えるようにする。
+var cbIdx=0;
+function jsonp(url,base,onOk,onErr,timeoutMs,opts){
+  opts = opts || {};
+  var n=base+'_'+(cbIdx++), s=document.createElement('script');
+  var settled=false, disposed=false, t=null, lt=null;
+  function dispose(){
+    if(disposed) return; disposed=true;
+    clearTimeout(t); clearTimeout(lt);
+    try{ delete window[n]; }catch(e){ window[n]=undefined; }
+    if(s.parentNode) s.parentNode.removeChild(s);
+  }
+  window[n]=function(d){
+    clearTimeout(t);
+    if(!settled){ settled=true; dispose(); onOk(d); return; }
+    dispose();
+    if(opts.onLate){ try{ opts.onLate(d); }catch(e){} }
+  };
+  function failNow(){
+    if(settled) return;
+    settled=true;
+    if(opts.onLate && opts.lateGraceMs>0){ lt=setTimeout(dispose, opts.lateGraceMs); }
+    else { dispose(); }
+    if(onErr) onErr();
+  }
+  t=setTimeout(failNow, timeoutMs||45000);
+  s.onload=function(){ if(settled) return; setTimeout(function(){ if(!settled) failNow(); },200); };
+  s.onerror=function(){ failNow(); };
+  s.src=url+(url.indexOf('?')>-1?'&':'?')+'callback='+n;
+  document.body.appendChild(s);
+}
+
+// ============ localStorage キャッシュ（SWR：先に前回値を描いてから取得） ============
+function _readCacheAll(){
+  try{ var o=JSON.parse(localStorage.getItem(LS_FUKURODASHI_CACHE)||'null'); return (o&&typeof o==='object')?o:{}; }
+  catch(e){ return {}; }
+}
+function _readCache(ym){
+  var all=_readCacheAll(), e=all[ym];
+  return (e && e.items && typeof e.items==='object') ? e : null;
+}
+function _writeCache(ym, items){
+  try{
+    var all=_readCacheAll();
+    all[ym]={ items: items, savedAt: Date.now() };
+    // 直近12か月ぶんだけ残す（localStorage を無制限に太らせない）
+    var keys=Object.keys(all).sort();
+    while(keys.length>12){ delete all[keys.shift()]; }
+    localStorage.setItem(LS_FUKURODASHI_CACHE, JSON.stringify(all));
+  }catch(e){}
+}
+function _writeCacheFromState(ym){
+  var monthItems={}, pre=ym+'-';
+  for(var k in state.items){ if(k.indexOf(pre)===0) monthItems[k]=state.items[k]; }
+  _writeCache(ym, monthItems);
+}
+function _readPending(){
+  try{ var p=JSON.parse(localStorage.getItem(LS_FUKURODASHI_PENDING)||'null');
+       return (p && p.date && p.site && p.payload) ? p : null; }catch(e){ return null; }
+}
+function _writePending(date,site,payload){
+  try{ localStorage.setItem(LS_FUKURODASHI_PENDING,
+        JSON.stringify({date:date,site:site,payload:payload,at:Date.now()})); }catch(e){}
+}
+function _clearPending(){ try{ localStorage.removeItem(LS_FUKURODASHI_PENDING); }catch(e){} }
+
+// ============ 集計 ============
+// 値が「入っている」か。未入力は null か undefined（データが無い日は {} が返る）。
+// 0 は入力済みなので true を返すこと。
+function hasVal(v){ return v!==null && v!==undefined; }
+function monthTotals(){
+  var t={ plan:0, tsuki:0, sakae:0, g:0, actual:0, planDays:0 };
+  var days=daysInMonth(state.ym);
+  for(var d=1;d<=days;d++){
+    var ds=state.ym+'-'+pad2(d);
+    var v=viewOf(ds);
+    t.tsuki+=numOr0(v.planTsuki); t.sakae+=numOr0(v.planSakae); t.g+=numOr0(v.planG);
+    t.actual+=numOr0(v.actual);
+    if(hasVal(v.planTsuki)||hasVal(v.planSakae)||hasVal(v.planG)) t.planDays++;
+  }
+  t.plan=t.tsuki+t.sakae+t.g;
+  return t;
+}
+
+// ============ 描画 ============
+// 画面に出ている入力値を draft へ吸い上げる（再描画で消さないため）
+function _captureDraft(){
+  if(!state.openDate) return;
+  var a=document.getElementById('inpTsuki'), b=document.getElementById('inpSakae'),
+      g=document.getElementById('inpG'), c=document.getElementById('inpActual');
+  if(!a||!b||!g||!c) return;
+  state.draft={ date:state.openDate, site:state.openSite,
+    payload:{ planTsuki:nrm(a.value), planSakae:nrm(b.value), planG:nrm(g.value), actual:nrm(c.value) } };
+}
+function renderTabs(){
+  var tabs=SITES.concat([SITE_ALL]);
+  var h='';
+  for(var i=0;i<tabs.length;i++){
+    h+='<button class="stab'+(state.site===tabs[i]?' active':'')+'" onclick="setSite(\''+tabs[i]+'\')">'+tabs[i]+'</button>';
+  }
+  document.getElementById('stabs').innerHTML=h;
+}
+function renderAll(){
+  _captureDraft();
+  document.getElementById('mTtl').textContent = monthTitle(state.ym);
+  renderTabs();
+  var html='';
+  html+=renderPendingBanner();
+  html+=renderSummary();
+  html+=renderToolbar();
+  html+=renderBulkPanel();
+  html+=renderCalendar();
+  html+=renderStateLine();
+  document.getElementById('app').innerHTML=html;
+  if(state.openDate) renderModal();
+}
+function setSite(s){
+  if(state.site===s) return;
+  state.site=s;
+  // 拠点を切り替えたらプレビューは破棄する（別拠点の仮値を混同させない）
+  if(state.bulk.preview && state.bulk.preview.site!==s) state.bulk.preview=null;
+  renderAll();
+}
+function renderPendingBanner(){
+  var p=state.pending;
+  if(!p) return '';
+  return '<div class="pending-banner"><span>未送信の袋出し記録があります（'+eH(p.date)+'・'+eH(p.site)+'）。端末に保存済みです。</span>'
+    +'<button onclick="resendPending()">再送する</button></div>';
+}
+function renderSummary(){
+  var t=monthTotals();
+  var rate = t.plan>0 ? (t.actual/t.plan*100) : null;
+  var rateStr = (rate===null) ? '—' : (Math.round(rate*10)/10)+'%';
+  var rest = t.plan - t.actual;
+  var restStr = (t.plan>0) ? (rest>0 ? ('残り '+fmt(rest)+'個') : ('予定超過 +'+fmt(-rest)+'個')) : '予定未入力';
+  restStr = '<span class="nb">'+restStr+'</span>';
+  var barW = (rate===null) ? 0 : Math.max(0, Math.min(100, rate));
+  var h='<div class="sum-wrap">';
+  h+='<div class="sum-card plan"><div class="sum-lbl">当月袋出し予定数</div>'
+    +'<div class="sum-val">'+fmt(t.plan)+'<span class="sum-unit">個</span></div>'
+    +'<div class="sum-sub"><span class="nb">月 '+fmt(t.tsuki)+'</span> ／ <span class="nb">栄 '+fmt(t.sakae)+'</span> ／ <span class="nb">G '+fmt(t.g)+'</span>'
+    +'<br><span class="nb">予定入力 '+t.planDays+'日</span></div></div>';
+  h+='<div class="sum-card act"><div class="sum-lbl">当月袋出し進捗数</div>'
+    +'<div class="sum-val">'+fmt(t.actual)+'<span class="sum-unit">個</span></div>'
+    +'<div class="sum-sub"><span class="nb">進捗率 <b>'+rateStr+'</b></span>　'+restStr+'</div>'
+    +'<div class="sum-bar"><i style="width:'+barW+'%"></i></div></div>';
+  h+='</div>';
+  h+='<div class="sum-scope">対象：'+eH(state.site===SITE_ALL?'寄居＋森林公園（合計）':state.site)+'</div>';
+  h+='<div class="legend"><span><i class="lg-tsuki"></i>月＝月完熟</span>'
+    +'<span><i class="lg-sakae"></i>栄＝栄完熟</span>'
+    +'<span><i class="lg-g"></i>G＝G完熟</span>'
+    +'<span><i class="lg-act"></i>出＝袋出し実績</span></div>';
+  return h;
+}
+function renderToolbar(){
+  if(state.bulk.open) return '';
+  return '<div class="toolbar"><button class="bulk-btn" onclick="openBulk()">📥 月まとめ投入</button></div>';
+}
+function renderCalendar(){
+  var p=state.ym.split('-'), y=parseInt(p[0],10), m=parseInt(p[1],10);
+  var lead=new Date(y, m-1, 1).getDay();   // 月初までの空きセル（日曜始まり）
+  var days=daysInMonth(state.ym);
+  var ro=(state.site===SITE_ALL);          // 合計タブは閲覧専用
+  var pv=(state.bulk.preview && state.bulk.preview.site===state.site && state.bulk.preview.month===state.ym)
+         ? state.bulk.preview : null;
+  // 曜日ヘッダも日セルも同じ1つのグリッドの子にする。
+  // ヘッダ下の線もセル間と同じ gap で描かれるので、太さが揃う。
+  var h='<div class="cal">';
+  for(var i=0;i<7;i++){
+    h+='<div class="cal-dow '+(i===0?'sun':(i===6?'sat':''))+'">'+DAYS[i]+'</div>';
+  }
+  for(var b=0;b<lead;b++) h+='<div class="cal-cell blank"></div>';
+  for(var d=1;d<=days;d++){
+    var ds=state.ym+'-'+pad2(d);
+    var dow=new Date(y,m-1,d).getDay();
+    var v=viewOf(ds);
+    var pvVal=(pv && pv.map[ds]!==undefined) ? pv.map[ds] : null;
+    var cls='cal-cell'+(dow===0?' sun':(dow===6?' sat':''))+(ds===todayStr?' today':'')
+            +(ro?' ro':'')+(pvVal!==null?' prev-target':'');
+    h+= ro ? '<div class="'+cls+'">'
+           : '<button class="'+cls+'" onclick="openDay(\''+ds+'\')">';
+    h+='<span class="cd-num"><i>'+d+'</i>'+(v.actualBy==='自動'?'<s>自</s>':'')+'</span>';
+    // 予定は「入力されている種類だけ」を出す。プレビュー中は栄完熟を仮値で置き換える。
+    var rows='';
+    for(var k=0;k<PLAN_KEYS.length;k++){
+      var key=PLAN_KEYS[k];
+      var val = (key==='planSakae' && pvVal!==null) ? String(pvVal) : nrm(v[key]);
+      if(val==='') continue;
+      var isPrev = (key==='planSakae' && pvVal!==null);
+      rows+='<span class="pl '+PLAN_CLS[key]+(isPrev?' prev':'')+'"><em>'+PLAN_LABELS[key]+'</em><b>'+val+'</b></span>';
+    }
+    if(rows) h+='<span class="cd-plan">'+rows+'</span>';
+    // 実績は入力がある日だけ出す（空セルに記号を並べると格子が読みにくくなる）
+    var ac=nrm(v.actual);
+    if(ac!=='') h+='<span class="cd-act"><em>出</em><b>'+ac+'</b></span>';
+    h+= ro ? '</div>' : '</button>';
+  }
+  var tail=(7-((lead+days)%7))%7;
+  for(var e=0;e<tail;e++) h+='<div class="cal-cell blank"></div>';
+  h+='</div>';
+  return h;
+}
+function renderStateLine(){
+  if(state.error && !state.loaded){
+    return '<div class="err-box">データを取得できませんでした。<br>通信状態を確認してください。'
+      +'<br><button onclick="fetchMonth(state.ym)">再読み込み</button></div>';
+  }
+  var msg;
+  if(state.loading) msg='最新データを取得中...';
+  else if(state.error) msg='⚠️ 最新の取得に失敗しました（表示は端末の保存分）';
+  else if(state.fromCache) msg='端末の保存分を表示中';
+  else msg='最終取得：'+(_lastFetchStamp||'—');
+  return '<div class="state-line'+(state.error?' err':'')+'">'+eH(msg)+'</div>';
+}
+var _lastFetchStamp='';
+
+// ============ 取得 ============
+var FETCH_TIMEOUT = 15000;
+function fetchMonth(ym){
+  state.ym=ym;
+  var c=_readCache(ym);
+  if(c){ state.items=_mergeItems(state.items, c.items, ym); state.loaded=true; state.fromCache=true; }
+  state.loading=true; state.error=false;
+  if(state.loaded) renderAll(); else document.getElementById('app').innerHTML='<div id="loading"><div class="spinner"></div><br>読み込み中...</div>';
+  jsonp(API_URL+'?action=getFukurodashi&month='+encodeURIComponent(ym)+'&_cb='+Date.now(),
+    'cb_get',
+    function(res){
+      if(state.ym!==ym) return;   // 取得中に月を切り替えられていたら捨てる
+      state.loading=false;
+      if(res && res.success && res.items){
+        state.items=_mergeItems(state.items, res.items, ym);
+        state.loaded=true; state.fromCache=false; state.error=false;
+        _writeCache(ym, res.items);
+        var nd=new Date();
+        _lastFetchStamp=pad2(nd.getHours())+':'+pad2(nd.getMinutes());
+      } else {
+        state.error=true;
+      }
+      renderAll();
+    },
+    function(){
+      if(state.ym!==ym) return;
+      state.loading=false; state.error=true;
+      renderAll();
+    }, FETCH_TIMEOUT);
+}
+// 対象月のぶんだけ置き換える（他の月のキャッシュ表示は残す）
+function _mergeItems(cur, fresh, ym){
+  var out={}, pre=ym+'-';
+  for(var k in cur){ if(k.indexOf(pre)!==0) out[k]=cur[k]; }
+  for(var k2 in fresh){ if(k2.indexOf(pre)===0) out[k2]=fresh[k2]; }
+  return out;
+}
+function shiftMonth(delta){
+  state.bulk.preview=null;
+  fetchMonth(shiftYm(state.ym, delta));
+}
+function goThisMonth(){ state.bulk.preview=null; fetchMonth(todayStr.substring(0,7)); }
+
+// ============================================================
+// 月まとめ投入
+// ------------------------------------------------------------
+// 「按分プレビュー」は一切書き込まない。カレンダー上に仮表示するだけで、
+// 「この内容で保存する」を押して初めて bulkSaveFukurodashi を呼ぶ。
+// ============================================================
+function openBulk(){
+  state.bulk.open=true; state.bulk.err=''; state.bulk.preview=null;
+  state.bulk.month=state.ym;
+  state.bulk.site=(state.site===SITE_ALL)?SITES[0]:state.site;
+  renderAll();
+}
+function closeBulk(){
+  if(state.bulk.busy) return;
+  state.bulk={ open:false, site:SITES[0], month:'', total:'', preview:null, err:'', busy:false };
+  renderAll();
+}
+function _captureBulkInputs(){
+  var m=document.getElementById('bpMonth'), s=document.getElementById('bpSite'), t=document.getElementById('bpTotal');
+  if(m) state.bulk.month=m.value;
+  if(s) state.bulk.site=s.value;
+  if(t) state.bulk.total=nrm(t.value);
+}
+function onBulkChange(){ _captureBulkInputs(); state.bulk.preview=null; state.bulk.err=''; renderAll(); }
+
+// 按分計算（純粋関数・副作用なし）。
+//  対象 = その拠点で「月完熟・G完熟が未入力」の日。0 が入っている日は入力済みなので対象外。
+//  月間合計 ÷ 対象日数 の均等割り（切り捨て）。割り切れない余りは最終対象日に全部足す。
+//  割当が 0 になる日は 0 を保存せず「未入力」にする（0＝袋出しなし との区別を保つため）。
+function computeAllocation(month, site, total){
+  var days=daysInMonth(month);
+  var targets=[], excluded=[];
+  for(var d=1;d<=days;d++){
+    var ds=month+'-'+pad2(d);
+    var e=(state.items[ds]&&state.items[ds][site])?state.items[ds][site]:{};
+    var pt=(e.planTsuki===undefined)?null:e.planTsuki;
+    var pg=(e.planG===undefined)?null:e.planG;
+    if(pt!==null || pg!==null){
+      excluded.push({ date:ds, planTsuki:pt, planG:pg });
+      continue;
+    }
+    targets.push({ date:ds,
+      oldSakae:(e.planSakae===undefined)?null:e.planSakae,
+      actual:(e.actual===undefined)?null:e.actual });
+  }
+  var n=targets.length;
+  if(n===0) return { error:'按分できる日がありません（この月はすべて月完熟またはG完熟の予定が入っています）。' };
+  var base=Math.floor(total/n);
+  var rem=total-base*n;                  // 端数は最終対象日にまとめて乗せる
+  for(var i=0;i<n;i++) targets[i].newVal=base;
+  targets[n-1].newVal+=rem;
+  var sum=0; for(var j=0;j<n;j++) sum+=targets[j].newVal;
+  // 割当 0 の日は未入力にする（既存値があれば消えるので、上書き一覧に出る）
+  var assigned=targets.filter(function(t){ return t.newVal>0; });
+  var blanks=targets.filter(function(t){ return t.newVal===0; });
+  var map={}; for(var q=0;q<assigned.length;q++) map[assigned[q].date]=assigned[q].newVal;
+  function shown(t){ return t.newVal>0 ? t.newVal : '未入力'; }
+  return { month:month, site:site, total:total, base:base, rem:rem,
+           targets:targets, assigned:assigned, blanks:blanks, excluded:excluded, sum:sum, map:map,
+           overwrites:targets.filter(function(t){ return t.oldSakae!==null && t.oldSakae!==t.newVal; })
+                             .map(function(t){ return { date:t.date, oldSakae:t.oldSakae, shown:shown(t) }; }),
+           withActual:targets.filter(function(t){ return t.actual!==null; }) };
+}
+function doBulkPreview(){
+  _captureBulkInputs();
+  state.bulk.err=''; state.bulk.preview=null;
+  var b=state.bulk;
+  if(b.total===''){ b.err='栄完熟の月間合計を入力してください。'; renderAll(); return; }
+  var r=computeAllocation(b.month, b.site, parseInt(b.total,10));
+  if(r.error){ b.err=r.error; renderAll(); return; }
+  b.preview=r;
+  // プレビューは対象拠点・対象月のカレンダー上に出す（見えない場所へ書かないため切り替える）
+  state.site=b.site;
+  if(state.ym!==b.month){ fetchMonth(b.month); return; }
+  renderAll();
+}
+function doBulkCommit(){
+  var b=state.bulk;
+  if(!b.preview || b.busy) return;
+  var pv=b.preview;
+  // 割当 0 の日は '' を送って未入力にする（0 を書かない。既存値があれば消える）
+  var payload={};
+  for(var i=0;i<pv.targets.length;i++){
+    var t=pv.targets[i];
+    payload[t.date]={ planSakae: t.newVal>0 ? String(t.newVal) : '' };
+  }
+  b.busy=true; b.err='';
+  showLoading('月まとめ投入を保存中...');
+  var url=API_URL+'?action=bulkSaveFukurodashi&site='+encodeURIComponent(pv.site)
+    +'&data='+encodeURIComponent(JSON.stringify(payload))+'&_cb='+Date.now();
+  jsonp(url,'cb_bulk',function(res){
+    b.busy=false; hideLoading();
+    if(res && res.success){
+      state.bulk={ open:false, site:pv.site, month:'', total:'', preview:null, err:'', busy:false };
+      showToast('✅ '+pv.assigned.length+'日ぶんを投入しました');
+      fetchMonth(pv.month);
+    } else {
+      b.err='保存に失敗しました：'+((res&&res.error)||'不明なエラー')+'\n書き込みは行われていない可能性があります。もう一度お試しください。';
+      renderAll();
+    }
+  },function(){
+    b.busy=false; hideLoading();
+    b.err='保存の応答がありませんでした。\n反映されたかを確認するため、いったん画面を再読み込みしてください。';
+    renderAll();
+    // 応答が来なかっただけで成立している可能性があるので、最新を取り直す
+    fetchMonth(pv.month);
+  }, 25000);
+}
+function renderBulkPanel(){
+  var b=state.bulk;
+  if(!b.open) return '';
+  var h='<div class="bp"><div class="bp-ttl">📥 月まとめ投入（栄完熟）</div>';
+  // 対象月：表示月の −2〜+3 か月から選ぶ
+  h+='<div class="bp-row"><label>対象月</label><select id="bpMonth" onchange="onBulkChange()">';
+  for(var i=-2;i<=3;i++){
+    var ym=shiftYm(state.ym,i);
+    h+='<option value="'+ym+'"'+(ym===b.month?' selected':'')+'>'+monthTitle(ym)+'</option>';
+  }
+  h+='</select></div>';
+  h+='<div class="bp-row"><label>拠点</label><select id="bpSite" onchange="onBulkChange()">';
+  for(var s=0;s<SITES.length;s++){
+    h+='<option value="'+SITES[s]+'"'+(SITES[s]===b.site?' selected':'')+'>'+SITES[s]+'</option>';
+  }
+  h+='</select></div>';
+  h+='<div class="bp-row"><label>栄完熟の月間合計</label>'
+    +'<input type="text" inputmode="numeric" pattern="[0-9]*" id="bpTotal" value="'+eH(b.total)+'" placeholder="0" oninput="onBulkNum(this)"><span class="m-unit">個</span></div>';
+  h+='<div class="bp-note">※ 按分先は「月完熟・G完熟の予定が入っていない日」です。<br>'
+    +'※ 月間合計 ÷ 対象日数の均等割り（切り捨て）。端数は最終対象日にまとめて足します。<br>'
+    +'※ 割当が 0 になる日は 0 を書かず未入力にします。<br>'
+    +'※ プレビューは書き込みません。カレンダー上に仮表示するだけです。</div>';
+  h+=renderBulkResult();
+  if(b.err) h+='<div class="bp-err">'+eH(b.err)+'</div>';
+  h+='<div class="bp-acts">'
+    +'<button class="cancel-btn" onclick="closeBulk()">閉じる</button>'
+    +'<button class="prev-btn" onclick="doBulkPreview()">按分プレビュー</button>'
+    +'<button class="go-btn" onclick="doBulkCommit()"'+(b.preview?'':' disabled')+'>この内容で保存</button>'
+    +'</div>';
+  h+='</div>';
+  return h;
+}
+function renderBulkResult(){
+  var pv=state.bulk.preview;
+  if(!pv) return '';
+  var last=pv.targets[pv.targets.length-1];
+  var h='<div class="bp-res">';
+  h+='対象 <b>'+pv.targets.length+'</b> 日／1日あたり <b>'+fmt(pv.base)+'</b> 個';
+  h+='<br>最終対象日（'+last.date.slice(5)+'）に端数 <b>'+fmt(pv.rem)+'</b> 個（同日は '+fmt(last.newVal)+' 個）';
+  h+='<br>合計 <b>'+fmt(pv.sum)+'</b> 個（指定 '+fmt(pv.total)+' 個）';
+  if(pv.excluded.length) h+='<br>除外（月完熟/G完熟あり）：'+pv.excluded.length+'日';
+  // 割当が 0 の日は 0 を書かず未入力にする（0＝袋出しなし との区別を保つ）
+  if(pv.blanks.length) h+='<br><span class="warn">未入力のまま残す日：'+pv.blanks.length+'日（0 は書きません）</span>';
+  if(pv.overwrites.length){
+    h+='<br><span class="warn">既存の栄完熟を上書き：'+pv.overwrites.length+'日</span><ul>';
+    pv.overwrites.slice(0,12).forEach(function(t){
+      h+='<li>'+t.date.slice(5)+'　'+(t.oldSakae===null?'—':t.oldSakae)+' → '+t.shown+'</li>';
+    });
+    if(pv.overwrites.length>12) h+='<li>ほか '+(pv.overwrites.length-12)+' 日</li>';
+    h+='</ul>';
+  }
+  if(pv.withActual.length){
+    h+='<br><span class="warn">実績が入っている日も上書き対象：'+pv.withActual.length+'日</span><ul>';
+    pv.withActual.slice(0,12).forEach(function(t){
+      h+='<li>'+t.date.slice(5)+'　実績 '+t.actual+'（実績はそのまま・予定のみ変更）</li>';
+    });
+    if(pv.withActual.length>12) h+='<li>ほか '+(pv.withActual.length-12)+' 日</li>';
+    h+='</ul>';
+  }
+  h+='</div>';
+  return h;
+}
+function onBulkNum(el){
+  var v=String(el.value||'').replace(/[^0-9]/g,'').replace(/^0+(?=\d)/,'');
+  if(v.length>7) v=v.substring(0,7);
+  if(el.value!==v) el.value=v;
+  state.bulk.total=nrm(v);
+  // 入力のたびに再描画すると打ちにくいので、プレビューだけ無効化しておく
+  if(state.bulk.preview){ state.bulk.preview=null; renderAll();
+    var t=document.getElementById('bpTotal'); if(t){ t.focus(); t.setSelectionRange(t.value.length,t.value.length); } }
+}
+
+// ============ 入力モーダル ============
+function openDay(ds){
+  if(state.saving) return;
+  if(state.site===SITE_ALL) return;   // 合計タブは閲覧専用
+  state.openDate=ds; state.openSite=state.site; state.saveErr='';
+  // 未送信ぶんが残っている日は、その内容を復元して開く（入力のやり直しを防ぐ）
+  var p=state.pending;
+  state.draft=(p && p.date===ds && p.site===state.site) ? { date:ds, site:state.site, payload:p.payload } : null;
+  renderModal();
+}
+function closeModal(){
+  if(state.saving) return;
+  state.openDate=null; state.openSite=null; state.saveErr=''; state.draft=null;
+  var el=document.getElementById('modalBack');
+  if(el&&el.parentNode) el.parentNode.removeChild(el);
+}
+function renderModal(){
+  var ds=state.openDate, site=state.openSite; if(!ds||!site) return;
+  var el=document.getElementById('modalBack');
+  if(!el){ el=document.createElement('div'); el.id='modalBack'; el.className='modal-back';
+    el.onclick=function(ev){ if(ev.target===el) closeModal(); };
+    document.body.appendChild(el); }
+  var p=ds.split('-'), dt=new Date(parseInt(p[0],10), parseInt(p[1],10)-1, parseInt(p[2],10));
+  var saved=entryOf(ds, site);
+  // 入力中の値（draft）があればそれを優先。無ければサーバ/キャッシュの保存値。
+  var src=(state.draft && state.draft.date===ds && state.draft.site===site) ? state.draft.payload : saved;
+  var pt=nrm(src.planTsuki), ps=nrm(src.planSakae), pg=nrm(src.planG), ac=nrm(src.actual);
+  var h='<div class="modal" onclick="event.stopPropagation()">';
+  h+='<div class="m-hdr"><span>'+parseInt(p[1],10)+'月'+parseInt(p[2],10)+'日（'+DAYS[dt.getDay()]+'）'
+    +'<span class="m-site">'+eH(site)+'</span></span>'
+    +'<button class="m-close" onclick="closeModal()">×</button></div>';
+  h+='<div class="m-body">';
+  h+='<div class="m-sec plan">袋出し予定</div>';
+  h+='<div class="m-row"><span class="m-dot lg-tsuki"></span><label>月完熟</label>'
+    +'<input type="text" inputmode="numeric" pattern="[0-9]*" id="inpTsuki" value="'+pt+'" placeholder="—" oninput="onNumInput(this)"><span class="m-unit">個</span></div>';
+  h+='<div class="m-row"><span class="m-dot lg-sakae"></span><label>栄完熟</label>'
+    +'<input type="text" inputmode="numeric" pattern="[0-9]*" id="inpSakae" value="'+ps+'" placeholder="—" oninput="onNumInput(this)"><span class="m-unit">個</span></div>';
+  h+='<div class="m-row"><span class="m-dot lg-g"></span><label>G完熟</label>'
+    +'<input type="text" inputmode="numeric" pattern="[0-9]*" id="inpG" value="'+pg+'" placeholder="—" oninput="onNumInput(this)"><span class="m-unit">個</span></div>';
+  h+='<div class="m-total" id="mTotal">予定合計 —</div>';
+  h+='<div class="m-sec act">袋出し実績</div>';
+  if(saved.actualBy==='自動') h+='<div class="m-by">この実績は前日予定からの自動転記（自）です。手で直すと「手入力」に変わります。</div>';
+  h+='<div class="m-row"><span class="m-dot lg-act"></span><label>袋出し数</label>'
+    +'<input type="text" inputmode="numeric" pattern="[0-9]*" id="inpActual" value="'+ac+'" placeholder="—" oninput="onNumInput(this)"><span class="m-unit">個</span></div>';
+  h+='<div class="m-hint">※ 実績は月完熟・栄完熟・G完熟をまとめた合計数です。<br>'
+    +'※ <b>空欄＝未入力</b>（夜間に予定から自動転記されます）、<b>0＝袋出しなし</b>（自動転記しません）。<br>'
+    +'※ 空欄で保存すると、その項目は未入力に戻ります。</div>';
+  if(state.saveErr) h+='<div class="m-err">'+eH(state.saveErr)+'</div>';
+  h+='</div>';
+  h+='<div class="m-foot"><button class="m-btn cancel" onclick="closeModal()">キャンセル</button>'
+    +'<button class="m-btn save" id="mSaveBtn" onclick="doSaveDay()">保存する</button></div>';
+  h+='</div>';
+  el.innerHTML=h;
+  updModalTotal();
+}
+// 正の整数のみ許可（テンキー以外の入力・貼り付けも弾く）。'0' はそのまま残す。
+function onNumInput(el){
+  var v=String(el.value||'').replace(/[^0-9]/g,'').replace(/^0+(?=\d)/,'');
+  if(v.length>6) v=v.substring(0,6);
+  if(el.value!==v) el.value=v;
+  updModalTotal();
+}
+function updModalTotal(){
+  var e=document.getElementById('mTotal'); if(!e) return;
+  var a=document.getElementById('inpTsuki'), b=document.getElementById('inpSakae'), g=document.getElementById('inpG');
+  if(!a||!b||!g) return;
+  var ta=nrm(a.value), tb=nrm(b.value), tg=nrm(g.value);
+  e.textContent = (ta===''&&tb===''&&tg==='') ? '予定合計 —'
+                : ('予定合計 '+fmt(numOr0(ta)+numOr0(tb)+numOr0(tg))+' 個');
+}
+
+// ============================================================
+// 保存（日付×拠点キーの upsert。saveHaitatsu と同じ考え方）
+// ------------------------------------------------------------
+// 二重記録は「同じ日付・同じ拠点は必ず同じ1行を上書き」というサーバ側の設計で
+// 防いでいる（append しないので reqId dedup が不要）。ここで守るのは
+//   ・失敗をサイレントにしない（必ずサーバ確認 → それでも不明ならエラー表示）
+//   ・入力を絶対に失わない（送信前に localStorage へ退避）
+// の2点。
+// ============================================================
+var SAVE_MAX_ATTEMPTS = 3;
+var SAVE_RETRY_WAIT   = 600;
+var SAVE_TIMEOUT      = 10000;   // 実測 p90≈9秒
+var SAVE_LATE_GRACE   = 25000;   // 見切った後に遅延到着を拾う猶予
+var VERIFY_WAIT       = 700;
+var VERIFY_TIMEOUT    = 8000;
+var SAVE_DEADLINE     = 20000;   // これを超えたら新しい試行を始めない
+var SAVE_RECHECK_MS   = [6000, 15000];
+
+var _saveSess=null;
+function _sessAlive(s){ return !!s && !s.done && _saveSess===s; }
+function _sessTimer(s, fn, ms){ var h=setTimeout(function(){ if(_sessAlive(s)) fn(); }, ms); s.timers.push(h); return h; }
+function _sessEnd(s){ if(!s) return; s.done=true; s.timers.forEach(function(h){ clearTimeout(h); }); s.timers=[]; }
+function _elapsed(s){ return Date.now()-s.t0; }
+
+function _entryMatches(dayObj, site, payload){
+  var got=(dayObj && dayObj[site]) ? dayObj[site] : {};
+  return nrm(got.planTsuki)===nrm(payload.planTsuki)
+      && nrm(got.planSakae)===nrm(payload.planSakae)
+      && nrm(got.planG)===nrm(payload.planG)
+      && nrm(got.actual)===nrm(payload.actual);
+}
+
+function doSaveDay(){
+  var ds=state.openDate, site=state.openSite; if(!ds||!site) return;
+  var a=document.getElementById('inpTsuki'), b=document.getElementById('inpSakae'),
+      g=document.getElementById('inpG'), c=document.getElementById('inpActual');
+  if(!a||!b||!g||!c) return;
+  var payload={ planTsuki:nrm(a.value), planSakae:nrm(b.value), planG:nrm(g.value), actual:nrm(c.value) };
+  // 【最優先】送信前に端末へ退避。以降どこで失敗しても入力は消えない。
+  _writePending(ds, site, payload);
+  state.pending={date:ds, site:site, payload:payload};
+  state.draft={date:ds, site:site, payload:payload};
+  _sessEnd(_saveSess);
+  var sess={ id:'S'+Date.now()+'_'+Math.random().toString(36).slice(2), date:ds, site:site, payload:payload,
+             t0:Date.now(), done:false, timers:[] };
+  _saveSess=sess;
+  state.saving=true; state.saveErr='';
+  _saveAttempt(0, sess);
+}
+function _saveAttempt(attempt, sess){
+  if(!_sessAlive(sess)) return;
+  showLoading(attempt>0 ? ('保存中...（再送 '+attempt+'/'+(SAVE_MAX_ATTEMPTS-1)+'）') : '保存中...');
+  var url=API_URL+'?action=saveFukurodashi&date='+encodeURIComponent(sess.date)
+    +'&site='+encodeURIComponent(sess.site)
+    +'&data='+encodeURIComponent(JSON.stringify(sess.payload))
+    +'&_cb='+Date.now()+'_'+attempt;
+  jsonp(url,'cb_save',function(res){
+    if(!_sessAlive(sess)) return;
+    if(res && res.success){
+      _saveSucceeded(sess, attempt>0?'✅ 保存しました（再送'+attempt+'回で成功）':'✅ 保存しました');
+    } else if(res && res.retryable){
+      // ScriptLock 競合。書き込みは行われていないので確認を挟まずすぐ再送。
+      _retryOrGiveUp(attempt, sess, 'サーバ混雑');
+    } else {
+      // データ起因の失敗は再送しても変わらないので即エラー表示（サイレントにしない）。
+      _sessEnd(sess); state.saving=false; hideLoading();
+      state.saveErr='保存に失敗しました：'+((res&&res.error)||'不明なエラー')+'\n入力内容は端末に保存されています。';
+      renderModal();
+    }
+  },function(){
+    // タイムアウト／通信失敗。サーバ側では成立しているかもしれないので必ず確認する。
+    if(!_sessAlive(sess)) return;
+    _verifyThenRetry(attempt, sess);
+  }, SAVE_TIMEOUT, {
+    lateGraceMs: SAVE_LATE_GRACE,
+    onLate: function(res){
+      if(!_sessAlive(sess)) return;
+      if(res && res.success) _saveSucceeded(sess, '✅ 保存しました（応答が遅れて到着）');
+    }
+  });
+}
+function _verifyThenRetry(attempt, sess){
+  showLoading('保存を確認中...');
+  _sessTimer(sess, function(){
+    var ym=sess.date.substring(0,7);
+    jsonp(API_URL+'?action=getFukurodashi&month='+encodeURIComponent(ym)+'&_cb='+Date.now(),
+      'cb_verify', function(res){
+        if(!_sessAlive(sess)) return;
+        if(res && res.success && res.items && _entryMatches(res.items[sess.date], sess.site, sess.payload)){
+          if(state.ym===ym){ state.items=_mergeItems(state.items,res.items,ym); _writeCache(ym,res.items); }
+          _saveSucceeded(sess, '✅ 保存済みを確認しました');
+        } else {
+          _retryOrGiveUp(attempt, sess, '未反映');
+        }
+      }, function(){
+        if(!_sessAlive(sess)) return;
+        _retryOrGiveUp(attempt, sess, '確認できず');
+      }, VERIFY_TIMEOUT);
+  }, VERIFY_WAIT);
+}
+function _retryOrGiveUp(attempt, sess, reason){
+  if(!_sessAlive(sess)) return;
+  var next=attempt+1;
+  if(next<SAVE_MAX_ATTEMPTS && _elapsed(sess)<SAVE_DEADLINE){
+    showLoading('保存中...（'+reason+'・再送します）');
+    _sessTimer(sess, function(){ _saveAttempt(next, sess); }, SAVE_RETRY_WAIT);
+    return;
+  }
+  // 見切り：ここで黙って終わらせない。入力は端末に残し、明示的にエラーを出す。
+  state.saving=false;
+  hideLoading();
+  state.saveErr='保存を確認できませんでした（'+reason+'）。\n入力内容は端末に保存されています。'
+    +'通信状況を確認して「保存する」をもう一度押してください。\n※ すでに反映されていた場合は自動で解消します。';
+  renderModal();
+  // バックグラウンド再確認：実は保存されていたケースを自動で回収する。
+  SAVE_RECHECK_MS.forEach(function(ms){
+    _sessTimer(sess, function(){ _recheck(sess); }, ms);
+  });
+}
+function _recheck(sess){
+  if(!_sessAlive(sess)) return;
+  var ym=sess.date.substring(0,7);
+  jsonp(API_URL+'?action=getFukurodashi&month='+encodeURIComponent(ym)+'&_cb='+Date.now(),
+    'cb_recheck', function(res){
+      if(!_sessAlive(sess)) return;
+      if(res && res.success && res.items && _entryMatches(res.items[sess.date], sess.site, sess.payload)){
+        if(state.ym===ym){ state.items=_mergeItems(state.items,res.items,ym); _writeCache(ym,res.items); }
+        _saveSucceeded(sess, '✅ 保存されていました（自動確認）');
+      }
+    }, function(){}, VERIFY_TIMEOUT);
+}
+function _saveSucceeded(sess, msg){
+  _sessEnd(sess);
+  state.saving=false;
+  hideLoading();
+  _clearPending();
+  state.pending=null;
+  var ds=sess.date, site=sess.site, p=sess.payload;
+  var nd=new Date();
+  var ts=nd.getFullYear()+'-'+pad2(nd.getMonth()+1)+'-'+pad2(nd.getDate())+' '
+        +pad2(nd.getHours())+':'+pad2(nd.getMinutes())+':'+pad2(nd.getSeconds());
+  function toNum(v){ return v===''?null:parseInt(v,10); }
+  var allEmpty=(p.planTsuki===''&&p.planSakae===''&&p.planG===''&&p.actual==='');
+  if(!state.items[ds]) state.items[ds]={};
+  if(allEmpty){
+    delete state.items[ds][site];
+    if(!Object.keys(state.items[ds]).length) delete state.items[ds];
+  } else {
+    state.items[ds][site]={ planTsuki:toNum(p.planTsuki), planSakae:toNum(p.planSakae),
+                            planG:toNum(p.planG), actual:toNum(p.actual),
+                            actualBy:(p.actual===''?'':'手入力'), ts:ts };
+  }
+  _writeCacheFromState(ds.substring(0,7));
+  state.openDate=null; state.openSite=null; state.saveErr=''; state.draft=null;
+  var el=document.getElementById('modalBack'); if(el&&el.parentNode) el.parentNode.removeChild(el);
+  renderAll();
+  showToast(msg);
+}
+// 端末に残った未送信ぶんを開き直して再送する
+function resendPending(){
+  var p=state.pending||_readPending();
+  if(!p) return;
+  state.site=p.site;
+  if(state.ym!==p.date.substring(0,7)){ fetchMonth(p.date.substring(0,7)); }
+  state.openDate=p.date; state.openSite=p.site; state.saveErr='';
+  state.draft={ date:p.date, site:p.site, payload:p.payload };
+  renderModal();
+  doSaveDay();
+}
+
+// ============ 起動 ============
+state.pending=_readPending();
+renderTabs();
+fetchMonth(state.ym);
+</script>
+</body>
+</html>
