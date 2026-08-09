@@ -759,6 +759,10 @@ function renderBulkResult(){
   if(pv.leftover>0) h+='<br>端数 <b>'+pv.leftover+'</b> 個は最終対象日（'+pv.targets[pv.targets.length-1].date.slice(5)+'）へ';
   h+='<br>合計 <b>'+fmt(pv.sum)+'</b> 個（指定 '+fmt(pv.total)+' 個）';
   if(pv.excluded.length) h+='<br>除外（月完熟/G完熟あり）：'+pv.excluded.length+'日';
+  // 合計が小さい／丸め単位が大きいと 0 になる日が出る。0 は「袋出しなし」として
+  // 保存される（＝未入力ではない）ので、件数を必ず明示する。
+  var zeroDays=pv.targets.filter(function(t){ return t.newVal===0; }).length;
+  if(zeroDays) h+='<br><span class="warn">0 になる日：'+zeroDays+'日（「袋出しなし」として保存されます）</span>';
   if(pv.overwrites.length){
     h+='<br><span class="warn">既存の栄完熟を上書き：'+pv.overwrites.length+'日</span><ul>';
     pv.overwrites.slice(0,12).forEach(function(t){
