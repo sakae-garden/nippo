@@ -122,10 +122,13 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .cal-cell.blank{background:#f6f3ec;cursor:default}
 .cal-cell.ro{cursor:default}
 .cal-cell.ro:active{background:#fff}
-/* 日付（セル左上）。行の高さを円の直径で固定し、当日/通常で行高が変わらないようにする */
-.cd-num{display:flex;align-items:center;justify-content:flex-start;height:22px;flex:none}
+/* 日付（セル左上）。行の高さを円の直径で固定し、当日/通常で行高が変わらないようにする。
+   右端の空きに自動転記の「自」印を置く（実績ピル内に入れると3桁の日にセル幅を超える）。 */
+.cd-num{display:flex;align-items:center;justify-content:space-between;height:22px;flex:none}
 .cd-num i{font-style:normal;display:inline-flex;align-items:center;justify-content:center;
-          width:22px;height:22px;border-radius:50%;font-size:12.5px;font-weight:600;color:#8a857c;line-height:1}
+          width:22px;height:22px;border-radius:50%;font-size:12.5px;font-weight:600;color:#8a857c;line-height:1;flex:none}
+.cd-num s{text-decoration:none;font-size:9px;font-weight:700;color:#fff;background:#8aa79a;
+          border-radius:3px;padding:0 3px;line-height:1.5;flex:none}
 .cal-cell.sun .cd-num i{color:#c0392b}
 .cal-cell.sat .cd-num i{color:#2f6fb0}
 .cal-cell.today .cd-num i{background:var(--c-act);color:#fff;font-weight:700}
@@ -145,9 +148,6 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
         background:#e6f2ea;border-radius:6px;padding:1px 4px;margin-top:auto;line-height:1.18}
 .cd-act em{font-style:normal;font-size:10px;font-weight:700;color:var(--c-act)}
 .cd-act b{font-size:16px;font-weight:700;color:var(--c-act);letter-spacing:-.02em}
-/* 自動転記された実績の印 */
-.cd-act s{text-decoration:none;font-size:9px;font-weight:700;color:#fff;background:#8aa79a;
-          border-radius:3px;padding:0 2px;margin-left:1px;line-height:1.3}
 
 /* 状態表示 */
 .state-line{font-size:11px;color:#9a958a;text-align:center;padding:8px 0 0;letter-spacing:.02em}
@@ -207,6 +207,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
   .cal-cell{padding:3px 2px 4px}
   .cd-num{height:20px}
   .cd-num i{width:20px;height:20px;font-size:12px}
+  .cd-num s{font-size:8px;padding:0 2px}
   .cd-plan em{font-size:9px}
   .cd-plan b{font-size:14px}
   .cd-act{padding:1px 3px}
@@ -531,7 +532,7 @@ function renderCalendar(){
             +(ro?' ro':'')+(pvVal!==null?' prev-target':'');
     h+= ro ? '<div class="'+cls+'">'
            : '<button class="'+cls+'" onclick="openDay(\''+ds+'\')">';
-    h+='<span class="cd-num"><i>'+d+'</i></span>';
+    h+='<span class="cd-num"><i>'+d+'</i>'+(v.actualBy==='自動'?'<s>自</s>':'')+'</span>';
     // 予定は「入力されている種類だけ」を出す。プレビュー中は栄完熟を仮値で置き換える。
     var rows='';
     for(var k=0;k<PLAN_KEYS.length;k++){
@@ -544,10 +545,7 @@ function renderCalendar(){
     if(rows) h+='<span class="cd-plan">'+rows+'</span>';
     // 実績は入力がある日だけ出す（空セルに記号を並べると格子が読みにくくなる）
     var ac=nrm(v.actual);
-    if(ac!==''){
-      h+='<span class="cd-act"><em>出</em><b>'+ac+'</b>'
-        +(v.actualBy==='自動'?'<s>自</s>':'')+'</span>';
-    }
+    if(ac!=='') h+='<span class="cd-act"><em>出</em><b>'+ac+'</b></span>';
     h+= ro ? '</div>' : '</button>';
   }
   var tail=(7-((lead+days)%7))%7;
