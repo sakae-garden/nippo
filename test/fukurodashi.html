@@ -13,8 +13,8 @@
   --sub:#777; --green:#2d7a4f; --green-bg:#edf7f1; --yellow:#f9a825; --yellow-bg:#fffde7;
   --blue:#1976d2; --blue-bg:#e3f2fd; --orange:#e65100; --purple:#6a4c93; --purple-bg:#f2edf9;
   --r:14px; --shadow:0 1px 3px rgba(0,0,0,.06);
-  /* カレンダーの区切り線はこの1色・1px のみ（太線/細線を混在させない） */
-  --line:#e6e0d3;
+  /* カレンダーの区切り線色。線は grid の gap で作るので幅は常に 1px */
+  --line:#e2ddd2;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh;color:var(--ink);padding-bottom:64px}
@@ -55,39 +55,50 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .legend{display:flex;gap:12px;align-items:center;font-size:10px;color:var(--sub);margin:0 2px 8px;flex-wrap:wrap}
 .legend span{display:inline-flex;align-items:center;gap:4px}
 .legend i{width:9px;height:9px;border-radius:2px;display:inline-block}
-.lg-tsuki{background:var(--purple)}.lg-sakae{background:#c48b1e}.lg-act{background:var(--green)}
+.lg-tsuki{background:#6b4fa8}.lg-sakae{background:#b07d18}.lg-act{background:#1e7a46}
 
 /* ============================================================
    カレンダー
    ------------------------------------------------------------
-   【罫線ルール（1本化）】区切り線は --line（1px ヘアライン）の1種類だけ。
-   外枠・曜日ヘッダ下・セル間すべて同じ太さ・同じ色にする。
-   太線・点線・囲みリングを足さないこと（混在すると格子が不揃いに見える）。
-   当日は「線」ではなく背景色と文字色だけで示す。
+   【罫線＝grid gap 方式（この方式以外にしないこと）】
+   セルに border を一切書かない。グリッド自身の背景を線色にし、
+   gap:1px と padding:1px でセル間・外周の隙間を作って線に見せる。
+   こうすると線幅は構造上どこも必ず 1px になる
+   （border 方式は隣接セルの線が重なって内側だけ 2px になり、
+     外周 1px と不揃いになる。色を揃えても直らないので採用しない）。
+   曜日ヘッダも同じグリッドの子にして、ヘッダ下の線も同じ gap で出す。
+   当日は背景の塗りではなく、日付数字の緑の塗り円だけで示す
+   （セル全面を塗ると角丸・gap との干渉ではみ出して見える）。
    ============================================================ */
-.cal{background:var(--card);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow)}
-.cal-dow{display:grid;grid-template-columns:repeat(7,1fr);background:#f7f5f0;border-bottom:1px solid var(--line)}
-.cal-dow div{text-align:center;font-size:11px;font-weight:700;color:#6b665c;padding:7px 0;letter-spacing:.04em}
-.cal-dow div.sun{color:#c62828}.cal-dow div.sat{color:#1565c0}
-/* 最終行の下罫線とカード外枠が重なって 2px に見えるのを避ける */
-.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);margin-bottom:-1px}
-.cal-cell{border-right:1px solid var(--line);border-bottom:1px solid var(--line);min-height:74px;padding:5px 2px 6px;background:#fff;font-family:inherit;text-align:center;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;min-width:0;-webkit-tap-highlight-color:transparent}
-.cal-cell:nth-child(7n){border-right:none}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);grid-auto-rows:minmax(84px,auto);
+     gap:1px;padding:1px;background:var(--line);border-radius:10px;overflow:hidden;box-shadow:var(--shadow);
+     font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+.cal-dow{background:#f7f5f0;text-align:center;font-size:11px;font-weight:700;color:#8a857c;padding:7px 0;letter-spacing:.04em}
+.cal-dow.sun{color:#c0392b}.cal-dow.sat{color:#2f6fb0}
+.cal-cell{background:#fff;border:0;padding:4px 3px 5px;font-family:inherit;text-align:center;
+          display:flex;flex-direction:column;align-items:stretch;gap:2px;cursor:pointer;min-width:0;
+          -webkit-tap-highlight-color:transparent}
 .cal-cell:active{background:#f3efe5}
-.cal-cell.blank{background:#fbfaf6;cursor:default}
-.cal-cell.today{background:var(--yellow-bg)}
-.cd-num{font-family:'Inter','Noto Sans JP',sans-serif;font-size:12px;font-weight:700;color:#6b665c;line-height:1.1}
-.cal-cell.sun .cd-num{color:#c62828}.cal-cell.sat .cd-num{color:#1565c0}
-.cal-cell.today .cd-num{color:#b26a00}
-/* 予定（主役）：月完熟・栄完熟を2行に分けて縦に並べる */
-.cd-plan{display:flex;flex-direction:column;align-items:stretch;width:100%;gap:1px;margin-top:1px}
-.cd-plan .pl{display:flex;align-items:baseline;justify-content:center;gap:3px;line-height:1.1;white-space:nowrap;font-family:'Inter','Noto Sans JP',sans-serif}
-.cd-plan em{font-style:normal;font-size:9px;font-weight:700;opacity:.8}
-.cd-plan b{font-size:14px;font-weight:700;letter-spacing:-.02em}
-.cd-plan .pt{color:var(--purple)}
-.cd-plan .ps{color:#b8801a}
-/* 実績（従属）：予定より一段小さく、淡い緑のピルで種別を示す */
-.cd-act{font-family:'Inter','Noto Sans JP',sans-serif;font-size:11px;font-weight:700;color:var(--green);background:var(--green-bg);border-radius:4px;padding:1px 6px;line-height:1.3;margin-top:auto;white-space:nowrap}
+.cal-cell.blank{background:#f6f3ec;cursor:default}
+/* 日付（セル左上）。行の高さを円の直径で固定し、当日/通常で行高が変わらないようにする */
+.cd-num{display:flex;align-items:center;justify-content:flex-start;height:22px;flex:none}
+.cd-num i{font-style:normal;display:inline-flex;align-items:center;justify-content:center;
+          width:22px;height:22px;border-radius:50%;font-size:12.5px;font-weight:600;color:#8a857c;line-height:1}
+.cal-cell.sun .cd-num i{color:#c0392b}
+.cal-cell.sat .cd-num i{color:#2f6fb0}
+.cal-cell.today .cd-num i{background:#1e7a46;color:#fff;font-weight:700}
+/* 予定：入力された種類だけを行として出す（未入力側の穴埋め表示はしない） */
+.cd-plan{display:flex;flex-direction:column;width:100%}
+.cd-plan .pl{display:flex;align-items:baseline;justify-content:center;gap:2px;line-height:1.08;white-space:nowrap}
+.cd-plan em{font-style:normal;font-size:10px;font-weight:700}
+.cd-plan b{font-size:15px;font-weight:700;letter-spacing:-.02em}
+.cd-plan .pt{color:#6b4fa8}
+.cd-plan .ps{color:#b07d18}
+/* 実績：「出」ラベル付き・淡い緑地。予定より一回り大きくする */
+.cd-act{display:flex;align-items:baseline;justify-content:center;gap:2px;white-space:nowrap;
+        background:#e6f2ea;border-radius:6px;padding:1px 4px;margin-top:auto;line-height:1.18}
+.cd-act em{font-style:normal;font-size:10px;font-weight:700;color:#1e7a46}
+.cd-act b{font-size:16px;font-weight:700;color:#1e7a46;letter-spacing:-.02em}
 
 /* 状態表示 */
 .state-line{font-size:11px;color:#9a958a;text-align:center;padding:8px 0 0;letter-spacing:.02em}
@@ -140,11 +151,15 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 @media (max-width:359px){
   #app{padding:12px 8px}
   .sum-val{font-size:26px}
-  .cal-cell{min-height:70px;padding:4px 1px 5px}
-  .cd-plan .pl{gap:2px}
-  .cd-plan em{font-size:8px}
-  .cd-plan b{font-size:12px}
-  .cd-act{font-size:10px;padding:1px 4px}
+  .cal{grid-auto-rows:minmax(78px,auto)}
+  .cal-cell{padding:3px 2px 4px}
+  .cd-num{height:20px}
+  .cd-num i{width:20px;height:20px;font-size:12px}
+  .cd-plan em{font-size:9px}
+  .cd-plan b{font-size:14px}
+  .cd-act{padding:1px 3px}
+  .cd-act em{font-size:9px}
+  .cd-act b{font-size:15px}
   .m-row input{width:88px}
 }
 </style>
@@ -364,9 +379,9 @@ function renderSummary(){
     +'<div class="sum-sub"><span class="nb">進捗率 <b>'+rateStr+'</b></span>　'+restStr+'</div>'
     +'<div class="sum-bar"><i style="width:'+barW+'%"></i></div></div>';
   h+='</div>';
-  h+='<div class="legend"><span><i class="lg-tsuki"></i>予定：月完熟</span>'
-    +'<span><i class="lg-sakae"></i>予定：栄完熟</span>'
-    +'<span><i class="lg-act"></i>実績（袋出し数）</span></div>';
+  h+='<div class="legend"><span><i class="lg-tsuki"></i>月＝月完熟</span>'
+    +'<span><i class="lg-sakae"></i>栄＝栄完熟</span>'
+    +'<span><i class="lg-act"></i>出＝袋出し実績</span></div>';
   return h;
 }
 function renderCalendar(){
@@ -374,11 +389,12 @@ function renderCalendar(){
   var first=new Date(y, m-1, 1);
   var lead=first.getDay();                 // 月初までの空きセル（日曜始まり）
   var days=new Date(y, m, 0).getDate();    // 当月日数
-  var h='<div class="cal"><div class="cal-dow">';
+  // 曜日ヘッダも日セルも同じ1つのグリッドの子にする。
+  // ヘッダ下の線もセル間と同じ gap で描かれるので、太さが揃う。
+  var h='<div class="cal">';
   for(var i=0;i<7;i++){
-    h+='<div class="'+(i===0?'sun':(i===6?'sat':''))+'">'+DAYS[i]+'</div>';
+    h+='<div class="cal-dow '+(i===0?'sun':(i===6?'sat':''))+'">'+DAYS[i]+'</div>';
   }
-  h+='</div><div class="cal-grid">';
   for(var b=0;b<lead;b++) h+='<div class="cal-cell blank"></div>';
   for(var d=1;d<=days;d++){
     var ds=state.ym+'-'+pad2(d);
@@ -387,22 +403,21 @@ function renderCalendar(){
     var it=state.items[ds]||{};
     var pt=nrm(it.planTsuki), ps=nrm(it.planSakae), ac=nrm(it.actual);
     h+='<button class="'+cls+'" onclick="openDay(\''+ds+'\')">';
-    h+='<span class="cd-num">'+d+'</span>';
-    // 予定は月完熟／栄完熟を必ず2行で表示する。片方だけ入力されている日は
-    // もう片方を '‑' にして、月・栄の並び（行位置）を全セルで揃える。
+    h+='<span class="cd-num"><i>'+d+'</i></span>';
+    // 予定は「入力されている種類だけ」を出す。片方だけの日は1行、両方入力の日だけ2行。
     if(pt!==''||ps!==''){
       h+='<span class="cd-plan">'
-        +'<span class="pl pt"><em>月</em><b>'+(pt!==''?pt:'‑')+'</b></span>'
-        +'<span class="pl ps"><em>栄</em><b>'+(ps!==''?ps:'‑')+'</b></span>'
+        +(pt!==''?'<span class="pl pt"><em>月</em><b>'+pt+'</b></span>':'')
+        +(ps!==''?'<span class="pl ps"><em>栄</em><b>'+ps+'</b></span>':'')
         +'</span>';
     }
     // 実績は入力がある日だけ出す（空セルに記号を並べると格子が読みにくくなる）
-    if(ac!=='') h+='<span class="cd-act">'+ac+'</span>';
+    if(ac!=='') h+='<span class="cd-act"><em>出</em><b>'+ac+'</b></span>';
     h+='</button>';
   }
   var tail=(7-((lead+days)%7))%7;
   for(var e=0;e<tail;e++) h+='<div class="cal-cell blank"></div>';
-  h+='</div></div>';
+  h+='</div>';
   return h;
 }
 function renderStateLine(){
