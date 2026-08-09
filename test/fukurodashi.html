@@ -15,8 +15,14 @@
   --r:14px; --shadow:0 1px 3px rgba(0,0,0,.06);
   /* カレンダーの区切り線色。線は grid の gap で作るので幅は常に 1px */
   --line:#e2ddd2;
-  /* 予定3種の色。月=紫 / 栄=琥珀 / G=ローズ。実績の緑・曜日の赤青とも被らない色を選ぶ */
-  --c-tsuki:#6b4fa8; --c-sakae:#b07d18; --c-g:#c2185b; --c-act:#1e7a46;
+  /* 予定3種の色は仕入先のイメージに合わせる。
+     月完熟(月夜野)=黄 / 栄完熟(栄ガーデン)=緑 / G完熟(グリーンフィールド)=ピンク。
+     実績は赤の蛍光ペン風（淡い赤地＋濃い赤文字）。日曜の日付色 #c0392b とは
+     「地色の有無」で見分ける（地色は日付より柔らかいトーンにしてある）。 */
+  --c-tsuki:#c98a00; --c-sakae:#2e7d32; --c-g:#d81b60;
+  --c-act:#b71c1c; --c-act-soft:#c62828; --c-act-bg:#ffe2e2;
+  /* 今日の塗り円・主要ボタンは基調色。栄完熟の緑と衝突させないため種別色とは別系統。 */
+  --ink2:#3a362f;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh;color:var(--ink);padding-bottom:64px}
@@ -41,13 +47,13 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 /* 当月サマリー */
 .sum-wrap{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
 .sum-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:12px 12px 11px;box-shadow:var(--shadow);min-width:0}
-.sum-card.plan{border-left:4px solid var(--c-tsuki)}
+.sum-card.plan{border-left:4px solid var(--ink2)}
 .sum-card.act{border-left:4px solid var(--c-act)}
 .sum-lbl{font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--sub);margin-bottom:4px;white-space:nowrap}
-.sum-card.plan .sum-lbl{color:var(--c-tsuki)}
+.sum-card.plan .sum-lbl{color:var(--ink2)}
 .sum-card.act .sum-lbl{color:var(--c-act)}
 .sum-val{font-family:'Inter','Noto Sans JP',sans-serif;font-size:32px;font-weight:700;line-height:1.05;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
-.sum-card.plan .sum-val{color:var(--c-tsuki)}
+.sum-card.plan .sum-val{color:var(--ink2)}
 .sum-card.act .sum-val{color:var(--c-act)}
 .sum-unit{font-size:12px;font-weight:700;margin-left:3px;color:#999}
 .sum-sub{font-size:11px;color:var(--sub);margin-top:5px;line-height:1.5}
@@ -56,7 +62,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .sum-sub b{font-size:13px;color:var(--c-act);font-family:'Inter','Noto Sans JP',sans-serif}
 .sum-scope{font-size:10px;color:#a9a294;letter-spacing:.04em;margin:-8px 2px 10px}
 .sum-bar{height:6px;background:#eceae4;border-radius:3px;margin-top:7px;overflow:hidden}
-.sum-bar i{display:block;height:100%;background:var(--c-act);border-radius:3px;transition:width .3s}
+.sum-bar i{display:block;height:100%;background:var(--c-act-soft);border-radius:3px;transition:width .3s}
 
 /* 凡例 + ツールバー */
 .legend{display:flex;gap:10px;align-items:center;font-size:10px;color:var(--sub);margin:0 2px 8px;flex-wrap:wrap}
@@ -78,14 +84,11 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .bp-row select{min-width:118px}
 .bp-row input{width:104px;font-family:'Inter','Noto Sans JP',sans-serif;font-variant-numeric:tabular-nums}
 .bp-row input:focus,.bp-row select:focus{outline:none;border-color:var(--c-sakae)}
-.bp-units{display:flex;gap:6px}
-.bp-unit{border:1.5px solid var(--border);background:#fff;color:#666;border-radius:8px;padding:7px 12px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer}
-.bp-unit.active{background:var(--c-sakae);border-color:var(--c-sakae);color:#fff}
 .bp-note{font-size:11px;color:#9a958a;line-height:1.6;margin:6px 0 10px}
 .bp-acts{display:flex;gap:8px;margin-top:6px}
 .bp-acts button{flex:1;padding:12px;border:none;border-radius:10px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer}
 .bp-acts .prev-btn{background:#e8e3d7;color:#4a463e}
-.bp-acts .go-btn{background:var(--c-act);color:#fff;box-shadow:0 2px 8px rgba(30,122,70,.28)}
+.bp-acts .go-btn{background:var(--ink2);color:#fff;box-shadow:0 2px 8px rgba(58,54,47,.28)}
 .bp-acts .cancel-btn{background:#e8e3d7;color:#4a463e;flex:0 0 30%}
 .bp-acts button:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
 .bp-res{background:#fbf9f3;border:1px dashed #ccc4b2;border-radius:10px;padding:10px 12px;margin-top:10px;font-size:12px;color:#5a554b;line-height:1.7}
@@ -127,11 +130,11 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .cd-num{display:flex;align-items:center;justify-content:space-between;height:22px;flex:none}
 .cd-num i{font-style:normal;display:inline-flex;align-items:center;justify-content:center;
           width:22px;height:22px;border-radius:50%;font-size:12.5px;font-weight:600;color:#8a857c;line-height:1;flex:none}
-.cd-num s{text-decoration:none;font-size:9px;font-weight:700;color:#fff;background:#8aa79a;
+.cd-num s{text-decoration:none;font-size:9px;font-weight:700;color:#fff;background:#9a948a;
           border-radius:3px;padding:0 3px;line-height:1.5;flex:none}
 .cal-cell.sun .cd-num i{color:#c0392b}
 .cal-cell.sat .cd-num i{color:#2f6fb0}
-.cal-cell.today .cd-num i{background:var(--c-act);color:#fff;font-weight:700}
+.cal-cell.today .cd-num i{background:var(--ink2);color:#fff;font-weight:700}
 /* 予定：入力された種類だけを行として出す（未入力側の穴埋め表示はしない） */
 .cd-plan{display:flex;flex-direction:column;width:100%}
 .cd-plan .pl{display:flex;align-items:baseline;justify-content:center;gap:2px;line-height:1.08;white-space:nowrap}
@@ -145,7 +148,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .cal-cell.prev-target{background:#fffdf5}
 /* 実績：「出」ラベル付き・淡い緑地。予定より一回り大きくする */
 .cd-act{display:flex;align-items:baseline;justify-content:center;gap:2px;white-space:nowrap;
-        background:#e6f2ea;border-radius:6px;padding:1px 4px;margin-top:auto;line-height:1.18}
+        background:var(--c-act-bg);border-radius:6px;padding:1px 4px;margin-top:auto;line-height:1.18}
 .cd-act em{font-style:normal;font-size:10px;font-weight:700;color:var(--c-act)}
 .cd-act b{font-size:16px;font-weight:700;color:var(--c-act);letter-spacing:-.02em}
 
@@ -165,22 +168,22 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .m-close{background:none;border:none;color:rgba(255,255,255,.8);font-size:22px;line-height:1;cursor:pointer;font-family:inherit;padding:0 2px}
 .m-body{padding:14px 16px 4px}
 .m-sec{font-size:11px;font-weight:700;letter-spacing:.1em;color:var(--sub);margin:4px 0 8px}
-.m-sec.plan{color:var(--c-tsuki)}
+.m-sec.plan{color:var(--ink2)}
 .m-sec.act{color:var(--c-act);margin-top:18px}
 .m-row{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--border);border-radius:10px;padding:9px 12px;margin-bottom:8px}
 .m-row label{flex:1;font-size:14px;font-weight:700;color:var(--ink)}
 .m-row .m-dot{width:9px;height:9px;border-radius:2px;flex:none}
 .m-row input{width:104px;font-family:'Inter','Noto Sans JP',sans-serif;font-size:19px;font-weight:700;text-align:center;border:1.5px solid var(--border);border-radius:8px;padding:7px 4px;background:#fff;color:var(--ink);font-variant-numeric:tabular-nums}
-.m-row input:focus{outline:none;border-color:var(--c-act)}
+.m-row input:focus{outline:none;border-color:var(--ink2)}
 .m-row .m-unit{font-size:12px;color:#999;font-weight:600;flex:none;width:14px}
 .m-hint{font-size:11px;color:#9a958a;line-height:1.6;margin:2px 2px 0}
-.m-by{font-size:11px;font-weight:700;color:#4a7a63;background:#e6f2ea;border-radius:6px;padding:6px 10px;margin:0 0 8px;line-height:1.5}
-.m-total{background:var(--purple-bg);border-radius:8px;padding:8px 12px;font-size:12px;color:var(--c-tsuki);font-weight:700;margin-bottom:4px;text-align:right}
+.m-by{font-size:11px;font-weight:700;color:#6b5f4a;background:#f4efe2;border-radius:6px;padding:6px 10px;margin:0 0 8px;line-height:1.5}
+.m-total{background:#f2efe6;border-radius:8px;padding:8px 12px;font-size:12px;color:var(--ink2);font-weight:700;margin-bottom:4px;text-align:right}
 .m-err{background:#ffebee;border:1px solid #ef9a9a;border-radius:8px;padding:10px 12px;margin:10px 0 0;font-size:12px;color:#b71c1c;line-height:1.6;white-space:pre-line}
 .m-foot{display:flex;gap:10px;padding:14px 16px calc(16px + env(safe-area-inset-bottom));position:sticky;bottom:0;background:linear-gradient(to top,var(--paper) 70%,rgba(253,251,247,0))}
 .m-btn{flex:1;padding:14px;border:none;border-radius:var(--r);font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;letter-spacing:.04em}
 .m-btn.cancel{background:#e6e1d6;color:#555;flex:0 0 34%}
-.m-btn.save{background:var(--c-act);color:#fff;box-shadow:0 2px 8px rgba(30,122,70,.3)}
+.m-btn.save{background:var(--ink2);color:#fff;box-shadow:0 2px 8px rgba(58,54,47,.3)}
 .m-btn:disabled{opacity:.5;cursor:not-allowed}
 
 /* 共通（ローディング・トースト・フッタ） */
@@ -293,7 +296,7 @@ var state = {
   // モーダルを描き直しても入力を失わないための退避先。{date, site, payload}
   draft: null,
   // 月まとめ投入。preview は「まだ書き込んでいない仮の割り当て」。
-  bulk: { open:false, site:SITES[0], month:'', total:'', unit:10, preview:null, err:'', busy:false }
+  bulk: { open:false, site:SITES[0], month:'', total:'', preview:null, err:'', busy:false }
 };
 
 // ============ utility ============
@@ -624,7 +627,7 @@ function openBulk(){
 }
 function closeBulk(){
   if(state.bulk.busy) return;
-  state.bulk={ open:false, site:SITES[0], month:'', total:'', unit:state.bulk.unit, preview:null, err:'', busy:false };
+  state.bulk={ open:false, site:SITES[0], month:'', total:'', preview:null, err:'', busy:false };
   renderAll();
 }
 function _captureBulkInputs(){
@@ -633,13 +636,13 @@ function _captureBulkInputs(){
   if(s) state.bulk.site=s.value;
   if(t) state.bulk.total=nrm(t.value);
 }
-function setBulkUnit(u){ _captureBulkInputs(); state.bulk.unit=u; state.bulk.preview=null; renderAll(); }
 function onBulkChange(){ _captureBulkInputs(); state.bulk.preview=null; state.bulk.err=''; renderAll(); }
 
 // 按分計算（純粋関数・副作用なし）。
 //  対象 = その拠点で「月完熟・G完熟が未入力」の日。0 が入っている日は入力済みなので対象外。
-//  均等割り → 丸め単位で切り下げ → 余りは月末側の日から単位ずつ加算 → 端数は最終日へ。
-function computeAllocation(month, site, total, unit){
+//  月間合計 ÷ 対象日数 の均等割り（切り捨て）。割り切れない余りは最終対象日に全部足す。
+//  割当が 0 になる日は 0 を保存せず「未入力」にする（0＝袋出しなし との区別を保つため）。
+function computeAllocation(month, site, total){
   var days=daysInMonth(month);
   var targets=[], excluded=[];
   for(var d=1;d<=days;d++){
@@ -657,19 +660,20 @@ function computeAllocation(month, site, total, unit){
   }
   var n=targets.length;
   if(n===0) return { error:'按分できる日がありません（この月はすべて月完熟またはG完熟の予定が入っています）。' };
-  var u=(unit>0)?unit:1;
-  var base=Math.floor(total/n/u)*u;
-  var rem=total-base*n;
-  var chunks=Math.floor(rem/u);          // 月末側から +u する日数
-  var leftover=rem-chunks*u;             // 単位で割り切れない端数（最終日に寄せる）
+  var base=Math.floor(total/n);
+  var rem=total-base*n;                  // 端数は最終対象日にまとめて乗せる
   for(var i=0;i<n;i++) targets[i].newVal=base;
-  for(var c=0;c<chunks;c++) targets[n-1-c].newVal+=u;
-  if(leftover>0) targets[n-1].newVal+=leftover;
+  targets[n-1].newVal+=rem;
   var sum=0; for(var j=0;j<n;j++) sum+=targets[j].newVal;
-  var map={}; for(var q=0;q<n;q++) map[targets[q].date]=targets[q].newVal;
-  return { month:month, site:site, total:total, unit:u, base:base, chunks:chunks, leftover:leftover,
-           targets:targets, excluded:excluded, sum:sum, map:map,
-           overwrites:targets.filter(function(t){ return t.oldSakae!==null && t.oldSakae!==t.newVal; }),
+  // 割当 0 の日は未入力にする（既存値があれば消えるので、上書き一覧に出る）
+  var assigned=targets.filter(function(t){ return t.newVal>0; });
+  var blanks=targets.filter(function(t){ return t.newVal===0; });
+  var map={}; for(var q=0;q<assigned.length;q++) map[assigned[q].date]=assigned[q].newVal;
+  function shown(t){ return t.newVal>0 ? t.newVal : '未入力'; }
+  return { month:month, site:site, total:total, base:base, rem:rem,
+           targets:targets, assigned:assigned, blanks:blanks, excluded:excluded, sum:sum, map:map,
+           overwrites:targets.filter(function(t){ return t.oldSakae!==null && t.oldSakae!==t.newVal; })
+                             .map(function(t){ return { date:t.date, oldSakae:t.oldSakae, shown:shown(t) }; }),
            withActual:targets.filter(function(t){ return t.actual!==null; }) };
 }
 function doBulkPreview(){
@@ -677,7 +681,7 @@ function doBulkPreview(){
   state.bulk.err=''; state.bulk.preview=null;
   var b=state.bulk;
   if(b.total===''){ b.err='栄完熟の月間合計を入力してください。'; renderAll(); return; }
-  var r=computeAllocation(b.month, b.site, parseInt(b.total,10), b.unit);
+  var r=computeAllocation(b.month, b.site, parseInt(b.total,10));
   if(r.error){ b.err=r.error; renderAll(); return; }
   b.preview=r;
   // プレビューは対象拠点・対象月のカレンダー上に出す（見えない場所へ書かないため切り替える）
@@ -689,8 +693,12 @@ function doBulkCommit(){
   var b=state.bulk;
   if(!b.preview || b.busy) return;
   var pv=b.preview;
+  // 割当 0 の日は '' を送って未入力にする（0 を書かない。既存値があれば消える）
   var payload={};
-  for(var i=0;i<pv.targets.length;i++) payload[pv.targets[i].date]={ planSakae:String(pv.targets[i].newVal) };
+  for(var i=0;i<pv.targets.length;i++){
+    var t=pv.targets[i];
+    payload[t.date]={ planSakae: t.newVal>0 ? String(t.newVal) : '' };
+  }
   b.busy=true; b.err='';
   showLoading('月まとめ投入を保存中...');
   var url=API_URL+'?action=bulkSaveFukurodashi&site='+encodeURIComponent(pv.site)
@@ -698,8 +706,8 @@ function doBulkCommit(){
   jsonp(url,'cb_bulk',function(res){
     b.busy=false; hideLoading();
     if(res && res.success){
-      state.bulk={ open:false, site:pv.site, month:'', total:'', unit:b.unit, preview:null, err:'', busy:false };
-      showToast('✅ '+pv.targets.length+'日ぶんを投入しました');
+      state.bulk={ open:false, site:pv.site, month:'', total:'', preview:null, err:'', busy:false };
+      showToast('✅ '+pv.assigned.length+'日ぶんを投入しました');
       fetchMonth(pv.month);
     } else {
       b.err='保存に失敗しました：'+((res&&res.error)||'不明なエラー')+'\n書き込みは行われていない可能性があります。もう一度お試しください。';
@@ -731,12 +739,9 @@ function renderBulkPanel(){
   h+='</select></div>';
   h+='<div class="bp-row"><label>栄完熟の月間合計</label>'
     +'<input type="text" inputmode="numeric" pattern="[0-9]*" id="bpTotal" value="'+eH(b.total)+'" placeholder="0" oninput="onBulkNum(this)"><span class="m-unit">個</span></div>';
-  h+='<div class="bp-row"><label>丸め単位</label><span class="bp-units">';
-  [1,10,50].forEach(function(u){
-    h+='<button class="bp-unit'+(b.unit===u?' active':'')+'" onclick="setBulkUnit('+u+')">'+u+'</button>';
-  });
-  h+='</span></div>';
   h+='<div class="bp-note">※ 按分先は「月完熟・G完熟の予定が入っていない日」です。<br>'
+    +'※ 月間合計 ÷ 対象日数の均等割り（切り捨て）。端数は最終対象日にまとめて足します。<br>'
+    +'※ 割当が 0 になる日は 0 を書かず未入力にします。<br>'
     +'※ プレビューは書き込みません。カレンダー上に仮表示するだけです。</div>';
   h+=renderBulkResult();
   if(b.err) h+='<div class="bp-err">'+eH(b.err)+'</div>';
@@ -751,20 +756,18 @@ function renderBulkPanel(){
 function renderBulkResult(){
   var pv=state.bulk.preview;
   if(!pv) return '';
+  var last=pv.targets[pv.targets.length-1];
   var h='<div class="bp-res">';
   h+='対象 <b>'+pv.targets.length+'</b> 日／1日あたり <b>'+fmt(pv.base)+'</b> 個';
-  if(pv.chunks>0) h+='<br>月末側の <b>'+pv.chunks+'</b> 日に +'+pv.unit+' 個';
-  if(pv.leftover>0) h+='<br>端数 <b>'+pv.leftover+'</b> 個は最終対象日（'+pv.targets[pv.targets.length-1].date.slice(5)+'）へ';
+  h+='<br>最終対象日（'+last.date.slice(5)+'）に端数 <b>'+fmt(pv.rem)+'</b> 個（同日は '+fmt(last.newVal)+' 個）';
   h+='<br>合計 <b>'+fmt(pv.sum)+'</b> 個（指定 '+fmt(pv.total)+' 個）';
   if(pv.excluded.length) h+='<br>除外（月完熟/G完熟あり）：'+pv.excluded.length+'日';
-  // 合計が小さい／丸め単位が大きいと 0 になる日が出る。0 は「袋出しなし」として
-  // 保存される（＝未入力ではない）ので、件数を必ず明示する。
-  var zeroDays=pv.targets.filter(function(t){ return t.newVal===0; }).length;
-  if(zeroDays) h+='<br><span class="warn">0 になる日：'+zeroDays+'日（「袋出しなし」として保存されます）</span>';
+  // 割当が 0 の日は 0 を書かず未入力にする（0＝袋出しなし との区別を保つ）
+  if(pv.blanks.length) h+='<br><span class="warn">未入力のまま残す日：'+pv.blanks.length+'日（0 は書きません）</span>';
   if(pv.overwrites.length){
     h+='<br><span class="warn">既存の栄完熟を上書き：'+pv.overwrites.length+'日</span><ul>';
     pv.overwrites.slice(0,12).forEach(function(t){
-      h+='<li>'+t.date.slice(5)+'　'+(t.oldSakae===null?'—':t.oldSakae)+' → '+t.newVal+'</li>';
+      h+='<li>'+t.date.slice(5)+'　'+(t.oldSakae===null?'—':t.oldSakae)+' → '+t.shown+'</li>';
     });
     if(pv.overwrites.length>12) h+='<li>ほか '+(pv.overwrites.length-12)+' 日</li>';
     h+='</ul>';
