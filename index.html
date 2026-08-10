@@ -467,7 +467,6 @@ function renderHome() {
   var cfg=state.config||getDefaultConfig(), route=ROUTES[state.route];
   var html='<div class="screen">'
     + '<a href="summary.html" class="summary-link-btn">📊 サマリーを見る</a>'
-    + '<a href="fukurodashi.html" class="summary-link-btn">🍄 袋出し記録</a>'
     + '<div class="action-row"><button class="action-btn" onclick="renderManual()"><span class="a-icon">📖</span>マニュアル</button><button class="action-btn" onclick="renderSettings()"><span class="a-icon">⚙️</span>設定</button></div>'
     // 並び順: ②産地シールのアラート（通知＋全社一括の発行指示枚数）→ 任意発行パネル。
     // 産地シールは全社共通1在庫なので、経路タブに関係なく常に同じ位置に出す。
