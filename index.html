@@ -800,11 +800,27 @@ function applyHaitatsuDefault(id) {
     if(!raw) return;
     var all = JSON.parse(raw);
     var entry = all && all[def.name];
-    if(!entry || !entry.prices) return;
-    Object.keys(entry.prices).forEach(function(price){
-      var v = entry.prices[price];
-      if(v!==''&&v!==null&&v!==undefined) state.formData['納品_'+price] = String(v);
-    });
+    if(!entry) return;
+    if(entry.prices){
+      Object.keys(entry.prices).forEach(function(price){
+        var v = entry.prices[price];
+        if(v!==''&&v!==null&&v!==undefined) state.formData['納品_'+price] = String(v);
+      });
+    }
+    // 臨時品目（配達商品情報で当日追加された定番外の価格）も納品数の既定値にする。
+    // extrasDate が当日の分だけ（その日限りの指示。翌日には持ち越さない）。
+    // 既存価格と同じ値は取り込まない（納品_¥99 等を二重に上書きしない）。
+    if(entry.extras && entry.extrasDate === todayStr && (def.type==='yaoko' || def.type==='choku')){
+      Object.keys(entry.extras).forEach(function(price){
+        if(!/^¥\d+$/.test(price)) return;
+        if((def.prices||[]).indexOf(price) > -1) return;
+        var v = entry.extras[price];
+        if(v===''||v===null||v===undefined) return;
+        if(state.extraPrices.indexOf(price) < 0) state.extraPrices.push(price);
+        state.formData['納品_臨#'+price] = String(v);
+      });
+      state.extraPrices.sort(function(a,b){return parseInt(a.replace('¥',''),10)-parseInt(b.replace('¥',''),10);});
+    }
   } catch(e) {}
 }
 
