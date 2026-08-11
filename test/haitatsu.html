@@ -783,7 +783,8 @@ function _extraViewHtml(yaIds){
       var z = extraZanFor(r.nm, p);
       var qty = r.ex[p];
       var body = eH(r.nm.replace('ヤオコー','').replace('店','')) + ' ' + eH(p);
-      if(qty !== undefined && String(qty).trim() !== '') body += '<b>'+eH(qty)+'</b>';
+      // 納品指示数は「→N個」と単位付きで出す（価格と数字が続くと桁を読み違えるため）
+      if(qty !== undefined && String(qty).trim() !== '') body += '<b>→'+eH(qty)+'個</b>';
       if(z){
         body += '<i>残:'+(z.zan||0)+' / 売:'+(z.hasSales ? z.sales : '-')+'</i>';
       }
