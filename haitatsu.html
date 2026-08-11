@@ -93,6 +93,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .ya-extra-view-ttl{font-size:10px;font-weight:700;letter-spacing:.1em;color:#a1791f;width:100%}
 .ya-extra-view-chip{background:#fff;border:1px solid #e0c97f;border-radius:6px;padding:3px 9px;font-weight:700;font-family:'Inter','Noto Sans JP',sans-serif}
 .ya-extra-view-chip b{color:var(--green);font-size:14px;margin-left:3px}
+.ya-extra-view-chip i{font-style:normal;font-weight:600;font-size:10px;color:#a1791f;margin-left:5px;white-space:nowrap}
 
 /* 金額入力モーダル（日報 index.html の showPriceModal と同一仕様） */
 .price-modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:400;padding:20px}
@@ -147,6 +148,13 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .all-total-cell .at-p{font-size:14px;color:var(--green);font-weight:700;margin-bottom:2px;font-family:'Inter','Noto Sans JP',sans-serif}
 .all-total-cell .at-v{font-size:20px;color:var(--green);font-weight:700;font-family:'Inter','Noto Sans JP',sans-serif;line-height:1.1}
 .all-total-cell .at-u{font-size:10px;color:#888;margin-left:2px}
+
+/* 商品別合計に足す臨時品目の行（全ルート総合計／経路別合計 共通）。
+   既存の商品別合計グリッドの下に別枠で置き、アンバー地で定番外だと分かるようにする。 */
+.xt-rows{margin-top:8px;padding-top:8px;border-top:1px dashed #e6d9b8;display:flex;flex-direction:column;gap:6px}
+.xt-row{display:flex;align-items:center;gap:10px;background:#fffdf5;border:1px solid #ede0bd;border-radius:8px;padding:6px 12px}
+.xt-p{font-size:13px;font-weight:700;color:#a1791f;font-family:'Inter','Noto Sans JP',sans-serif;letter-spacing:.02em;flex:1;min-width:0}
+.xt-v{font-size:18px;font-weight:700;color:#8a6a1c;font-family:'Inter','Noto Sans JP',sans-serif;line-height:1.1;flex:none}
 
 /* エラー・再試行UI */
 .err-box{background:#fff;border:1px solid #ffb74d;border-left:4px solid #d32f2f;border-radius:10px;padding:14px 16px;margin:16px 0;text-align:center;color:#b71c1c;font-size:13px;line-height:1.6;box-shadow:var(--shadow)}
@@ -217,6 +225,17 @@ var state = { mode:'view', route:0, data:{}, zaiko:{}, zaikoExtras:{}, zaikoData
 var today = new Date();
 var DAYS = ['日','月','火','水','木','金','土'];
 var todayStr = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
+// 前日（臨時品目の有効期間判定に使う）
+var yesterdayStr = (function(){
+  var d = new Date(today.getFullYear(), today.getMonth(), today.getDate()-1);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+})();
+// 臨時品目の有効期間。
+// 【2026-08-12 修正】配達商品情報は「前夜に翌日分を入力する」運用のため、
+// extrasDate === todayStr（入力日一致）だと入力した翌朝に必ず消えていた
+// （8/11夜入力の¥300 12店舗・115個が8/12朝に全滅）。
+// 入力日D の指示は D（入力日）と D+1（配達日）に有効、D+2 で自動失効とする。
+function _extrasAlive(d){ return !!d && String(d) >= yesterdayStr; }
 document.getElementById('hDate').textContent = today.getFullYear()+'年'+(today.getMonth()+1)+'月'+today.getDate()+'日（'+DAYS[today.getDay()]+'）';
 
 // ============ jsonp ============
@@ -327,7 +346,7 @@ function updComment(storeName, val){
 function extrasOf(storeName){
   var e = state.data[storeName];
   if(!e || !e.extras || typeof e.extras !== 'object') return {};
-  if(e.extrasDate !== todayStr) return {};   // 前日以前の指示は当日扱いしない
+  if(!_extrasAlive(e.extrasDate)) return {};   // 前々日以前の指示は失効
   return e.extras;
 }
 // 参照用（日報で発生した臨時品目の残在庫/販売数）
@@ -338,8 +357,19 @@ function extraZanFor(storeName, price){
 }
 function _priceNum(p){ return parseInt(String(p).replace(/[^0-9]/g,''),10) || 0; }
 // この店舗で臨時品目として表示すべき価格の一覧（昇順）。
-//   ① 当日の納品指示が入っているもの（0 を含む＝入力途中でも消えない）
-//   ② 残在庫が残っているもの（zan>0）。0 になったら自動で消える。
+//   ① 有効期間内の納品指示が入っているもの（0 を含む＝入力途中でも消えない）
+//   ② 残在庫が残っている、または販売数があるもの
+// 【2026-08-12 修正】従来は zan>0 のみだったため、前日に売り切れた臨時価格
+//   （例: 178円が完売）が翌日まったく見えず、「昨日何個売れたか」から今日の
+//   納品数を判断できなかった。残0でも販売実績があれば行を残す。
+//   両方0/無しのときだけ非表示。
+// ※「前日」を独自に決める処理はここには無い。参照するのは state.zaikoExtras で、
+//   その中身は getYaokoZaiko / zaiko.json が「直近に実データがある日」として
+//   解決した actualDate の値（＝既存の仕組みそのまま）。入力日基準ではない。
+function _extraRefVisible(z){
+  if(!z) return false;
+  return (parseInt(z.zan,10)||0) > 0 || (parseInt(z.sales,10)||0) > 0;
+}
 function storeExtraPrices(storeName){
   var set = {}, out = [];
   var ex = extrasOf(storeName);
@@ -347,7 +377,7 @@ function storeExtraPrices(storeName){
   var z = (state.zaikoExtras && state.zaikoExtras[storeName]) || {};
   Object.keys(z).forEach(function(p){
     if(YAOKO_PRICES.indexOf(p) > -1) return;          // 念のため既存価格は除外
-    if((parseInt(z[p] && z[p].zan,10)||0) > 0) set[p]=true;
+    if(_extraRefVisible(z[p])) set[p]=true;
   });
   Object.keys(set).forEach(function(p){ out.push(p); });
   out.sort(function(a,b){ return _priceNum(a)-_priceNum(b); });
@@ -357,20 +387,26 @@ function updExtraPrice(storeName, price, val){
   if(YAOKO_PRICES.indexOf(price) > -1) return;        // 既存価格は臨時にしない
   if(!state.data[storeName]) state.data[storeName]={};
   var e = state.data[storeName];
-  if(!e.extras || typeof e.extras !== 'object' || e.extrasDate !== todayStr){
+  if(!e.extras || typeof e.extras !== 'object' || !_extrasAlive(e.extrasDate)){
+    // 新しくセットを起こすときだけ当日を刻む
     e.extras = {};
+    e.extrasDate = todayStr;
   }
+  // 有効期間内の既存セットを編集した場合は extrasDate を書き換えない。
+  // 書き換えると編集のたびに期限が1日延び、いつまでも失効しなくなる。
   e.extras[price] = val;
-  e.extrasDate = todayStr;
   state.dirty = true;
-  // 合計系は既存4価格だけを見るので更新不要（＝臨時は合計に入らない）
+  // 既存4価格の合計（at_/rt_・店舗小計）はここでは触らない＝臨時は既存合計に入らない。
+  // 臨時は専用行(axt_/rxt_)だけをリアルタイム更新する。
+  updateAllRoutesTotal();
+  updateRouteTotal();
 }
 // 保存済みデータのうち、当日でない臨時指示を落とす（その日・その店舗限りの扱い）。
 function _purgeStaleExtras(items){
   Object.keys(items || {}).forEach(function(nm){
     var e = items[nm];
     if(!e || typeof e !== 'object') return;
-    if(e.extras && e.extrasDate !== todayStr){
+    if(e.extras && !_extrasAlive(e.extrasDate)){
       delete e.extras;
       delete e.extrasDate;
     }
@@ -492,17 +528,53 @@ function priceTotalAllRoutes(price){
   });
   return t;
 }
+// ---- 臨時品目の商品別合計（既存4価格の合計とは完全に別枠）----
+// 【対象はヤオコー店舗のみ】ids は allYaokoIds()/routeYaokoIds() を渡す。両者とも
+// STORE_DEFS.type==='yaoko' で絞られているため、直売所・たまや・道の駅の臨時品目が
+// 「ヤオコー納品数合計」に混入する経路が存在しない。
+// 既存4価格(YAOKO_PRICES)と同じキーは念のためここでも除外する。
+// 戻り: [{price:'¥300', total:150}, ...] を価格の昇順で。
+function extraTotalsFor(ids){
+  var m = {};
+  ids.forEach(function(id){
+    var def = STORE_DEFS[id];
+    if(!def || def.type !== 'yaoko') return;      // 二重の防御
+    var ex = extrasOf(def.name);                  // 当日分のみ（extrasDate===todayStr）
+    Object.keys(ex).forEach(function(p){
+      if(YAOKO_PRICES.indexOf(p) > -1) return;
+      if(!(p in m)) m[p] = 0;
+      m[p] += parseInt(ex[p], 10) || 0;
+    });
+  });
+  return Object.keys(m)
+    .sort(function(a,b){ return _priceNum(a)-_priceNum(b); })
+    .map(function(p){ return { price: p, total: m[p] }; });
+}
+function extraTotalsAllRoutes(){ return extraTotalsFor(allYaokoIds()); }
+function extraTotalsForRoute(r){ return extraTotalsFor(routeYaokoIds(r)); }
+// 表示ラベル: '¥300' → '+300円'
+function extraTotalLabel(price){ return '+'+_priceNum(price)+'円'; }
+
 // 全ルート総合計の各セルを即時更新（入力ごとに呼ぶ）
 function updateAllRoutesTotal(){
   YAOKO_PRICES.forEach(function(p){
     var el = document.getElementById('at_'+esc(p));
     if(el) el.textContent = priceTotalAllRoutes(p);
   });
+  // 臨時品目行（存在する行の数値だけ差し替える。行の増減は renderRoute 側で行う）
+  extraTotalsAllRoutes().forEach(function(e){
+    var el = document.getElementById('axt_'+esc(e.price));
+    if(el) el.textContent = e.total;
+  });
 }
 function updateRouteTotal(){
   YAOKO_PRICES.forEach(function(p){
     var el = document.getElementById('rt_'+esc(p));
     if(el) el.textContent = priceTotalForRoute(state.route, p);
+  });
+  extraTotalsForRoute(state.route).forEach(function(e){
+    var el = document.getElementById('rxt_'+esc(e.price));
+    if(el) el.textContent = e.total;
   });
 }
 function updateStoreSubtotal(storeName){
@@ -544,9 +616,11 @@ function toggleMode(){
   var b=document.getElementById('modeBtn');
   if(state.mode==='edit'){ b.textContent='👁 閲覧モードへ'; b.classList.add('edit'); }
   else                  { b.textContent='✏️ 編集モード';   b.classList.remove('edit'); }
-  // 残在庫/販売数は編集モード遷移時にだけ用意する（閲覧モードでは呼ばず、
-  // 配達員には見えないデータのためGAS実行スロットを消費しない）。この方針は不変。
-  var needFetch = toEdit && _prepareZaiko();
+  // 【2026-08-12 変更】従来は編集モード遷移時にだけ残在庫/販売数を用意していたが、
+  // 閲覧モードでも臨時品目の残在庫・販売数を出す要件になったため両モードで用意する。
+  // 取得はスナップショット優先（GCS・GAS実行スロットを消費しない）で、
+  // スナップショットが使えないときだけ GAS へフォールバックする。
+  var needFetch = _prepareZaiko();
   renderRoute();
   if(needFetch) _fetchZaiko(0);
 }
@@ -613,6 +687,20 @@ function renderRoute(){
   }
 }
 
+// 商品別合計（全ルート／経路別）の下に足す臨時品目の行。
+// 既存の商品別合計セルには一切触らず、その下に「+300円　150」形式で価格ごとに1行ずつ並べる。
+// 臨時品目が1件も無ければ空文字を返す＝従来どおりの表示になる。
+// idPrefix: 'axt_'（全ルート）/ 'rxt_'（経路別）。リアルタイム更新時の差し替え先。
+function _extraTotalRowsHtml(list, idPrefix){
+  if(!list || !list.length) return '';
+  var h = '<div class="xt-rows">';
+  list.forEach(function(e){
+    h += '<div class="xt-row"><span class="xt-p">'+eH(extraTotalLabel(e.price))+'</span>'
+       + '<span class="xt-v" id="'+idPrefix+esc(e.price)+'">'+e.total+'</span></div>';
+  });
+  return h + '</div>';
+}
+
 // 編集モードの店舗カード下部に付く「臨時品目」セクション。
 // 表示対象は storeExtraPrices()（当日の納品指示があるもの＋残在庫が残っているもの）。
 // 対象が無くても「＋ 追加」だけは常に出す（困りごと2＝定番外商品の追加導線）。
@@ -654,25 +742,36 @@ function _extraSectionHtml(nm){
   return h + '</div>';
 }
 
-// 閲覧モード（配達員が見る画面）の臨時品目。当日の納品指示が入っている分だけ、
-// 統合表の下に控えめな1ブロックとして出す。
+// 閲覧モード（配達員が見る画面）の臨時品目。統合表の下に1ブロックとして出す。
 // 統合表そのもの・経路合計・全ルート総合計の計算には一切関与しない。
+// 【2026-08-12 修正】表示対象を編集モードと同じ storeExtraPrices() に統一した。
+//   ＝ 有効期間内の納品指示があるもの ＋ 残在庫が残っている/販売数があるもの。
+//   納品指示数に加えて残在庫・販売数も出すので、配達員が閲覧モードのまま
+//   「昨日どれだけ売れて何個残っているか」を見て納品数を判断できる。
 function _extraViewHtml(yaIds){
   var rows = [];
   yaIds.forEach(function(id){
     var nm = STORE_DEFS[id].name;
-    var ex = extrasOf(nm);
-    var ps = Object.keys(ex).filter(function(p){ return String(ex[p]).trim() !== ''; });
+    var ps = storeExtraPrices(nm);
     if(!ps.length) return;
-    ps.sort(function(a,b){ return _priceNum(a)-_priceNum(b); });
-    rows.push({ nm: nm, ps: ps, ex: ex });
+    rows.push({ nm: nm, ps: ps, ex: extrasOf(nm) });
   });
   if(!rows.length) return '';
-  var h = '<div class="ya-extra-view"><span class="ya-extra-view-ttl">➕ 臨時品目（本日分）</span>';
+  var zs = zaikoStatusLabel();
+  var h = '<div class="ya-extra-view"><span class="ya-extra-view-ttl">➕ 臨時品目'
+        + (zs ? '<span class="zaiko-asof'+(zs.cls?' '+zs.cls:'')+'">'+eH(zs.text)+'</span>' : '')
+        + '</span>';
   rows.forEach(function(r){
     r.ps.forEach(function(p){
-      h += '<span class="ya-extra-view-chip">'+eH(r.nm.replace('ヤオコー','').replace('店',''))
-         + ' '+eH(p)+'<b>'+eH(r.ex[p])+'</b></span>';
+      var z = extraZanFor(r.nm, p);
+      var qty = r.ex[p];
+      var body = eH(r.nm.replace('ヤオコー','').replace('店','')) + ' ' + eH(p);
+      // 納品指示数は「→N個」と単位付きで出す（価格と数字が続くと桁を読み違えるため）
+      if(qty !== undefined && String(qty).trim() !== '') body += '<b>→'+eH(qty)+'個</b>';
+      if(z){
+        body += '<i>残:'+(z.zan||0)+' / 売:'+(z.hasSales ? z.sales : '-')+'</i>';
+      }
+      h += '<span class="ya-extra-view-chip">'+body+'</span>';
     });
   });
   return h + '</div>';
@@ -719,7 +818,9 @@ function _renderRouteUnsafe(){
       var v = priceTotalAllRoutes(p);
       html += '<div class="all-total-cell"><div class="at-p">'+eH(p)+'</div><div class="at-v" id="at_'+esc(p)+'">'+v+'</div></div>';
     });
-    html += '</div></div>';
+    html += '</div>';
+    html += _extraTotalRowsHtml(extraTotalsAllRoutes(), 'axt_');
+    html += '</div>';
     // この経路合計（全ルート合計の直下）。入力中の値をリアルタイム反映し桁間違い等を検算。
     var _rlabel = (typeof ROUTES!=='undefined' && ROUTES[state.route] && ROUTES[state.route].label) || 'この経路';
     html += '<div class="route-total"><div class="route-total-ttl">🎯 '+eH(_rlabel)+' ヤオコー納品数 合計</div><div class="route-total-grid">';
@@ -727,7 +828,9 @@ function _renderRouteUnsafe(){
       var rv = priceTotalForRoute(state.route, p);
       html += '<div class="route-total-cell"><div class="rt-p">'+eH(p)+'</div><div class="rt-v" id="rt_'+esc(p)+'">'+rv+'</div></div>';
     });
-    html += '</div></div>';
+    html += '</div>';
+    html += _extraTotalRowsHtml(extraTotalsForRoute(state.route), 'rxt_');
+    html += '</div>';
   }
 
   var ya = routeYaokoIds(state.route);
@@ -1313,7 +1416,9 @@ function loadInitial(){
       // haveDisplay時は静かに諦める（既に表示済み・鮮度表示は維持）
     });
   });
-  // 残在庫は閲覧モードでは呼ばない。編集モード切替で初回取得（toggleMode内）。
+  // 【2026-08-12 変更】臨時品目の残在庫/販売数は閲覧モードでも表示するため、
+  // 初期表示の裏で用意する（スナップショット優先。メイン表示はブロックしない）。
+  if(_prepareZaiko()) _fetchZaiko(0);
 }
 
 // ============ 残在庫/販売数のSWRキャッシュ ============
@@ -1426,6 +1531,10 @@ function _fetchZaikoSnapshot(cb){
     if(!j || !j.generated_at || !j.items){ cb(null); return; }
     // 値ベースの非空判定。空なら鮮度に関わらず GAS 直近日フォールバックへ。
     if(!_zaikoItemsHaveValues(j.items)){ cb(null); return; }
+    // extras キーが無いスナップショットは「臨時品目に未対応の古い生成元」が
+    // 書いたもの。採用すると臨時の残在庫/販売数が空のまま固定されてしまうので、
+    // 鮮度に関わらず GAS 直取得へ倒す（生成元が更新されれば自動で解消する）。
+    if(!j.extras || typeof j.extras !== 'object'){ cb(null); return; }
     // date が今日と一致することを厳密確認（日付が変わったら snapshotが古い）
     if(j.date && j.date !== todayStr){ cb(null); return; }
     var gen = Date.parse(j.generated_at);

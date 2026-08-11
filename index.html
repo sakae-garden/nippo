@@ -352,6 +352,13 @@ var state = { screen:'home', route:0, store:null, formData:{}, staff:'', config:
 var today = new Date();
 var DAYS = ['日','月','火','水','木','金','土'];
 var todayStr = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
+// 臨時品目の有効期間（haitatsu.html の _extrasAlive と同一規則）。
+// 配達商品情報は前夜に翌日分を入力するので、入力日D の指示は D と D+1 に有効。
+var yesterdayStr = (function(){
+  var d = new Date(today.getFullYear(), today.getMonth(), today.getDate()-1);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+})();
+function _extrasAlive(d){ return !!d && String(d) >= yesterdayStr; }
 document.getElementById('hDate').textContent = today.getFullYear()+'年'+(today.getMonth()+1)+'月'+today.getDate()+'日（'+DAYS[today.getDay()]+'）';
 
 function loadConfig(cb) {
@@ -807,10 +814,12 @@ function applyHaitatsuDefault(id) {
         if(v!==''&&v!==null&&v!==undefined) state.formData['納品_'+price] = String(v);
       });
     }
-    // 臨時品目（配達商品情報で当日追加された定番外の価格）も納品数の既定値にする。
-    // extrasDate が当日の分だけ（その日限りの指示。翌日には持ち越さない）。
+    // 臨時品目（配達商品情報で追加された定番外の価格）も納品数の既定値にする。
+    // 【2026-08-12 修正】配達商品情報は前夜に翌日分を入力する運用のため、
+    // extrasDate === todayStr（入力日一致）だと入力の翌朝＝配達当日に消えていた。
+    // 入力日D の指示は D と D+1 に有効とする（haitatsu.html の _extrasAlive と同一規則）。
     // 既存価格と同じ値は取り込まない（納品_¥99 等を二重に上書きしない）。
-    if(entry.extras && entry.extrasDate === todayStr && (def.type==='yaoko' || def.type==='choku')){
+    if(entry.extras && _extrasAlive(entry.extrasDate) && (def.type==='yaoko' || def.type==='choku')){
       Object.keys(entry.extras).forEach(function(price){
         if(!/^¥\d+$/.test(price)) return;
         if((def.prices||[]).indexOf(price) > -1) return;
