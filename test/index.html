@@ -1272,7 +1272,7 @@ function discardSubmitPending(storeName){
 
 function doSubmit() {
   if(_submitBusy) return;                    // 送信中の再タップを無視
-  window._M = { tClick: Date.now() };        // 【計測】ボタン押下
+  window._M = { tClick: Date.now(), attempts: [], confirms: [] };   // 【計測】
   if(!state.staff){alert('担当者を選択してください');return;}
   var items=[];
   Object.keys(state.formData).forEach(function(k){var v=state.formData[k];if(v!==''&&v!==null&&v!==undefined)items.push({key:k,value:String(v)});});
@@ -1341,10 +1341,14 @@ function _runSubmit(pending, isResend){
   function confirmSubmit(onNotFound){
     if(!alive()) return;
     hideLoading(); showLoading('送信を確認中...');
+    var _C = null;
+    if(window._M){ _C = {tSend:Date.now()}; window._M.confirms.push(_C); }
+    var _cwrap = function(found){ if(_C){ _C.rtt = Date.now() - _C.tSend; _C.found = found; } };
     jsonp(API_URL+'?action=getSubmitStatus&store='+encodeURIComponent(pending.storeName)
       +'&date='+pending.date+'&reqId='+encodeURIComponent(pending.reqId)+'&_cb='+Date.now(),
       'cb_sub_confirm',function(res){
         if(!alive()) return;
+        _cwrap(!!(res&&res.found));
         if(res&&res.success&&res.found){ succeed(); return; }
         onNotFound();
       },function(){
@@ -1361,18 +1365,17 @@ function _runSubmit(pending, isResend){
     hideLoading();
     showLoading(i===0?'送信中...':'再送信中...（'+i+'/'+(SUBMIT_MAX_ATTEMPTS-1)+'）');
     // _cb はGoogle側リダイレクト状態のリフレッシュ用（冪等キーではない）
-    if(window._M){ window._M.tSend = Date.now(); window._M.attempt = i; }
+    var _A = null;
+    if(window._M){ _A = {i:i, tSend:Date.now()}; window._M.attempts.push(_A); }
     jsonp(url+'&_cb='+Date.now()+'_'+i,'cb_sub',function(res){
-      if(window._M){
-        var M = window._M; M.tRecv = Date.now();
-        M.server = (res && res._t) ? res._t : null;
-        M.rtt = M.tRecv - M.tSend;                       // 発行→応答受信
-        M.clickToSend = M.tSend - M.tClick;              // 押下→発行
-        M.serverFn = M.server ? M.server.totalFn : null; // GAS submitForm 実処理
-        M.serverDoGet = M.server ? M.server.doGetEntryToEnd : null;
-        M.overhead = (M.serverDoGet !== null && M.serverDoGet !== undefined)
-                     ? (M.rtt - M.serverDoGet) : null;   // 網+GAS起動+転送層
-        console.log('[MEASURE] submit', JSON.stringify(M));
+      if(_A){
+        _A.tRecv = Date.now();
+        _A.rtt = _A.tRecv - _A.tSend;
+        _A.dup = !!(res && res.duplicate);
+        _A.ok  = !!(res && res.success);
+        _A.server = (res && res._t) ? res._t : null;
+        _A.overhead = _A.server ? (_A.rtt - _A.server.doGetEntryToEnd) : null;
+        console.log('[MEASURE] attempt', JSON.stringify(_A));
       }
       if(!alive()) return;
       // duplicate:true（同じreqIdの再送）も success として扱う
@@ -1390,6 +1393,8 @@ function _runSubmit(pending, isResend){
       }
       hardFail('送信に失敗しました。\n'+((res&&res.error)||'')+'\nもう一度お試しください。');
     },function(){
+      if(_A){ _A.timedOut = true; _A.rtt = Date.now() - _A.tSend;
+              console.log('[MEASURE] attempt TIMEOUT', JSON.stringify(_A)); }
       // タイムアウト/通信失敗。JSONP はキャンセルできず書き込みが成立している
       // 可能性があるので、再送の前に必ず reqId で確認する。
       if(!alive()) return;
@@ -1406,10 +1411,12 @@ function _runSubmit(pending, isResend){
 }
 function renderDone() {
   if(window._M){
-    window._M.tDone = Date.now();
-    window._M.recvToDone = window._M.tDone - window._M.tRecv;
-    window._M.totalUserWait = window._M.tDone - window._M.tClick;
-    console.log('[MEASURE] done', JSON.stringify(window._M));
+    var M = window._M;
+    M.tDone = Date.now();
+    M.totalUserWait = M.tDone - M.tClick;
+    M.nAttempts = M.attempts.length;
+    M.nTimeouts = M.attempts.filter(function(a){return a.timedOut;}).length;
+    console.log('[MEASURE] done', JSON.stringify(M));
   }
   state.screen='done';setHeader('送信完了',false,false);
   var s=state.store;
