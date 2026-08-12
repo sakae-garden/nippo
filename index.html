@@ -156,6 +156,15 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .done-title{font-size:22px;font-weight:700;margin-bottom:8px}
 .done-sub{font-size:14px;color:var(--sub);margin-bottom:32px;line-height:1.7}
 .home-btn{background:var(--ink);color:#fff;border:none;border-radius:var(--r-btn);padding:14px 32px;font-family:inherit;font-size:15px;font-weight:600;cursor:pointer}
+/* 完了画面の「記録の確認」状態表示（楽観的UI）。操作はブロックしない。
+   ds-pending=確認中 / ds-ok=確認済み / ds-ng=確認できず（警告＋再送導線） */
+.done-status{margin:-16px auto 24px;max-width:420px;border-radius:10px;padding:10px 14px;font-size:12px;font-weight:600;line-height:1.6}
+.done-status.ds-pending{background:#f0f4f8;color:#5b7a99;border:1px dashed #b0bec5}
+.done-status.ds-ok{background:#edf7f1;color:#2d7a4f;border:1px solid #a5d6b8}
+.done-status.ds-ng{background:#fdecea;color:#b71c1c;border:1px solid #ef9a9a;text-align:left}
+.done-status .ds-msg{font-size:13px}
+.done-status .ds-sub{font-size:11px;font-weight:500;margin-top:4px;opacity:.85}
+.done-status .ds-retry{margin-top:8px;background:#b71c1c;color:#fff;border:none;border-radius:6px;padding:9px 18px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;width:100%}
 
 /* ============ 送信完了 確認テーブル: サマリー風デザイン（値引きは黒に統一） ============ */
 .done-confirm-wrap{margin:8px 0 28px;text-align:left;padding:0 4px}
@@ -1159,20 +1168,40 @@ function tryLoadDate(date, isFallback) {
 //   まれに 20〜70秒の外れ値・404/HTML中間ページ（Google側の転送レイヤ起因）
 //
 // 新方針:
-//   1) タイムアウトは p90 相当（12秒）で見切り、すぐ getSubmitStatus 確認へ
+//   1) タイムアウトで見切り、すぐ getSubmitStatus 確認へ
 //   2) 見切った後も遅延到着を拾い、遅れて success が届いたら即完了にする
 //   3) 全体締切 SUBMIT_DEADLINE を超えたら新しい試行を始めない
 //   4) 送信前に必ず localStorage へ退避。失敗しても入力は消えず、
 //      店舗一覧のバナーからいつでも再送できる（reqId 据え置きで二重記録なし）
+//
+// 【2026-08-12 計測でわかったこと → 楽観的UIへ】
+//   区間計測の結果、GAS内部の実処理は中央値 1.5秒（ロック0.12/シートopen0.28/
+//   ヘッダ0.22/reqId照合0.39/append0.15/キャッシュ0.21）にすぎず、体感時間の
+//   大半は Google の転送・実行スケジューリング層だった。しかも「常に遅い」のではなく
+//   「時々ひどく遅い」分布で、10回中3回が12秒タイムアウトに到達し体感14〜15秒。
+//   シートに触らない getConfig でも同じ尾を引くため、サーバ処理の最適化では
+//   この裾は消せない（＝待ち方を変えるしかない）。
+//   → 送信ボタンで即「送信完了」を表示し、記録の確認は裏で行う。
+//   安全性は3層で担保する:
+//     層1 送信を始める前に localStorage へ退避（通信断でも入力は消えない）
+//     層2 裏の確認が失敗し、完了画面がまだ開いていればその場で警告＋再送導線
+//         （画面を離れていれば店舗一覧のバナーが即座に出る）
+//     層3 次回起動時に reqId 照合し、未記録なら必ずバナーで知らせる
+//   二重記録対策（reqId dedup / ScriptLock / 確認導線）は一切弱めていない。
 var SUBMIT_MAX_ATTEMPTS = 3;
 var SUBMIT_RETRY_WAIT   = 600;
-var SUBMIT_TIMEOUT      = 12000;  // 実測 p90≈13秒
+// 【2026-08-12】12秒 → 7.5秒。実測 RTT 中央値3.6秒・p90 9.7秒に対し12秒は待ちすぎで、
+// 尾を引いた回は12秒フル待ちしてから確認・再送に入っていた。onLate があるので
+// 見切っても遅延到着した success は拾え、成立済みの書き込みを捨てることはない。
+var SUBMIT_TIMEOUT      = 7500;
 var SUBMIT_LATE_GRACE   = 25000;  // 見切り後に遅延到着を拾う猶予(ms)
 var CONFIRM_TIMEOUT     = 8000;   // getSubmitStatus 実測 p90≈3.8秒
 var SUBMIT_DEADLINE     = 22000;  // 新しい試行を始めてよい上限(ms)
 var LS_SUBMIT_PENDING   = lsKey('nippo_submit_pending_v1');
 var _submitBusy = false;
-var _submitSess = null;
+// 楽観的UIでは「A店を送信→完了→B店を送信」が確認完了前に起こりうるので、
+// セッションは店舗ごとに並行して生かす（単一の _submitSess では後発が前発を殺す）。
+var _submitSessions = {};
 function _setSubmitBtnDisabled(d){
   var b=document.getElementById('submitBtn');
   if(b) b.disabled=!!d;
@@ -1273,12 +1302,33 @@ function doSubmit() {
   _runSubmit(pending, false);
 }
 
+// 完了画面に出す「確認中／確認済み／確認できず」の控えめな表示。
+// 操作はブロックしない。表示中の完了画面が別の送信のものなら何もしない
+// （A店の完了画面を見ている最中に、先に出したB店の確認結果で書き換えない）。
+function _setDoneStatus(reqId, kind, msg, storeName){
+  var el=document.getElementById('done_status');
+  if(!el || el.getAttribute('data-req')!==reqId) return false;
+  el.className='done-status ds-'+kind;
+  if(kind==='ng'){
+    el.innerHTML='<div class="ds-msg">⚠️ '+eH(msg)+'</div>'
+      +'<div class="ds-sub">入力内容は端末に保存してあります。二重記録にはなりません。</div>'
+      +'<button class="ds-retry" onclick="resendSubmitPending(\''+eA(String(storeName||'').replace(/'/g,''))+'\')">🔄 いますぐ再送する</button>';
+  } else {
+    el.innerHTML='<div class="ds-msg">'+eH(msg)+'</div>';
+  }
+  return true;
+}
+
 function _runSubmit(pending, isResend){
-  if(_submitBusy) return;
+  // 楽観的UIは通常送信のみ。バナーからの再送は従来どおり結果を待って知らせる。
+  var optimistic = !isResend;
+  if(!optimistic && _submitBusy) return;
   var sess={ done:false, timers:[], t0:Date.now() };
-  _submitSess=sess;
-  function alive(){ return !sess.done && _submitSess===sess; }
-  function endSess(){ sess.done=true; sess.timers.forEach(function(h){clearTimeout(h);}); sess.timers=[]; }
+  _submitSessions[pending.reqId]=sess;
+  // 【重要】単一セッション比較（旧: _submitSess===sess）はやめる。楽観的UIでは
+  // 複数店舗の確認が同時に走るため、後発の送信が前発の確認を殺してしまう。
+  function alive(){ return !sess.done; }
+  function endSess(){ sess.done=true; sess.timers.forEach(function(h){clearTimeout(h);}); sess.timers=[]; delete _submitSessions[pending.reqId]; }
   function later(fn,ms){ var h=setTimeout(function(){ if(alive()) fn(); },ms); sess.timers.push(h); }
 
   var url=API_URL+'?action=submit&store='+encodeURIComponent(pending.storeName)+'&date='+pending.date
@@ -1291,6 +1341,11 @@ function _runSubmit(pending, isResend){
     _submitBusy=false; hideLoading(); _setSubmitBtnDisabled(false);
     _clearSubmitPendingFor(pending.storeName);   // 成功した店舗の分だけ消す
     _updateSubmitPendingBanner();
+    if(optimistic){
+      // 完了画面は既に出ている。確認できた旨だけ静かに差し替える。
+      _setDoneStatus(pending.reqId,'ok','サーバへの記録を確認しました');
+      return;
+    }
     if(isResend){
       alert('✅ 未送信だった日報を送信しました。\n'+pending.storeName);
       renderHome();
@@ -1299,21 +1354,37 @@ function _runSubmit(pending, isResend){
       renderDone();
     }
   }
+  // 記録を確認できなかった。入力は退避済みなので失われない。
+  //   ・完了画面がまだ開いていれば、その場で警告＋再送ボタン（層2）
+  //   ・画面を離れていれば店舗一覧のバナーが即座に出る（層2の代替）
+  //   ・どちらも見逃しても次回起動時の reqId 照合でバナーが出る（層3）
+  function warnUnconfirmed(msg){
+    _updateSubmitPendingBanner();
+    if(optimistic){
+      if(_setDoneStatus(pending.reqId,'ng',msg,pending.storeName)) return;
+      // 完了画面を離れている → バナーは既に出ている。操作を邪魔しないため
+      // alert は出さず、ホーム表示中ならバナーへ視線を誘導するだけにする。
+      return;
+    }
+    alert(msg+'\n\n入力内容は端末に保存してあります。\n'
+      +'店舗一覧の「未送信の日報があります」から再送できます\n'
+      +'（同じ送信IDで送るので二重記録にはなりません）。');
+  }
   // 見切り。入力は退避済みなので失われない。店舗一覧のバナーから再送できる。
   function giveUp(msg){
     endSess();
     _submitBusy=false; hideLoading(); _setSubmitBtnDisabled(false);
-    _updateSubmitPendingBanner();
-    alert(msg+'\n\n入力内容は端末に保存してあります。\n'
-      +'店舗一覧の「未送信の日報があります」から再送できます\n'
-      +'（同じ送信IDで送るので二重記録にはなりません）。');
-    if(isResend) renderHome();
+    warnUnconfirmed(msg);
+    if(!optimistic && isResend) renderHome();
   }
   // データ起因の失敗は再送しても変わらないので退避を残したまま即通知
   function hardFail(msg){
     endSess();
     _submitBusy=false; hideLoading(); _setSubmitBtnDisabled(false);
     _updateSubmitPendingBanner();
+    if(optimistic){
+      if(_setDoneStatus(pending.reqId,'ng',msg,pending.storeName)) return;
+    }
     alert(msg);
   }
   // 見切った後に遅れて届いた応答。成功なら即完了にして再送を打ち切る。
@@ -1322,7 +1393,9 @@ function _runSubmit(pending, isResend){
   // 記録されたかを reqId でサーバに確認する（誤った再送信＝別reqIdでの二重行を防ぐ）
   function confirmSubmit(onNotFound){
     if(!alive()) return;
-    hideLoading(); showLoading('送信を確認中...');
+    // 楽観的UIでは画面を覆わない（配達員の操作をブロックしない）
+    if(optimistic){ _setDoneStatus(pending.reqId,'pending','記録を確認しています…'); }
+    else { hideLoading(); showLoading('送信を確認中...'); }
     jsonp(API_URL+'?action=getSubmitStatus&store='+encodeURIComponent(pending.storeName)
       +'&date='+pending.date+'&reqId='+encodeURIComponent(pending.reqId)+'&_cb='+Date.now(),
       'cb_sub_confirm',function(res){
@@ -1340,8 +1413,12 @@ function _runSubmit(pending, isResend){
 
   function attempt(i){
     if(!alive()) return;
-    hideLoading();
-    showLoading(i===0?'送信中...':'再送信中...（'+i+'/'+(SUBMIT_MAX_ATTEMPTS-1)+'）');
+    if(optimistic){
+      _setDoneStatus(pending.reqId,'pending', i===0?'記録を確認しています…':'記録を確認しています…（再送 '+i+'）');
+    } else {
+      hideLoading();
+      showLoading(i===0?'送信中...':'再送信中...（'+i+'/'+(SUBMIT_MAX_ATTEMPTS-1)+'）');
+    }
     // _cb はGoogle側リダイレクト状態のリフレッシュ用（冪等キーではない）
     jsonp(url+'&_cb='+Date.now()+'_'+i,'cb_sub',function(res){
       if(!alive()) return;
@@ -1351,7 +1428,8 @@ function _runSubmit(pending, isResend){
         // GAS が ScriptLock を取れなかった＝書き込みは起きていない。
         // 確認を挟まず短い間隔ですぐ再送する（長時間ブロックしない）。
         if(i+1<SUBMIT_MAX_ATTEMPTS && Date.now()-sess.t0<SUBMIT_DEADLINE){
-          showLoading('他の送信と重なりました。すぐに再送します...');
+          if(optimistic) _setDoneStatus(pending.reqId,'pending','他の送信と重なりました。すぐに再送します…');
+          else showLoading('他の送信と重なりました。すぐに再送します...');
           later(function(){attempt(i+1);},SUBMIT_RETRY_WAIT);
           return;
         }
@@ -1372,13 +1450,26 @@ function _runSubmit(pending, isResend){
       });
     },SUBMIT_TIMEOUT,{ lateGraceMs: SUBMIT_LATE_GRACE, onLate: lateOk });
   }
+
+  if(optimistic){
+    // 【楽観的UI】応答を待たず完了画面へ。退避は呼び出し元で済んでいる（層1）。
+    // 担当者の引継ぎもここで記憶する（確認の成否に関わらず害はない）。
+    rememberStaff(state.store, pending.staff);
+    _submitBusy=false; _setSubmitBtnDisabled(false); hideLoading();
+    renderDone(pending.reqId);
+  }
   attempt(0);
 }
-function renderDone() {
+// reqId を渡すと、その送信の確認状態を表示する枠を出す（楽観的UI）。
+// 渡さない場合（従来の再送成功時など）は枠を出さない。
+function renderDone(reqId) {
   state.screen='done';setHeader('送信完了',false,false);
   var s=state.store;
   var confirm=renderDoneConfirm(s);
-  document.getElementById('app').innerHTML='<div class="done-screen"><div class="done-icon">✅</div><div class="done-title">送信完了！</div><div class="done-sub">お疲れ様でした。<br>'+s.name+'の日報を送信しました。<br><br>'+todayStr.replace(/-/g,'/')+'　担当：'+state.staff+'</div>'+confirm+'<button class="home-btn" onclick="renderHome()">← 店舗一覧に戻る</button></div>';
+  var status = reqId
+    ? '<div class="done-status ds-pending" id="done_status" data-req="'+eA(reqId)+'"><div class="ds-msg">記録を確認しています…</div></div>'
+    : '';
+  document.getElementById('app').innerHTML='<div class="done-screen"><div class="done-icon">✅</div><div class="done-title">送信完了！</div><div class="done-sub">お疲れ様でした。<br>'+s.name+'の日報を送信しました。<br><br>'+todayStr.replace(/-/g,'/')+'　担当：'+state.staff+'</div>'+status+confirm+'<button class="home-btn" onclick="renderHome()">← 店舗一覧に戻る</button></div>';
 }
 function renderDoneConfirm(s) {
   if(!s) return '';
