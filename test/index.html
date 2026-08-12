@@ -1272,6 +1272,7 @@ function discardSubmitPending(storeName){
 
 function doSubmit() {
   if(_submitBusy) return;                    // 送信中の再タップを無視
+  window._M = { tClick: Date.now() };        // 【計測】ボタン押下
   if(!state.staff){alert('担当者を選択してください');return;}
   var items=[];
   Object.keys(state.formData).forEach(function(k){var v=state.formData[k];if(v!==''&&v!==null&&v!==undefined)items.push({key:k,value:String(v)});});
@@ -1360,7 +1361,19 @@ function _runSubmit(pending, isResend){
     hideLoading();
     showLoading(i===0?'送信中...':'再送信中...（'+i+'/'+(SUBMIT_MAX_ATTEMPTS-1)+'）');
     // _cb はGoogle側リダイレクト状態のリフレッシュ用（冪等キーではない）
+    if(window._M){ window._M.tSend = Date.now(); window._M.attempt = i; }
     jsonp(url+'&_cb='+Date.now()+'_'+i,'cb_sub',function(res){
+      if(window._M){
+        var M = window._M; M.tRecv = Date.now();
+        M.server = (res && res._t) ? res._t : null;
+        M.rtt = M.tRecv - M.tSend;                       // 発行→応答受信
+        M.clickToSend = M.tSend - M.tClick;              // 押下→発行
+        M.serverFn = M.server ? M.server.totalFn : null; // GAS submitForm 実処理
+        M.serverDoGet = M.server ? M.server.doGetEntryToEnd : null;
+        M.overhead = (M.serverDoGet !== null && M.serverDoGet !== undefined)
+                     ? (M.rtt - M.serverDoGet) : null;   // 網+GAS起動+転送層
+        console.log('[MEASURE] submit', JSON.stringify(M));
+      }
       if(!alive()) return;
       // duplicate:true（同じreqIdの再送）も success として扱う
       if(res&&res.success){ succeed(); return; }
@@ -1392,6 +1405,12 @@ function _runSubmit(pending, isResend){
   attempt(0);
 }
 function renderDone() {
+  if(window._M){
+    window._M.tDone = Date.now();
+    window._M.recvToDone = window._M.tDone - window._M.tRecv;
+    window._M.totalUserWait = window._M.tDone - window._M.tClick;
+    console.log('[MEASURE] done', JSON.stringify(window._M));
+  }
   state.screen='done';setHeader('送信完了',false,false);
   var s=state.store;
   var confirm=renderDoneConfirm(s);
