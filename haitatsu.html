@@ -235,7 +235,19 @@ var yesterdayStr = (function(){
 // extrasDate === todayStr（入力日一致）だと入力した翌朝に必ず消えていた
 // （8/11夜入力の¥300 12店舗・115個が8/12朝に全滅）。
 // 入力日D の指示は D（入力日）と D+1（配達日）に有効、D+2 で自動失効とする。
-function _extrasAlive(d){ return !!d && String(d) >= yesterdayStr; }
+//
+// 【2026-08-14 修正】「当日＋前日」だけでは塞ぎ切れていなかった。有効期間内の
+// 既存セットを編集しても extrasDate を延ばさない設計だったため、前日日付のまま
+// 生き残っているセットを前夜に編集した分だけが翌朝に失効していた
+// （8/13夜に編集した坂戸千代田店の¥300×4 が 8/14朝に消失）。
+// 対象日(extrasDate)と最終編集日(extrasTouched)を分離し、どちらかが「当日または
+// 前日」なら生存とする。
+//   ・extrasDate    … その指示が「いつの分か」。新規セット作成時のみ刻み、以後動かさない。
+//   ・extrasTouched … 人が実際に数値を入力した最終日。編集のたびに当日で更新する。
+// 人の入力がない限り延びないので、放置された品目は最終入力日から2日で自然に失効する。
+// touched を持たない旧形式データは extrasDate だけで判定する（後方互換）。
+function _dAlive(d){ return !!d && String(d).slice(0,10) >= yesterdayStr; }
+function _extrasEntryAlive(e){ return !!e && (_dAlive(e.extrasDate) || _dAlive(e.extrasTouched)); }
 document.getElementById('hDate').textContent = today.getFullYear()+'年'+(today.getMonth()+1)+'月'+today.getDate()+'日（'+DAYS[today.getDay()]+'）';
 
 // ============ jsonp ============
@@ -346,7 +358,7 @@ function updComment(storeName, val){
 function extrasOf(storeName){
   var e = state.data[storeName];
   if(!e || !e.extras || typeof e.extras !== 'object') return {};
-  if(!_extrasAlive(e.extrasDate)) return {};   // 前々日以前の指示は失効
+  if(!_extrasEntryAlive(e)) return {};   // 対象日・最終編集日ともに前々日以前なら失効
   return e.extras;
 }
 // 参照用（日報で発生した臨時品目の残在庫/販売数）
@@ -387,28 +399,34 @@ function updExtraPrice(storeName, price, val){
   if(YAOKO_PRICES.indexOf(price) > -1) return;        // 既存価格は臨時にしない
   if(!state.data[storeName]) state.data[storeName]={};
   var e = state.data[storeName];
-  if(!e.extras || typeof e.extras !== 'object' || !_extrasAlive(e.extrasDate)){
-    // 新しくセットを起こすときだけ当日を刻む
+  if(!e.extras || typeof e.extras !== 'object' || !_extrasEntryAlive(e)){
+    // 新しくセットを起こすときだけ対象日(extrasDate)を刻む
     e.extras = {};
     e.extrasDate = todayStr;
   }
-  // 有効期間内の既存セットを編集した場合は extrasDate を書き換えない。
-  // 書き換えると編集のたびに期限が1日延び、いつまでも失効しなくなる。
+  // 有効期間内の既存セットを編集した場合も extrasDate は書き換えない
+  // （その指示が「いつの分か」を保つ）。延ばすのは最終編集日だけ。
   e.extras[price] = val;
+  e.extrasTouched = todayStr;   // 人が数値を入れた日。ここだけが有効期間を延ばす
+
   state.dirty = true;
   // 既存4価格の合計（at_/rt_・店舗小計）はここでは触らない＝臨時は既存合計に入らない。
   // 臨時は専用行(axt_/rxt_)だけをリアルタイム更新する。
   updateAllRoutesTotal();
   updateRouteTotal();
 }
-// 保存済みデータのうち、当日でない臨時指示を落とす（その日・その店舗限りの扱い）。
+// 保存済みデータのうち、失効した臨時指示を落とす。
+// 失効の条件は _extrasEntryAlive と完全に同じ＝対象日・最終編集日のどちらもが
+// 前々日以前のときだけ。有効なものを取りこぼして保存で消してしまわないよう、
+// 判定関数は必ずここでも共有する（独自の日付比較を書かない）。
 function _purgeStaleExtras(items){
   Object.keys(items || {}).forEach(function(nm){
     var e = items[nm];
     if(!e || typeof e !== 'object') return;
-    if(e.extras && !_extrasAlive(e.extrasDate)){
+    if(e.extras && !_extrasEntryAlive(e)){
       delete e.extras;
       delete e.extrasDate;
+      delete e.extrasTouched;
     }
   });
   return items;
@@ -461,6 +479,9 @@ function rmExtraForStore(storeName, price){
   if(!Object.keys(state.data[storeName].extras).length){
     delete state.data[storeName].extras;
     delete state.data[storeName].extrasDate;
+    delete state.data[storeName].extrasTouched;
+  } else {
+    state.data[storeName].extrasTouched = todayStr;   // 残った分は編集した扱い
   }
   state.dirty = true;
   renderRoute();
@@ -616,11 +637,11 @@ function toggleMode(){
   var b=document.getElementById('modeBtn');
   if(state.mode==='edit'){ b.textContent='👁 閲覧モードへ'; b.classList.add('edit'); }
   else                  { b.textContent='✏️ 編集モード';   b.classList.remove('edit'); }
-  // 【2026-08-12 変更】従来は編集モード遷移時にだけ残在庫/販売数を用意していたが、
-  // 閲覧モードでも臨時品目の残在庫・販売数を出す要件になったため両モードで用意する。
+  // 【2026-08-14 変更】閲覧モードでは残在庫/販売数を一切表示しなくなったので、
+  // 取得も編集モードに入るときだけに戻す（GCS/GAS への無駄な往復をしない）。
   // 取得はスナップショット優先（GCS・GAS実行スロットを消費しない）で、
   // スナップショットが使えないときだけ GAS へフォールバックする。
-  var needFetch = _prepareZaiko();
+  var needFetch = (state.mode === 'edit') ? _prepareZaiko() : false;
   renderRoute();
   if(needFetch) _fetchZaiko(0);
 }
@@ -744,34 +765,31 @@ function _extraSectionHtml(nm){
 
 // 閲覧モード（配達員が見る画面）の臨時品目。統合表の下に1ブロックとして出す。
 // 統合表そのもの・経路合計・全ルート総合計の計算には一切関与しない。
-// 【2026-08-12 修正】表示対象を編集モードと同じ storeExtraPrices() に統一した。
-//   ＝ 有効期間内の納品指示があるもの ＋ 残在庫が残っている/販売数があるもの。
-//   納品指示数に加えて残在庫・販売数も出すので、配達員が閲覧モードのまま
-//   「昨日どれだけ売れて何個残っているか」を見て納品数を判断できる。
+// 【2026-08-14 修正】閲覧モードは「今日その店に何個入れるか」だけを見る画面なので、
+//   納品指示数のみを表示する。残在庫・販売数（および参照日ラベル）は出さない。
+//   ＝ 表示対象も storeExtraPrices() ではなく extrasOf()（有効な納品指示）に戻す。
+//   在庫を見ながら数を決めるのは編集モードの仕事で、そちらは従来どおり残・売を出す。
 function _extraViewHtml(yaIds){
   var rows = [];
   yaIds.forEach(function(id){
     var nm = STORE_DEFS[id].name;
-    var ps = storeExtraPrices(nm);
+    var ex = extrasOf(nm);
+    // 数量が入っているものだけ。空欄（入力途中で消した等）は配達員には見せない。
+    var ps = Object.keys(ex).filter(function(p){
+      return ex[p] !== undefined && ex[p] !== null && String(ex[p]).trim() !== '';
+    });
     if(!ps.length) return;
-    rows.push({ nm: nm, ps: ps, ex: extrasOf(nm) });
+    ps.sort(function(a,b){ return _priceNum(a)-_priceNum(b); });
+    rows.push({ nm: nm, ps: ps, ex: ex });
   });
   if(!rows.length) return '';
-  var zs = zaikoStatusLabel();
-  var h = '<div class="ya-extra-view"><span class="ya-extra-view-ttl">➕ 臨時品目'
-        + (zs ? '<span class="zaiko-asof'+(zs.cls?' '+zs.cls:'')+'">'+eH(zs.text)+'</span>' : '')
-        + '</span>';
+  var h = '<div class="ya-extra-view"><span class="ya-extra-view-ttl">➕ 臨時品目</span>';
   rows.forEach(function(r){
     r.ps.forEach(function(p){
-      var z = extraZanFor(r.nm, p);
-      var qty = r.ex[p];
-      var body = eH(r.nm.replace('ヤオコー','').replace('店','')) + ' ' + eH(p);
       // 納品指示数は「→N個」と単位付きで出す（価格と数字が続くと桁を読み違えるため）
-      if(qty !== undefined && String(qty).trim() !== '') body += '<b>→'+eH(qty)+'個</b>';
-      if(z){
-        body += '<i>残:'+(z.zan||0)+' / 売:'+(z.hasSales ? z.sales : '-')+'</i>';
-      }
-      h += '<span class="ya-extra-view-chip">'+body+'</span>';
+      h += '<span class="ya-extra-view-chip">'
+         + eH(r.nm.replace('ヤオコー','').replace('店','')) + ' ' + eH(p)
+         + '<b>→'+eH(r.ex[p])+'個</b></span>';
     });
   });
   return h + '</div>';
@@ -1416,9 +1434,9 @@ function loadInitial(){
       // haveDisplay時は静かに諦める（既に表示済み・鮮度表示は維持）
     });
   });
-  // 【2026-08-12 変更】臨時品目の残在庫/販売数は閲覧モードでも表示するため、
-  // 初期表示の裏で用意する（スナップショット優先。メイン表示はブロックしない）。
-  if(_prepareZaiko()) _fetchZaiko(0);
+  // 【2026-08-14 変更】残在庫/販売数は編集モード専用の表示に戻したので、
+  // 初期表示（＝閲覧モード）では取得しない。編集モードに入った時点で
+  // toggleMode() が _prepareZaiko()/_fetchZaiko() を走らせる。
 }
 
 // ============ 残在庫/販売数のSWRキャッシュ ============
