@@ -212,7 +212,12 @@ var YAOKO_PRICES = ['¥99','¥198','¥398','¥598'];
 // index.html も同じ規則で haitatsu_latest を読むので、両者のキーは常に一致する。
 var IS_TEST_ENV = String(SNAPSHOT_URL).indexOf('/test/') > -1;
 function lsKey(base){ return base + (IS_TEST_ENV ? '_test' : ''); }
-var LS_HAITATSU_CACHE = lsKey('haitatsu_cache_v1');
+// 【2026-08-14 v1→v2】v1 には purge 済みの内容がサーバと同じ lastUpdated で
+// 焼き付いた端末があり、そのままでは鮮度ガードに阻まれて自力復帰できない
+// （坂戸千代田店の¥300×4がその端末だけ消えたままになった）。キー名を変えて
+// 汚染されたキャッシュを一斉に捨てさせる。キャッシュは再取得できる派生データ
+// なので捨てても失うものは無い（次回起動が一瞬遅くなるだけ）。
+var LS_HAITATSU_CACHE = lsKey('haitatsu_cache_v2');
 var LS_HAITATSU_LATEST = lsKey('haitatsu_latest');
 // 残在庫/販売数のSWRキャッシュ。既存の haitatsu_cache_v1 は納品数(items)と
 // lastUpdated しか持たないため専用キーを新設する。必ず lsKey() 経由（環境別分離）。
@@ -1294,7 +1299,17 @@ function _writeCache(payload){
 function _applyHaitatsuData(items, lastUpdated){
   // 臨時品目は「その日限り」。前日以前の指示は読み込み時点で落とす
   // （＝翌日以降に自動で持ち越さない。残在庫の参照表示は zaikoExtras 側で継続）。
-  state.data = _purgeStaleExtras(items || {});
+  //
+  // 【2026-08-14 修正・重要】必ずコピーしてから purge する。
+  // _purgeStaleExtras は渡されたオブジェクトを直接 delete で書き換えるため、
+  // 引数の items をそのまま渡すと呼び出し元（_applyIfNewer）が直後に
+  // _writeCache へ渡す items まで破壊され、「purge 済みの内容がサーバと同じ
+  // lastUpdated でキャッシュに焼き付く」。こうなると次回以降、鮮度ガードが
+  // 同一 lastUpdated を「新しくない」と判定して正しいデータの採用を永久に拒否し、
+  // シートには存在する臨時品目がその端末だけ二度と出なくなる
+  // （2026-08-14 に坂戸千代田店の¥300×4で実際に発生）。
+  // キャッシュはサーバの生データを保つ＝失効判定は毎回その日のルールでやり直す。
+  state.data = _purgeStaleExtras(JSON.parse(JSON.stringify(items || {})));
   state.lastUpdated = lastUpdated || '';
   state.origData = JSON.parse(JSON.stringify(state.data));
   state.loaded = true;
@@ -1313,10 +1328,26 @@ function _luMs(lu){
 //  - 採用時はlocalStorageキャッシュも更新（次回0秒表示 & 以後の上書きガードの基準）。
 // これにより generated_at が新しくても lastUpdated が古いスナップショットが、
 // 新しいlocalStorage/表示中データを上書きするバグを防ぐ。
+// 【2026-08-14 追加】lastUpdated が同じなら「同じ世代のデータ」なので、
+// 内容が食い違うときはサーバ側を正とする。厳密に > だけで判定していると、
+// 何らかの理由でキャッシュが実際と違う内容のまま同じ lastUpdated を持ってしまった
+// 端末が自力で復帰できない（キー名を変えて捨てさせるしか手が無くなる）。
+// 世代が同じもの同士の突合なので、古いスナップショットが新しいデータを潰す
+// 2026-07-22 型の回帰は起こさない。
+function _sameGenerationDiffers(items, lastUpdated){
+  if(_luMs(lastUpdated) !== _luMs(state.lastUpdated)) return false;
+  try {
+    return JSON.stringify(_purgeStaleExtras(JSON.parse(JSON.stringify(items || {}))))
+        !== JSON.stringify(state.data || {});
+  } catch(e){ return false; }
+}
 function _applyIfNewer(items, lastUpdated){
   if(state.dirty) return false;
-  if(!state.loaded || _luMs(lastUpdated) > _luMs(state.lastUpdated)){
+  if(!state.loaded || _luMs(lastUpdated) > _luMs(state.lastUpdated)
+     || _sameGenerationDiffers(items, lastUpdated)){
     _applyHaitatsuData(items, lastUpdated);
+    // items は _applyHaitatsuData で破壊されない（コピーしてから purge している）。
+    // ここでキャッシュに入るのは必ずサーバの生データ。
     _writeCache({ items: items, lastUpdated: lastUpdated });
     return true;
   }
