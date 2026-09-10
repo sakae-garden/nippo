@@ -124,9 +124,35 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .cm-empty{font-size:12px;color:#aaa;font-style:italic;padding:6px 0}
 
 /* 保存ボタン */
-.save-bar{position:sticky;bottom:0;background:linear-gradient(to top,rgba(245,241,232,1) 60%,rgba(245,241,232,0));padding:14px 0 4px;margin-top:8px}
+/* 【2026-09-10】position:sticky をやめた。sticky bottom:0 は viewport 下端＝
+   z-index:100 の固定フッター(.footer 高さ52px)の裏に潜り込むため、スクロール
+   途中では保存ボタンが黒いフッターに隠れて見えなかった。文書末尾に置く通常の
+   ボタンに戻し、常時見える導線は下の .unsaved-bar（フッター直上に固定）が担う。 */
+.save-bar{padding:14px 0 4px;margin-top:8px}
 .save-btn{width:100%;padding:14px;background:var(--green);color:#fff;border:none;border-radius:var(--r);font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;letter-spacing:.04em;box-shadow:0 2px 8px rgba(45,122,79,.3)}
 .save-btn:active{opacity:.85}.save-btn:disabled{opacity:.5;cursor:not-allowed}
+
+/* 未保存バー（編集モードで未保存の変更があるときだけ固定表示）。
+   位置は「🏠 ホームに戻る」フッター(高さ52px)の直上。重ならないよう bottom:52px、
+   z-index はフッター(100)より下の 99。件数は出さず「未保存」と保存ボタンだけ。 */
+.unsaved-bar{position:fixed;left:0;right:0;bottom:52px;z-index:99;display:flex;align-items:center;gap:10px;padding:9px 16px;background:rgba(253,251,247,.97);border-top:1px solid var(--border);box-shadow:0 -2px 10px rgba(0,0,0,.07)}
+.unsaved-bar[hidden]{display:none}
+.unsaved-lbl{flex:1;min-width:0;font-size:12px;font-weight:700;color:var(--orange);letter-spacing:.06em}
+.unsaved-bar .save-btn{width:auto;flex:none;padding:11px 22px;font-size:14px;box-shadow:none}
+/* 固定バーが出ている間は、文書末尾のコンテンツがバーに隠れないよう下端余白を増やす */
+body.has-unsaved{padding-bottom:120px}
+/* 同じボタンを二重に見せない。固定バーが出ている間は文書末尾の保存バーを隠す */
+body.has-unsaved .save-bar{display:none}
+/* トースト(bottom:70px)は固定バーの上に逃がす。重なると保存ボタンが読めなくなる */
+body.has-unsaved .toast{bottom:130px}
+
+/* 離脱警告モーダル（アプリ内リンクからの離脱時。price-modal の枠を再利用） */
+.leave-modal-msg{font-size:12px;color:var(--sub);line-height:1.7;text-align:center;margin-bottom:14px}
+.leave-modal-btns{display:flex;flex-direction:column;gap:8px}
+.leave-modal-btns button{width:100%;padding:11px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;border:none}
+.leave-save{background:var(--green);color:#fff}
+.leave-go{background:#fdecea;color:#b71c1c}
+.leave-cancel{background:#f0ede6;color:#666}
 
 /* 最終更新表示（目立たせる） */
 .last-upd{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--ink);background:#fff;border:1px solid var(--border);border-left:4px solid var(--green);border-radius:10px;padding:10px 14px;margin-bottom:14px;box-shadow:var(--shadow);letter-spacing:.02em}
@@ -202,6 +228,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 <div class="nippo-link-wrap"><a href="index.html" class="nippo-link-btn">📝 日報入力へ</a></div>
 <div id="app"><div id="loading"><div class="spinner"></div><br>読み込み中...</div></div>
 <div class="toast"><div class="toast-inner" id="toast"></div></div>
+<div class="unsaved-bar" id="unsavedBar" hidden><span class="unsaved-lbl">● 未保存</span><button class="save-btn" onclick="doSave()">💾 保存する</button></div>
 <footer class="footer"><a href="https://sakae-garden.github.io/">🏠 ホームに戻る</a></footer>
 <script src="shared-stores.js"></script>
 <script>
@@ -214,6 +241,8 @@ var ZAIKO_SNAPSHOT_URL = 'https://storage.googleapis.com/sakae-garden-snapshots/
 var SNAPSHOT_MAX_AGE_MS = 6 * 3600 * 1000;
 // 配信確認用マーカー。本番URLの実応答にこの文字列が含まれるかで反映を判定する。
 var ZAIKO_REVALIDATE_BUILD = 'zaiko-revalidate-20260816';
+// 未保存対策（固定バー＋下書き3層）の配信確認マーカー。
+var UNSAVED_GUARD_BUILD = 'unsaved-guard-20260910';
 var YAOKO_PRICES = ['¥99','¥198','¥398','¥598'];
 
 // SWR用 localStorage キー。/nippo/test/ は本番と同一オリジンで localStorage を共有するため、
@@ -356,7 +385,7 @@ function updPrice(storeName, price, val){
   if(!state.data[storeName]) state.data[storeName]={prices:{}};
   if(!state.data[storeName].prices) state.data[storeName].prices={};
   state.data[storeName].prices[price] = val;
-  state.dirty = true;
+  _setDirty(true);
   // 店舗小計・全ルート総合計・この経路合計を即時更新（入力ミス検算用）
   updateStoreSubtotal(storeName);
   updateAllRoutesTotal();
@@ -365,7 +394,7 @@ function updPrice(storeName, price, val){
 function updComment(storeName, val){
   if(!state.data[storeName]) state.data[storeName]={};
   state.data[storeName].comment = val;
-  state.dirty = true;
+  _setDirty(true);
 }
 
 // ============ 臨時品目（その日限りの価格）============
@@ -431,7 +460,7 @@ function updExtraPrice(storeName, price, val){
   e.extras[price] = val;
   e.extrasTouched = todayStr;   // 人が数値を入れた日。ここだけが有効期間を延ばす
 
-  state.dirty = true;
+  _setDirty(true);
   // 既存4価格の合計（at_/rt_・店舗小計）はここでは触らない＝臨時は既存合計に入らない。
   // 臨時は専用行(axt_/rxt_)だけをリアルタイム更新する。
   updateAllRoutesTotal();
@@ -505,7 +534,7 @@ function rmExtraForStore(storeName, price){
   } else {
     state.data[storeName].extrasTouched = todayStr;   // 残った分は編集した扱い
   }
-  state.dirty = true;
+  _setDirty(true);
   renderRoute();
 }
 // textarea を内容に合わせて自動リサイズ（スクロールなし・全文表示）
@@ -633,6 +662,7 @@ function switchRoute(i){
     }
   }
   state.route=i;
+  if(state.dirty) _saveDraftSoon();   // 下書きの route も追随させる
   for(var j=0;j<ROUTES.length;j++){ var t=document.getElementById('tab'+j); if(t) t.classList.toggle('active',j===i); }
   renderRoute();
 }
@@ -652,7 +682,7 @@ function toggleMode(){
       return;
     }
     state.data = JSON.parse(JSON.stringify(state.origData||{}));
-    state.dirty = false;
+    _setDirty(false);   // 変更を捨てたので端末の下書きも破棄する
   }
   var toEdit = (state.mode==='view');
   state.mode = (toEdit?'edit':'view');
@@ -664,6 +694,7 @@ function toggleMode(){
   // 取得はスナップショット優先（GCS・GAS実行スロットを消費しない）で、
   // スナップショットが使えないときだけ GAS へフォールバックする。
   var needFetch = (state.mode === 'edit') ? _prepareZaiko() : false;
+  _updateUnsavedBar();
   renderRoute();
   if(needFetch) _fetchZaiko(0);
 }
@@ -1121,7 +1152,7 @@ function _nowStamp(){
 function _saveSucceeded(payload, toastMsg){
   hideLoading();
   _clearPending();
-  state.dirty = false;
+  _setDirty(false);   // 端末の下書きも破棄し、固定バーを消す
   state.origData = JSON.parse(JSON.stringify(payload));
   state.lastUpdated = _nowStamp();
   // localStorageキャッシュ更新（保存本人は即時反映を体感できる。他閲覧者はスナップショット更新間隔待ち）
@@ -1131,6 +1162,11 @@ function _saveSucceeded(payload, toastMsg){
   state.dataStale = false;
   renderRoute();
   showToast(toastMsg);
+  // 「保存してから移動」で離脱待ちだった場合はここで移動する（保存成功時のみ）
+  if(_pendingLeaveHref){
+    var h = _pendingLeaveHref; _pendingLeaveHref = null; _leaving = true;
+    setTimeout(function(){ window.location.href = h; }, 700);
+  }
 }
 
 function _doSaveAttempt(attempt, payload, sess){
@@ -1246,7 +1282,7 @@ function _scheduleRecheck(payload, delaysMs){
         // 画面状態の更新は初期ロード完了後だけ（読み込み中に横入りして
         // 描画を壊さないようにする）。未完了ならバナー解消のみで十分。
         if(state && state.data){
-          state.dirty = false;
+          _setDirty(false);
           state.origData = JSON.parse(JSON.stringify(payload));
           state.lastUpdated = _nowStamp();
           _writeCache({ items: payload, lastUpdated: state.lastUpdated });
@@ -1304,7 +1340,7 @@ function resendPending(){
   var p = _readPending();
   if(!p){ _updatePendingBanner(); return; }
   state.data = _purgeStaleExtras(JSON.parse(JSON.stringify(p.items)));
-  state.dirty = true;
+  _setDirty(true);
   renderRoute();
   doSave();
 }
@@ -1313,6 +1349,189 @@ function discardPending(){
   _clearPending();
   showToast('未送信の入力を破棄しました');
 }
+
+// ============ 未保存の入力を守る（固定バー＋3層）============
+// 【2026-09-10 追加】保存ボタンを押さずにアプリを閉じて入力が消える事故が2〜3回。
+// 主因は保存ボタンが文書末尾にしか無く、しかも position:sticky の保存バーが
+// z-index:100 の固定フッターの裏に潜り込んでスクロール途中では見えなかったこと。
+// 対策の主役は「未保存バーの固定表示」(.unsaved-bar)で、以下の3層はその保険。
+//   層1 入力のたびに端末へ下書きを退避する（GASへは送らない）
+//   層2 離脱しようとしたら警告する（アプリ内リンクはその場で保存できる）
+//   層3 次回起動時に下書きがあればバナーで復元/破棄を選ばせる
+//
+// 【自動保存（GASへの自動送信）は採用しない】
+// 臨時品目のH列JSONで、失効した extras を落とした状態で保存するとH列が空で
+// 上書きされる事故が過去にあり、そのときの対処が「保存ボタンを押さないでください」
+// という周知だった。自動送信はその避難路を潰すため入れない。下書きは端末内に
+// 留め、サーバへ書くのは人が保存ボタンを押したときだけ。
+var LS_HAITATSU_DRAFT = lsKey('haitatsu_draft_v1');
+
+// ---- 層1: 下書きの自動退避 ----
+var _draftTimer = null;
+function _writeDraftNow(){
+  if(_draftTimer){ clearTimeout(_draftTimer); _draftTimer = null; }
+  if(!state.dirty || state.mode !== 'edit') return;   // 閲覧モードでは一切書かない
+  try {
+    localStorage.setItem(LS_HAITATSU_DRAFT, JSON.stringify({
+      date:  todayStr,          // 復元可否の判定に使う（当日/前日のみ）
+      route: state.route,       // 復元後に開く経路タブ
+      items: state.data || {},  // 入力値（全店舗ぶん。saveHaitatsu へ送るのと同じ形）
+      at:    _nowStamp()        // 退避時刻
+    }));
+  } catch(e){ /* 容量超等は無視。固定バーと離脱警告は残る */ }
+}
+function _saveDraftSoon(){
+  if(_draftTimer) clearTimeout(_draftTimer);
+  _draftTimer = setTimeout(_writeDraftNow, 300);   // 連打入力でのJSON化を間引く
+}
+function _clearDraft(){
+  if(_draftTimer){ clearTimeout(_draftTimer); _draftTimer = null; }
+  try { localStorage.removeItem(LS_HAITATSU_DRAFT); } catch(e){}
+}
+function _readDraft(){
+  try {
+    var raw = localStorage.getItem(LS_HAITATSU_DRAFT);
+    if(!raw) return null;
+    var o = JSON.parse(raw);
+    if(!o || !o.items || typeof o.items !== 'object') return null;
+    // 復元対象は当日または前日の下書きだけ。それより古いものは自動破棄する。
+    // 判定は臨時品目と同じ _dAlive（前夜入力→翌日配達の運用に合わせた規則）。
+    if(!_dAlive(o.date)){ _clearDraft(); return null; }
+    return o;
+  } catch(e){ return null; }
+}
+
+// state.dirty の変更は必ずここを通す。固定バー・下書きと状態がずれないようにする。
+function _setDirty(v){
+  state.dirty = !!v;
+  if(state.dirty) _saveDraftSoon(); else _clearDraft();
+  _updateUnsavedBar();
+}
+function _updateUnsavedBar(){
+  var bar = document.getElementById('unsavedBar');
+  if(!bar) return;
+  var show = (state.mode === 'edit' && !!state.dirty);
+  bar.hidden = !show;
+  // 文書末尾が固定バーに隠れないよう本文の下端余白を増やす／戻す
+  if(show) document.body.classList.add('has-unsaved');
+  else     document.body.classList.remove('has-unsaved');
+}
+
+// ---- 層2: 離脱時の警告 ----
+// 【0-4 の判定】Android Chrome と、ホーム画面に追加した PWA(standalone) で
+// 確実に発火するのは visibilitychange の hidden だけ。
+//   ・visibilitychange(hidden) … タブ切替・ホームボタン・アプリスワイプ終了・
+//       画面消灯のいずれでも発火する。OSがプロセスを破棄する前の最後の機会。
+//   ・pagehide … 遷移・破棄では発火するが、PWAのタスクスワイプ終了では
+//       発火しないことがある（bfcache入りとプロセス終了で挙動が割れる）。
+//   ・beforeunload … タブを閉じる/戻る/リロードでは効くが、モバイルの
+//       アプリ終了では発火しない。さらに標準ダイアログは文言を差し替えられず、
+//       独自ボタンも置けない仕様（Chrome）。
+// したがって役割を分ける:
+//   下書きの確定書き込み   → visibilitychange(hidden) ＋ pagehide（確実な側）
+//   アプリ内リンクでの離脱 → 自前モーダル（＝その場で保存できるボタンを置ける）
+//   タブを閉じる/戻る/リロード → beforeunload の標準ダイアログ（保険）
+//   常時の警告             → 固定バー .unsaved-bar 自体（保存ボタン付き）
+var _pendingLeaveHref = null;   // 「保存してから移動」の待ち先
+var _leaving = false;           // 自前導線での離脱中。beforeunload を二重に出さない
+
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState === 'hidden'){
+    _writeDraftNow();          // ここが最後の確実な機会。間引きを飛ばして即書く
+  } else {
+    _updateUnsavedBar();       // 復帰時に未保存なら保存ボタン付きバーを出し直す
+  }
+});
+window.addEventListener('pagehide', function(){ _writeDraftNow(); });
+window.addEventListener('beforeunload', function(e){
+  if(_leaving) return;                                  // 自前モーダルで合意済み
+  if(!(state.dirty && state.mode === 'edit')) return;   // 変更が無ければ警告しない
+  _writeDraftNow();
+  e.preventDefault();
+  e.returnValue = '';
+  return '';
+});
+
+// アプリ内リンク（🏠 ホームに戻る / 📝 日報入力へ）からの離脱を捕まえる。
+// ここは自前モーダルを出せる＝「その場で保存する」ボタンを置ける唯一の離脱経路。
+function _bindLeaveGuards(){
+  var links = document.querySelectorAll('.footer a, .nippo-link-btn');
+  for(var i=0;i<links.length;i++){
+    links[i].addEventListener('click', function(e){
+      if(!(state.dirty && state.mode === 'edit')) return;   // 変更が無ければ素通し
+      e.preventDefault();
+      _showLeaveModal(this.getAttribute('href'));
+    });
+  }
+}
+function _showLeaveModal(href){
+  var ov = document.createElement('div');
+  ov.className = 'price-modal-ov';
+  ov.innerHTML = '<div class="price-modal"><div class="price-modal-ttl">未保存の変更があります</div>'
+    + '<div class="leave-modal-msg">保存せずに移動すると、入力した内容はサーバに反映されません。<br>下書きは端末に残るので、次回起動時に復元できます。</div>'
+    + '<div class="leave-modal-btns">'
+    + '<button type="button" class="leave-save">💾 保存してから移動</button>'
+    + '<button type="button" class="leave-go">保存せずに移動</button>'
+    + '<button type="button" class="leave-cancel">この画面に戻る</button>'
+    + '</div></div>';
+  document.body.appendChild(ov);
+  function close(){ if(ov.parentNode) ov.parentNode.removeChild(ov); }
+  ov.querySelector('.leave-save').onclick   = function(){ close(); _pendingLeaveHref = href; doSave(); };
+  ov.querySelector('.leave-go').onclick     = function(){ close(); _writeDraftNow(); _leaving = true; window.location.href = href; };
+  ov.querySelector('.leave-cancel').onclick = function(){ close(); };
+  ov.addEventListener('click', function(e){ if(e.target === ov) close(); });
+}
+
+// ---- 層3: 次回起動時のバナー ----
+function _draftStamp(d){
+  var m = String((d && d.at) || '').match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/);
+  if(!m) return String((d && d.at) || '');
+  return parseInt(m[2],10) + '/' + parseInt(m[3],10) + ' ' + m[4] + ':' + m[5];
+}
+function _updateDraftBanner(){
+  var d  = _readDraft();
+  var el = document.getElementById('draft_notice');
+  if(!d){ if(el && el.parentNode) el.parentNode.removeChild(el); return; }
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'draft_notice';
+    el.style.cssText = 'background:#fff8e1;color:#8a6a1c;border:1px solid #ffcc80;border-radius:8px;padding:9px 10px;margin:0 16px 8px;font-size:12px;text-align:center;font-weight:600;line-height:1.9';
+    var app = document.getElementById('app');
+    if(app && app.parentNode) app.parentNode.insertBefore(el, app);
+  }
+  el.innerHTML = '\ud83d\udcdd 未保存の下書きがあります（' + eH(_draftStamp(d)) + '）'
+    + '<br><button onclick="restoreDraft()" style="background:#8a6a1c;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">復元する</button>'
+    + ' <button onclick="discardDraft()" style="margin-left:4px;background:none;border:1px solid #e0c97f;border-radius:6px;padding:6px 12px;font-family:inherit;font-size:12px;color:#8a6a1c;cursor:pointer">破棄する</button>';
+}
+// 復元は「入力欄に戻す」までで、サーバへは送らない（＝自動保存にしない）。
+// 復元後は通常どおり保存ボタンを押してもらう。
+function restoreDraft(){
+  var d = _readDraft();
+  if(!d){ _updateDraftBanner(); return; }
+  // 失効した臨時品目は保存時・再送時と同じ規則で落とす。下書き復元が extras の
+  // 日付判定に独自の解釈を持ち込まないよう、判定は _purgeStaleExtras に必ず統一する。
+  state.data   = _purgeStaleExtras(JSON.parse(JSON.stringify(d.items)));
+  state.loaded = true;
+  if(!state.origData) state.origData = {};
+  if(typeof ROUTES !== 'undefined' && typeof d.route === 'number'
+     && d.route >= 0 && d.route < ROUTES.length){
+    state.route = d.route;
+    renderRouteTabs();
+  }
+  var el = document.getElementById('draft_notice');
+  if(el && el.parentNode) el.parentNode.removeChild(el);
+  if(state.mode !== 'edit') toggleMode();   // 編集モードへ（残在庫の取得も従来どおり）
+  _setDirty(true);                          // 以降サーバ応答で上書きされない(_applyIfNewer)
+  renderRoute();
+  showToast('下書きを復元しました。保存ボタンを押してください');
+}
+function discardDraft(){
+  if(!confirm('未保存の下書きを破棄します。よろしいですか？')) return;
+  _clearDraft();
+  _updateDraftBanner();
+  showToast('下書きを破棄しました');
+}
+
 
 // ============ SWR初期読み込み ============
 // 読み込み優先順位:
@@ -1505,8 +1724,9 @@ function loadInitial(){
         return;
       }
       // GAS失敗
-      if(!haveDisplay){
+      if(!haveDisplay && !state.dirty){
         // キャッシュもスナップショットも無い→空描画（renderRoute内の「未入力」表示に任せる）
+        // ※下書きを復元済み(dirty)なら空で潰さない
         _applyHaitatsuData({}, '');
         _updateStaleBanner('⚠️ サーバ接続失敗。しばらく待って再読み込みしてください。');
       }
@@ -1741,6 +1961,9 @@ _updatePendingBanner();
   var p = _readPending();
   if(p && p.items) _scheduleRecheck(p.items, [300, 6000, 15000]);
 })();
+// 未保存の下書き（保存ボタンを押さずに閉じた分）の復元導線とアプリ内離脱ガード
+_bindLeaveGuards();
+_updateDraftBanner();
 </script>
 </body>
 </html>
