@@ -358,11 +358,13 @@ var IS_TEST_ENV = String(LABEL_SNAPSHOT_URL).indexOf('/test/') > -1;
 function lsKey(base){ return base + (IS_TEST_ENV ? '_test' : ''); }
 var LS_CONFIG           = lsKey('nippo_config');
 var LS_HAITATSU_LATEST  = lsKey('haitatsu_latest');
-// 【2026-09-21 追加】haitatsu_latest を「いつ取得したセットか」。
-// 配達商品情報は前夜に翌日分を入力する運用なので、シート側の更新日時は
-// 当日にならない。当日かどうかを判定できるのは端末が取りに行った日だけ。
-// このスタンプが当日でないキャッシュからは納品数を自動入力しない（件2対策）。
+// 【2026-09-21 追加 → 2026-09-24 廃止】「いつ取得したセットか」を持つ旧キー。
+// 取得日で判定すると、その日はじめて取得が成功するまで必ず false になるため、
+// 1店舗目だけ自動入力されなくなっていた。判定には使わない（記録のみ残す）。
 var LS_HAITATSU_FETCHED = lsKey('haitatsu_fetched_day_v1');
+// 【2026-09-24 追加】そのセットが「何日の配達に向けた指示か」＝対象日。
+// 判定はこちらで行う。値は 'YYYY-MM-DD'。
+var LS_HAITATSU_TARGET  = lsKey('haitatsu_target_day_v1');
 var LS_SANCHI_ISSUED    = lsKey('sanchi_issued_today_v1');
 
 var state = { screen:'home', route:0, store:null, formData:{}, staff:'', config:null, extraPrices:[], labelAlert:null, labelIssued:{}, labelIssuedTotal:null, manualIssueOpen:false, sanchiIssuedToday:0 };
@@ -513,6 +515,8 @@ function renderHome() {
   document.getElementById('app').innerHTML=html;
   // 未送信の日報が端末に残っていれば、店舗一覧の先頭に再送導線を出す
   _updateSubmitPendingBanner();
+  // 納品指示が取れていない／当日分が無いときの警告バー
+  _updateHaitatsuNotice();
 }
 
 // ============ ラベル在庫アラート（②産地シール / ③値段シール） ============
@@ -754,8 +758,10 @@ function openStore(id) {
   // 同一日・同一経路で先に送信した担当者があれば自動選択（誤タップ抑止のため送信成功時のみ記憶）
   applyStaffMemory(id);
   setHeader(state.store.name,true,false); renderForm();
-  // バックグラウンドで getHaitatsu を fetch して localStorage を更新（既存表示は待たない・次回反映）
-  fetchHaitatsuBackground();
+  // 【2026-09-24】ここでの再取得は廃止。納品指示は配達出発前に確定しているので
+  // 起動時の1回で足りる。店舗を開くたびに GAS を叩くと 13 回/配達になる。
+  // 取得が終わっていない／当日分が無い／取得に失敗した、は通知バーで知らせる。
+  _updateHaitatsuNotice();
 }
 
 // ===== 担当者の経路内自動引継 =====
@@ -817,37 +823,88 @@ function applyStaffMemory(id){
   } catch(e){}
 }
 
-// 端末キャッシュが当日に取得したものか。
-// 【件2（1日の最初だけ納品数が前日の値になる）の対策 / 2026-09-21】
-// applyHaitatsuDefault は localStorage を 0ms で読んでそのまま納品数に入れていた。
-// そのキャッシュは「端末が最後に getHaitatsu を成功させた時点」のもので、
-// 朝いちばんは前日に取った内容がそのまま入る。裏で走る fetchHaitatsuBackground は
-// localStorage を書き換えるだけで画面に反映しないので、その日の1店舗目だけが
-// 前日の値になり、2店舗目以降は正しくなる——という症状になっていた。
-// 対策: 取得日スタンプが当日でないキャッシュからは自動入力しない。
-//       当日分が裏の取得で届いたら、その場で未入力欄にだけ反映する。
-function _haitatsuCacheIsToday(){
-  try { return localStorage.getItem(LS_HAITATSU_FETCHED) === todayStr; }
-  catch(e){ return false; }
+// ===== 納品指示（配達商品情報）の当日判定 =====
+// 【2026-09-24 全面見直し】
+// 2026-09-21 の対策は「端末がそのセットを取得した日」を見ていた。これは
+// 「その日はじめて取得に成功するまで必ず当日でない」ことを意味するので、
+// 起動直後に開く1店舗目は構造的に必ず自動入力されない。2店舗目以降は
+// 起動時取得が返り終わっているので入る——というのが今回の症状。
+// さらに、当日分の指示が入力されていない場合も取得日スタンプは当日になるため、
+// 前日のセットを当日分として黙って自動入力してしまう欠陥もあった。
+//
+// 正しい基準は「そのセットが何日の配達に向けた指示か」＝対象日。
+// 配達商品情報は全店舗まとめて1セットで upsert され、getHaitatsu の
+// lastUpdated はそのセット全体の保存時刻（Asia/Tokyo, 'YYYY-MM-DD HH:mm:ss'）。
+// 運用は「前夜または当日朝に入力、配達出発前には必ず存在」なので:
+//   ・正午より前に保存 → その日の配達分
+//   ・正午以降に保存   → 翌日の配達分（前夜入力）
+// 配達の実測時間帯は 6:39〜11時台（日報の送信時刻・2026-08-25以降）なので、
+// 正午を境にすれば配達中の修正が翌日分に化けることはない。
+//
+// ★★★ この「保存時刻から対象日を推定する」構造は暫定である（2026-09-24 杉さん承認） ★★★
+// 本来は配達商品情報が保存の時点で「何日の配達に向けた指示か」を明示的に持つべきで、
+// 推定は要らない。次の作業でそちらへ移行する:
+//   ・配達商品情報シート（GAS nippo_summary_gas.js / HAITATSU_HEADERS）に対象日の列を追加
+//   ・haitatsu.html が保存時に対象日を明示して送る
+//   ・ここは lastUpdated からの推定をやめ、その対象日をそのまま使う
+//     （_haitatsuTargetDay / HAITATSU_EVENING_CUTOFF_H はその時点で不要になる）
+// 移行までの間だけ、正午を境にした推定で代用する。
+// なお正午の境目は「配達後（正午以降）に当日分を修正する運用があるか」の
+// 確認待ち。その運用があれば境目を後ろへずらす必要がある（ただし上の移行を
+// 済ませれば境目そのものが不要になる）。
+var HAITATSU_BUILD = 'haitatsu-target-day-20260924';   // 本番反映の確認用マーカー
+var HAITATSU_EVENING_CUTOFF_H = 12;   // ↑のとおり暫定
+var HAITATSU_TIMEOUT      = 20000;   // 起動時取得のタイムアウト
+var HAITATSU_RETRY_WAIT   = 8000;    // 失敗時に1回だけ置く間隔（1-4）
+
+function _haitatsuTargetDay(lastUpdated){
+  var m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):/.exec(String(lastUpdated||''));
+  if(!m) return '';
+  var d = new Date(parseInt(m[1],10), parseInt(m[2],10)-1, parseInt(m[3],10));
+  if(parseInt(m[4],10) >= HAITATSU_EVENING_CUTOFF_H) d.setDate(d.getDate()+1);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
+function _haitatsuCacheTargetDay(){
+  try { return localStorage.getItem(LS_HAITATSU_TARGET) || ''; } catch(e){ return ''; }
+}
+// キャッシュが「当日の配達に向けた指示」か。前日以前の指示では false。
+function _haitatsuCacheIsToday(){ return _haitatsuCacheTargetDay() === todayStr; }
+
+// 通知バーの状態: 'ok' 取得済みで当日分 / 'loading' 取得中 /
+//                 'stale' 当日分が無い / 'error' 取得できなかった
+var haitatsuStatus = _haitatsuCacheIsToday() ? 'ok' : 'loading';
+var haitatsuInfo   = { target:'', lastUpdated:'' };
 
 // localStorage から当日の配達商品情報を読んで state.formData['納品_'+price] にセット
 // 同期処理。失敗は黙殺（起動を絶対に止めない）。
-function applyHaitatsuDefault(id) {
+// opts.onlyEmpty : 既に値が入っている欄は触らない（人の手入力を絶対に上書きしない）
+// 戻り値: 実際に値を入れたキーの配列
+function applyHaitatsuDefault(id, opts) {
+  opts = opts || {};
+  var filled = [];
+  function put(key, v){
+    if(opts.onlyEmpty){
+      var cur = state.formData[key];
+      if(cur !== '' && cur !== null && cur !== undefined) return false;
+    }
+    state.formData[key] = String(v);
+    filled.push(key);
+    return true;
+  }
   try {
     var def = STORE_DEFS[id];
-    if(!def) return;
-    // 当日に取得したキャッシュでなければ前日の値なので入れない（件2）
-    if(!_haitatsuCacheIsToday()) return;
+    if(!def) return filled;
+    // 対象日が当日の指示でなければ入れない（前日以前の値を混入させない）
+    if(!_haitatsuCacheIsToday()) return filled;
     var raw = localStorage.getItem(LS_HAITATSU_LATEST);
-    if(!raw) return;
+    if(!raw) return filled;
     var all = JSON.parse(raw);
     var entry = all && all[def.name];
-    if(!entry) return;
+    if(!entry) return filled;
     if(entry.prices){
       Object.keys(entry.prices).forEach(function(price){
         var v = entry.prices[price];
-        if(v!==''&&v!==null&&v!==undefined) state.formData['納品_'+price] = String(v);
+        if(v!==''&&v!==null&&v!==undefined) put('納品_'+price, v);
       });
     }
     // 臨時品目（配達商品情報で追加された定番外の価格）も納品数の既定値にする。
@@ -863,52 +920,138 @@ function applyHaitatsuDefault(id) {
         if((def.prices||[]).indexOf(price) > -1) return;
         var v = entry.extras[price];
         if(v===''||v===null||v===undefined) return;
-        if(state.extraPrices.indexOf(price) < 0) state.extraPrices.push(price);
-        state.formData['納品_臨#'+price] = String(v);
+        var had = state.extraPrices.indexOf(price) >= 0;
+        if(!had) state.extraPrices.push(price);
+        // 値を入れられなかった（手入力済み・入力中）のに行だけ増やすことはしない
+        if(!put('納品_臨#'+price, v) && !had) state.extraPrices.pop();
       });
       state.extraPrices.sort(function(a,b){return parseInt(a.replace('¥',''),10)-parseInt(b.replace('¥',''),10);});
     }
   } catch(e) {}
+  return filled;
 }
 
 var _haitatsuBgInflight = false;
-function fetchHaitatsuBackground() {
+// 起動時に1回だけ取得する（1-5）。失敗したときだけ、少し置いて1回再試行する（1-4）。
+// 成功後は店舗を開くたびに叩き直さない。
+function fetchHaitatsuBackground(attempt) {
+  attempt = attempt || 0;
   if(_haitatsuBgInflight) return;
   _haitatsuBgInflight = true;
+  if(haitatsuStatus !== 'ok') { haitatsuStatus = 'loading'; _updateHaitatsuNotice(); }
   // 日付キー廃止：常に最新1セットを取得
   jsonp(API_URL+'?action=getHaitatsu','cb_hai',function(res){
     _haitatsuBgInflight = false;
     if(res && res.success && res.items){
+      var target = _haitatsuTargetDay(res.lastUpdated);
+      haitatsuInfo = { target: target, lastUpdated: String(res.lastUpdated||'') };
       try {
         localStorage.setItem(LS_HAITATSU_LATEST, JSON.stringify(res.items));
-        localStorage.setItem(LS_HAITATSU_FETCHED, todayStr);   // 当日取得の印（件2）
+        localStorage.setItem(LS_HAITATSU_TARGET, target);       // 指示の対象日（判定用）
+        localStorage.setItem(LS_HAITATSU_FETCHED, todayStr);    // 取得日（記録のみ・判定には使わない）
       } catch(e){}
-      _applyHaitatsuToOpenForm();
+      haitatsuStatus = (target === todayStr) ? 'ok' : 'stale';
+      if(haitatsuStatus === 'ok') _applyHaitatsuToOpenForm();
+      _updateHaitatsuNotice();
+      return;
     }
-  },function(){ _haitatsuBgInflight = false; });
+    _haitatsuFetchFailed(attempt);
+  },function(){ _haitatsuBgInflight = false; _haitatsuFetchFailed(attempt); }, HAITATSU_TIMEOUT);
 }
+function _haitatsuFetchFailed(attempt){
+  if(attempt === 0){
+    setTimeout(function(){ fetchHaitatsuBackground(1); }, HAITATSU_RETRY_WAIT);
+    return;   // 再試行中は 'loading' のまま
+  }
+  if(haitatsuStatus !== 'ok') haitatsuStatus = 'error';
+  _updateHaitatsuNotice();
+}
+function retryHaitatsu(){ fetchHaitatsuBackground(1); }
 
-// 当日分が裏の取得で届いたときに、開いている入力画面へ反映する。
-// 入力を奪わないための条件:
-//   ・入力フォーム画面を開いていること
-//   ・納品欄に既に値が入っていないこと（人が入れた値は絶対に上書きしない）
-//   ・いま入力欄にフォーカスが無いこと（再描画でキーボードを閉じさせない）
-// 条件を満たさないときは何もしない（＝黙って前日の値を出すよりは空のまま）。
+// 当日分が裏の取得で届いたときに、すでに描画済みの入力画面へ反映する（1-2）。
+// 【2026-09-24 変更】従来は「納品欄にひとつでも値が入っていたら何もしない」
+// 「入力欄にフォーカスがあったら何もしない」という全か無かの判定だった。
+// 1店舗目は取得の到着前に人が入力を始めているのが普通なので、この条件では
+// ほぼ必ず不発になる。未入力の欄だけを埋める方式に改める。
+//   ・手入力済みの欄は触らない（onlyEmpty）
+//   ・再描画はせず input.value を差し込む（キーボードを閉じさせない）
+//   ・臨時品目で行が増えるときだけ再描画し、フォーカスと位置を復元する
+// フォーカス中の欄も、空であれば入れる。空＝まだ人が何も入れていないので
+// 奪うものが無く、ここを避けると「見ている欄だけ永久に空」になってしまう。
+// ただし入れた値は選択状態にして、続けて打った数字が連結されないようにする。
 function _applyHaitatsuToOpenForm(){
   try {
     if(state.screen !== 'form' || !state.storeId) return;
     var ae = document.activeElement;
-    if(ae && (ae.tagName==='INPUT' || ae.tagName==='TEXTAREA')) return;
-    var hasNouhin = Object.keys(state.formData||{}).some(function(k){
-      var v = state.formData[k];
-      return k.indexOf('納品_')===0 && v!=='' && v!==null && v!==undefined;
+    var beforeExtras = state.extraPrices.length;
+    var filled = applyHaitatsuDefault(state.storeId, { onlyEmpty:true });
+    if(!filled.length) return;
+    if(state.extraPrices.length !== beforeExtras){ _renderFormKeepFocus(); return; }
+    filled.forEach(function(key){
+      var el = document.querySelector('[data-fkey="'+key+'"]');
+      if(!el) return;
+      el.value = state.formData[key];
+      if(el === ae){ try{ el.select(); }catch(e){} }
     });
-    if(hasNouhin) return;
-    var before = JSON.stringify(state.formData) + '|' + JSON.stringify(state.extraPrices);
-    applyHaitatsuDefault(state.storeId);
-    if(JSON.stringify(state.formData) + '|' + JSON.stringify(state.extraPrices) === before) return;
-    renderForm();
   } catch(e){}
+}
+function _renderFormKeepFocus(){
+  var ae = document.activeElement;
+  var k = (ae && ae.getAttribute) ? ae.getAttribute('data-fkey') : null;
+  var wasVal = (ae && k) ? ae.value : null;
+  var pos = null;
+  try { pos = (ae && typeof ae.selectionStart === 'number') ? ae.selectionStart : null; } catch(e){}
+  renderForm();
+  if(!k) return;
+  var el = document.querySelector('[data-fkey="'+k+'"]');
+  if(!el) return;
+  try {
+    el.focus();
+    // 空だった欄に指示が入ったときは選択状態にする（続けて打っても連結しない）
+    if(el.value !== wasVal && el.value !== '') el.select();
+    else if(pos !== null) el.setSelectionRange(pos,pos);
+  } catch(e){}
+}
+
+// ===== 納品指示の状態バー（1-3 / 1-4） =====
+// 「配達出発前には必ず存在する」ものなので、当日分が無ければ黙って空欄にせず
+// 目立つ警告を出す。通信エラーで取れなかった場合とは文面を分ける。
+// #app の外に置くので、ホーム↔入力画面を行き来しても消えない。
+function _updateHaitatsuNotice(){
+  var el = document.getElementById('haitatsu_notice');
+  var show = (state.screen === 'home' || state.screen === 'form') && haitatsuStatus !== 'ok';
+  if(!show){ if(el && el.parentNode) el.parentNode.removeChild(el); return; }
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'haitatsu_notice';
+    var app = document.getElementById('app');
+    if(app && app.parentNode) app.parentNode.insertBefore(el, app);
+  }
+  var tone = (haitatsuStatus === 'loading')
+    ? {bg:'#f0f4f8',fg:'#5b7a99',bd:'#b0bec5',btn:'#5b7a99'}
+    : (haitatsuStatus === 'stale')
+      ? {bg:'#fdecea',fg:'#b71c1c',bd:'#ef9a9a',btn:'#b71c1c'}
+      : {bg:'#fff8e1',fg:'#8a6100',bd:'#ffd54f',btn:'#8a6100'};
+  el.style.cssText = 'background:'+tone.bg+';color:'+tone.fg+';border:1px solid '+tone.bd
+    + ';border-radius:8px;padding:10px;margin:0 16px 8px;font-size:12px;text-align:center;font-weight:600;line-height:1.8';
+  var h;
+  if(haitatsuStatus === 'loading'){
+    h = '納品指示を取得中…<br>届くまで納品数は自動入力されません。';
+  } else if(haitatsuStatus === 'stale'){
+    h = '⚠️ 本日分の納品指示がありません<br>'
+      + '配達商品情報に本日（'+eH(todayStr)+'）の分が入っていません。'
+      + (haitatsuInfo.lastUpdated ? '<br>最終更新 '+eH(haitatsuInfo.lastUpdated)
+          + (haitatsuInfo.target ? '（'+eH(haitatsuInfo.target)+'の配達分）' : '') : '')
+      + '<br>前の日の値を入れないため、納品数は空欄のままにしています。';
+  } else {
+    h = '⚠️ 納品指示を取得できませんでした<br>通信エラーです（再試行も失敗）。'
+      + '<br>納品数は空欄のままです。手入力するか、電波の良い場所で再取得してください。';
+  }
+  if(haitatsuStatus !== 'loading'){
+    h += '<div><button onclick="retryHaitatsu()" style="margin-top:7px;background:'+tone.btn
+      + ';color:#fff;border:none;border-radius:6px;padding:6px 14px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">再取得する</button></div>';
+  }
+  el.innerHTML = h;
 }
 
 function renderForm() {
@@ -969,7 +1112,7 @@ function bTable(prices, isYaokoLike, hasSosei) {
     cols.forEach(function(c){
       var key = c+'_'+p;
       var v = state.formData[key] || '';
-      h+='<td class="itbl-cell '+colCls[c]+'"><input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="0" value="'+eA(v)+'" oninput="upd(\''+eA(key)+'\',this.value)"></td>';
+      h+='<td class="itbl-cell '+colCls[c]+'"><input type="text" inputmode="numeric" pattern="[0-9]*" data-fkey="'+eA(key)+'" placeholder="0" value="'+eA(v)+'" oninput="upd(\''+eA(key)+'\',this.value)"></td>';
     });
     h+='</tr>';
   });
@@ -981,7 +1124,7 @@ function bTable(prices, isYaokoLike, hasSosei) {
       cols.forEach(function(c){
         var key = c+'_'+suffix;
         var v = state.formData[key] || '';
-        h+='<td class="itbl-cell '+colCls[c]+'"><input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="0" value="'+eA(v)+'" oninput="upd(\''+eA(key)+'\',this.value)"></td>';
+        h+='<td class="itbl-cell '+colCls[c]+'"><input type="text" inputmode="numeric" pattern="[0-9]*" data-fkey="'+eA(key)+'" placeholder="0" value="'+eA(v)+'" oninput="upd(\''+eA(key)+'\',this.value)"></td>';
       });
       h+='</tr>';
     });
@@ -1043,7 +1186,7 @@ function bExtraMgr() {
 function frow(label,key,isExtra) {
   var v=state.formData[key]||'';
   var unit=(state.store.units&&state.store.units[label])?state.store.units[label]:'個';
-  return '<div class="frow'+(isExtra?' extra':'')+'"><span class="frow-lbl">'+label+'</span><div class="frow-inp"><input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="0" value="'+eA(v)+'" oninput="upd(\''+eA(key)+'\',this.value)"><span class="frow-unit">'+unit+'</span></div></div>';
+  return '<div class="frow'+(isExtra?' extra':'')+'"><span class="frow-lbl">'+label+'</span><div class="frow-inp"><input type="text" inputmode="numeric" pattern="[0-9]*" data-fkey="'+eA(key)+'" placeholder="0" value="'+eA(v)+'" oninput="upd(\''+eA(key)+'\',this.value)"><span class="frow-unit">'+unit+'</span></div></div>';
 }
 function addExtraPrice() {
   // prompt を廃止し、inputmode="numeric" のHTML入力モーダルで金額入力（数字テンキー対応）
@@ -1619,7 +1762,7 @@ function _runSubmit(pending, isResend){
 // reqId を渡すと、その送信の確認状態を表示する枠を出す（楽観的UI）。
 // 渡さない場合（従来の再送成功時など）は枠を出さない。
 function renderDone(reqId) {
-  state.screen='done';setHeader('送信完了',false,false);
+  state.screen='done';setHeader('送信完了',false,false);_updateHaitatsuNotice();
   var s=state.store;
   var confirm=renderDoneConfirm(s);
   var status = reqId
@@ -1813,7 +1956,7 @@ function _autoResolveSubmitPending(){
 // 当日の任意発行累計を localStorage から復元（リロードでアラートが復活しないように）
 state.sanchiIssuedToday = _loadSanchiIssuedToday();
 renderRouteTabs();
-loadConfig(function(){ renderHome(); fetchHaitatsuBackground(); fetchLabelAlert(); fetchLabelIssuedTotal(); _autoResolveSubmitPending(); });
+loadConfig(function(){ renderHome(); fetchHaitatsuBackground(0); fetchLabelAlert(); fetchLabelIssuedTotal(); _autoResolveSubmitPending(); });
 </script>
 
 <footer style="position:fixed;bottom:0;left:0;width:100%;height:52px;background:#1c1c1e;display:flex;align-items:center;justify-content:center;z-index:100">
