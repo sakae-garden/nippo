@@ -80,6 +80,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:#e8e0d0;min-height:100vh;p
 .esm-stat{font-size:11px;color:rgba(255,255,255,.55);letter-spacing:.04em;line-height:1.3}
 .esm-stat.reflected{color:#2ecc71;font-weight:600}
 .esm-stat.pending{color:rgba(255,255,255,.5)}
+.esm-stat.stale{color:#ffb74d;font-weight:600}
 </style>
 </head>
 <body>
@@ -87,6 +88,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:#e8e0d0;min-height:100vh;p
   <div class="topbar-l">
     <h1>🍄 配達日報サマリー</h1>
     <div id="esmStat" class="esm-stat"></div>
+    <div id="shownStat" class="esm-stat"></div>
   </div>
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
     <a href="index.html" style="font-size:12px;color:rgba(255,255,255,.7);text-decoration:none">← 日報入力に戻る</a>
@@ -106,9 +108,12 @@ body{font-family:'Noto Sans JP',sans-serif;background:#e8e0d0;min-height:100vh;p
 <script src="shared-stores.js"></script>
 <script>
 var API_URL='https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkVvYc7V77OJrh7h_PZCqtuV4aUL7NYz83VsNc5lY6sXONw/exec';
-// スナップショット配信URL（GCS+CORS+publicRead。フロントの初期表示を高速化する）
+// スナップショット配信URL（GCS+CORS+publicRead）。
+// 【2026-09-27】GAS が詰まって getAllData が返らない間の「代わりの出どころ」として使う。
+// summary.json は 4:30 とエスマルシェの反映ごとに snapshot_writer が getAllData から作る。
+// GAS が返ってくれば GAS を正とし、販売数だけは両者の大きい方を採る（下の _mergeSales）。
 var SNAPSHOT_URL='https://storage.googleapis.com/sakae-garden-snapshots/summary.json';
-// スナップショット鮮度上限（超過時はGASフォールバック）
+// スナップショット鮮度上限（超過時は使わない）
 var SNAPSHOT_MAX_AGE_MS = 6 * 3600 * 1000;
 // SWRキャッシュキー。/nippo/test/ は本番と同一オリジンで localStorage を共有するため、
 // スナップショットURL(/test/)で環境を判定してキーを分ける。本番のキー名は従来のまま。
@@ -116,6 +121,13 @@ var IS_TEST_ENV = String(SNAPSHOT_URL).indexOf('/test/') > -1;
 function lsKey(base){ return base + (IS_TEST_ENV ? '_test' : ''); }
 var LS_SUMMARY_CACHE = lsKey('summary_cache_v1');
 var CACHED=null, currentRoute=0, userPickedDate=false;
+// 表示中のデータが「いつ時点」か。src: 'gas'（今回取得）/'cache'（端末の前回取得分）/'snapshot'
+// at: gas=受信時刻・cache=前回の受信時刻・snapshot=generated_at（いずれも ms）
+var SHOWN = { at:0, src:'' };
+var esmStatus = null;        // getEsmarcheStatus の最新値
+var lastGasOkAt = 0;         // この画面で getAllData が最後に成功した時刻
+var gasInFlight = false;     // getAllData 取得中（再検証の重複起動を防ぐ）
+var reqSeq = 0, appliedSeq = 0;   // 遅れて届いた古い応答で新しい表示を巻き戻さないための通し番号
 
 // 経路の編成（ラベル・所属・順序）は shared-stores.js の ROUTES を唯一の出典とする。
 // ここに経路をベタ書きすると ROUTE_VERSION の 1 行切替で戻せなくなるので禁止。
@@ -179,15 +191,25 @@ var CD=['nouhin','zenjitsu','nebiki','mochikae','tokki'];
 var OD=['nouhin','tokki'];
 
 var cbIdx=0;
-// タイムアウトは45秒（GASコールドスタート10秒スパイクを吸収）。
-// SWR配信下では裏側の時間なのでUIには見えない。
-function jsonp(url,ok,err){
-  var cb='c'+(cbIdx++),s=document.createElement('script');
-  var t=setTimeout(function(){cl();if(err)err();},45000);
-  function cl(){clearTimeout(t);delete window[cb];if(s.parentNode)s.parentNode.removeChild(s);}
-  window[cb]=function(d){cl();ok(d);};
-  s.onerror=function(){cl();if(err)err();};
-  s.src=url+(url.indexOf('?')>-1?'&':'?')+'callback='+cb;
+// opts.timeoutMs: 見切るまでの時間（既定45秒）。
+// opts.lateMs: 見切った後も応答を待ち続ける時間。届いたら opts.onLate(d) を呼ぶ。
+//   【2026-09-27】GAS は詰まると L2 ヒットの getAllData でも 51 秒かかる（実測）。
+//   従来は 45 秒で見切るとコールバックを消していたので、51 秒目に届いた最新データを捨て、
+//   端末の古いキャッシュを出したまま再試行を繰り返していた。JSONP は取り消せないので、
+//   見切った後の到着も拾う（haitatsu/index の onLate と同じ考え方）。
+function jsonp(url,ok,err,opts){
+  opts=opts||{};
+  var cb='c'+(cbIdx++),s=document.createElement('script'),timedOut=false,lateT=null;
+  var t=setTimeout(function(){
+    timedOut=true;
+    if(opts.lateMs&&opts.onLate) lateT=setTimeout(cl,opts.lateMs); else cl();
+    if(err)err();
+  },opts.timeoutMs||45000);
+  function cl(){clearTimeout(t);clearTimeout(lateT);delete window[cb];if(s.parentNode)s.parentNode.removeChild(s);}
+  window[cb]=function(d){var late=timedOut;cl();if(late){if(opts.onLate)opts.onLate(d);}else ok(d);};
+  s.onerror=function(){var late=timedOut;cl();if(!late&&err)err();};
+  // _= は途中の HTTP キャッシュに古い応答を返させないため（GAS は未知の引数を無視する）
+  s.src=url+(url.indexOf('?')>-1?'&':'?')+'callback='+cb+'&_='+Date.now();
   document.body.appendChild(s);
 }
 
@@ -207,7 +229,9 @@ function _writeSummaryCache(data){
       availableDates: data.availableDates||[],
       allData:        data.allData||{},
       esmarcheStatus: data.esmarcheStatus||null,
-      cachedAt:       Date.now()
+      // cachedAt は「中身がいつ時点のデータか」。GAS 取得なら受信時刻、
+      // スナップショット由来なら generated_at（保存した時刻ではない）。
+      cachedAt:       data.dataAt||Date.now()
     };
     localStorage.setItem(LS_SUMMARY_CACHE, JSON.stringify(o));
   } catch(e){ /* 容量超は無視 */ }
@@ -246,7 +270,7 @@ function _fetchSummarySnapshot(cb){
     if(!r.ok) throw new Error('http ' + r.status);
     return r.json();
   }).then(function(j){
-    if(!j || !j.generated_at){ cb(null); return; }
+    if(!j || !j.generated_at || !j.allData || !j.availableDates){ cb(null); return; }
     var gen = Date.parse(j.generated_at);
     if(isNaN(gen)){ cb(null); return; }
     if(Date.now() - gen > SNAPSHOT_MAX_AGE_MS){
@@ -254,15 +278,95 @@ function _fetchSummarySnapshot(cb){
       cb(null, { tooOld:true, generated_at:j.generated_at });
       return;
     }
+    j._genAt = gen;
     cb(j);
   }).catch(function(){ cb(null); });
+}
+
+// 販売数（エスマルシェ由来）だけを、別の出どころ other から base へ取り込む。
+// ・販売数は1日の中で減らないので、同じ日・同じ店舗・同じラベルは大きい方を採る
+// ・納品数・陳列数など自社入力は base（GAS）を正とし、触らない
+// ・base に無い店舗（エスマルシェだけが当日行を作った店）は other のエントリをそのまま足す
+// base を直接書き換えて返す。
+function _mergeSales(base, other){
+  if(!base || !base.allData || !other || !other.allData) return base;
+  (base.availableDates||[]).forEach(function(d){
+    var od = other.allData[d]; if(!od) return;
+    var bd = base.allData[d] || (base.allData[d] = {});
+    Object.keys(od).forEach(function(sn){
+      var oe = od[sn]; if(!oe || !oe.items) return;
+      var be = bd[sn];
+      if(!be || !be.items){ bd[sn] = oe; return; }
+      oe.items.forEach(function(oit){
+        if(String(oit.label).indexOf('販売数_') !== 0) return;
+        var ov = parseInt(oit.value, 10); if(isNaN(ov)) return;
+        for(var i=0;i<be.items.length;i++){
+          if(be.items[i].label === oit.label){
+            var bv = parseInt(be.items[i].value, 10);
+            if(isNaN(bv) || ov > bv) be.items[i] = { label: oit.label, value: String(ov) };
+            return;
+          }
+        }
+        be.items.push({ label: oit.label, value: String(ov) });
+      });
+    });
+  });
+  return base;
+}
+
+// "9/27 13:05" / 当日なら "13:05"
+function fmtAt(ms){
+  if(!ms) return '―';
+  var d = new Date(ms), hm = String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+  var isToday = (d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')) === fmtTodayLocal();
+  return isToday ? hm : (d.getMonth()+1)+'/'+d.getDate()+' '+hm;
+}
+// 表示中データの時点ラベル（通知バー・上段に出す）
+function shownLabel(){
+  if(!SHOWN.at) return '';
+  if(SHOWN.src === 'snapshot') return '表示は '+fmtAt(SHOWN.at)+' 時点の控え';
+  return '表示は '+fmtAt(SHOWN.at)+' 時点';
 }
 
 function switchRoute(i){
   currentRoute=i;
   for(var j=0;j<ROUTE_GROUPS.length;j++){ var t=document.getElementById('rtab'+j); if(t) t.classList.toggle('active',j===i); }
   var d=document.getElementById('dateSelect').value;
-  if(d&&CACHED&&CACHED[d]) render(d,CACHED[d]);
+  if(d) showReport(d);
+}
+
+// ──── 日付の選択肢 ────
+// 【2026-09-27】従来は選択肢を availableDates（＝どこかの店のシートにその日付の行がある日）だけで作っていた。
+// 当日は、日報の送信もエスマルシェの取り込みもまだ無い間（日曜昼などに実際に発生）、
+// また GAS が詰まって端末の前日までのキャッシュを出している間、選択肢そのものが無かった。
+// 選択肢は暦（今日から DATE_WINDOW_DAYS 日さかのぼる）で作り、データの有無は表示の側で出す。
+var DATE_WINDOW_DAYS = 14;   // GAS の RECENT_DAYS と同じ
+var WDAYS = ['日','月','火','水','木','金','土'];
+function _ymd(dt){
+  return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
+}
+function _dateOptions(availableDates){
+  var seen={}, out=[], base=new Date();
+  base.setHours(12,0,0,0);
+  for(var i=0;i<DATE_WINDOW_DAYS;i++){
+    var s=_ymd(new Date(base.getFullYear(), base.getMonth(), base.getDate()-i, 12));
+    seen[s]=1; out.push(s);
+  }
+  (availableDates||[]).forEach(function(s){ if(s && !seen[s]){ seen[s]=1; out.push(s); } });
+  return out.sort().reverse();
+}
+// その日に1店舗でも品目があるか
+function _hasDayData(dayData){
+  if(!dayData) return false;
+  return Object.keys(dayData).some(function(k){ var s=dayData[k]; return s && s.items && s.items.length; });
+}
+function _dateLabel(d){
+  var p=d.split('-');
+  return p[0]+'年'+parseInt(p[1])+'月'+parseInt(p[2])+'日（'+WDAYS[new Date(d+'T00:00:00').getDay()]+'）';
+}
+function pickDate(d){
+  var sel=document.getElementById('dateSelect');
+  userPickedDate=true; sel.value=d; showReport(d);
 }
 
 function handleAllDataSuccess(data){ _applyAllData(data, null); }
@@ -277,21 +381,20 @@ function _applyAllData(data, preserveDate){
   // ユーザーが手動で日付を選んだ時のみ選択を維持。未選択(自動)なら最新日(=当日があれば当日)を選ぶ。
   // 朝の初回描画で前日を自動選択後、getAllDataが当日を返したら当日へ更新される（日報→即反映）。
   var wantSel = userPickedDate ? (preserveDate || sel.value || '') : '';
+  var today = fmtTodayLocal();
+  var opts = _dateOptions(data.availableDates);
   sel.innerHTML='<option value="">-- 日付を選択 --</option>';
   sel.disabled=false;
-  (data.availableDates||[]).forEach(function(d){
-    var o=document.createElement('option'),p=d.split('-'),days=['日','月','火','水','木','金','土'];
-    o.value=d;o.textContent=p[0]+'年'+parseInt(p[1])+'月'+parseInt(p[2])+'日（'+days[new Date(d+'T00:00:00').getDay()]+'）';
+  opts.forEach(function(d){
+    var o=document.createElement('option');
+    o.value=d;
+    o.textContent=_dateLabel(d)+(d===today?' 今日':'')+(_hasDayData(CACHED[d])?'':'・データなし');
     sel.appendChild(o);
   });
-  if(!data.availableDates||!data.availableDates.length){
-    sel.innerHTML='<option value="">データがありません</option>';
-    return;
-  }
-  // 選択維持ロジック
-  var target = (wantSel && data.availableDates.indexOf(wantSel) >= 0)
-    ? wantSel
-    : data.availableDates[0];
+  // 選択維持ロジック：手動で選んだ日はそのまま。自動なら最新のデータのある日（当日があれば当日）。
+  // 当日にまだデータが無いときに前日を出す場合は、render が「今日はまだ無い」と画面に出す。
+  var latest = (data.availableDates||[]).filter(function(d){ return _hasDayData(CACHED[d]); })[0];
+  var target = (wantSel && opts.indexOf(wantSel) >= 0) ? wantSel : (latest || today);
   sel.value = target;
   showReport(target);
 }
@@ -301,15 +404,40 @@ function fmtTodayLocal(){
   return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');
 }
 function handleEsmarcheStatus(d){
-  var el=document.getElementById('esmStat'); if(!el) return;
-  if(!d||d.error){ el.textContent=''; return; }
-  var today=fmtTodayLocal();
-  if(d.date===today && d.updateTime){
-    el.className='esm-stat reflected';
-    el.textContent='🛒 ヤオコー '+d.updateTime+' 売上反映済み';
-  }else{
-    el.className='esm-stat pending';
-    el.textContent='🛒 ヤオコー売上 未反映';
+  if(d && !d.error) esmStatus = d;
+  renderEsmStat();
+}
+// 上段の2行：①エスマルシェの反映状況 ②この画面のデータがいつ時点か。
+// 【2026-09-27】従来は getEsmarcheStatus だけで「◯時 売上反映済み」（緑）を出していた。
+// getAllData が詰まって端末の古いキャッシュを出している間も緑のままで、
+// 「最新が出ている」と誤解させた。反映の記録時刻(ts)が表示中データより新しければ
+// 「この画面は未反映」と出し分ける。
+function renderEsmStat(){
+  var el=document.getElementById('esmStat');
+  if(el){
+    var d=esmStatus;
+    if(!d){ el.textContent=''; }
+    else if(d.date===fmtTodayLocal() && d.updateTime){
+      var refAt = d.ts ? Date.parse(d.ts) : NaN;
+      // スナップショットは「反映の記録」の直前に作られる（数十秒差）ので2分だけ許す
+      var tol = (SHOWN.src==='snapshot') ? 120000 : 0;
+      if(!isNaN(refAt) && SHOWN.at && SHOWN.at + tol < refAt){
+        el.className='esm-stat stale';
+        el.textContent='🛒 ヤオコー '+d.updateTime+' 売上：この画面は未反映';
+      } else {
+        el.className='esm-stat reflected';
+        el.textContent='🛒 ヤオコー '+d.updateTime+' 売上反映済み';
+      }
+    } else {
+      el.className='esm-stat pending';
+      el.textContent='🛒 ヤオコー売上 未反映';
+    }
+  }
+  var sh=document.getElementById('shownStat');
+  if(sh){
+    if(!SHOWN.at){ sh.textContent=''; }
+    else if(SHOWN.src==='gas'){ sh.className='esm-stat'; sh.textContent='🕐 '+fmtAt(SHOWN.at)+' に取得'; }
+    else { sh.className='esm-stat stale'; sh.textContent='🕐 '+shownLabel()+(SHOWN.src==='cache'?'（前回取得分）':''); }
   }
 }
 // ──── GAS取得ドライバ（初回・リトライ・自動再取得・手動再取得の共通経路）────
@@ -319,7 +447,13 @@ function handleEsmarcheStatus(d){
 // 成功した時点でバーを消して表示を差し替えるので、放置していても復旧する。
 var RETRY_DELAYS  = [5000, 15000];  // 初回失敗→5秒後→15秒後（計3回）
 var AUTO_RETRY_MS = 60000;          // 警告バー表示中の自動再取得間隔
-var startupCache  = null;           // 直近に取得成功したキャッシュ（「表示は◯時点」の表示用）
+// 1回あたりの見切り時間。見切った後も GAS_LATE_MS の間は遅れて届いた応答を採用する。
+// 通常は約3秒で返る（2026-09-27 実測 2.7〜3.2秒）。詰まると404(15秒)や51秒がある。
+var GAS_TIMEOUT_MS = 30000;
+var GAS_LATE_MS    = 90000;
+var startupCache  = null;           // 直近に取得成功したキャッシュ
+var snapLatest    = null;           // 取得できた summary.json（販売数の取り込み元）
+var lastAttemptAt = 0;              // getAllData を最後に投げた時刻
 var autoRetryTimer = null;
 
 function _startAutoRetry(){
@@ -332,35 +466,58 @@ function _stopAutoRetry(){
   if(autoRetryTimer){ clearInterval(autoRetryTimer); autoRetryTimer = null; }
 }
 
-function applyFromGas(data){
+// 表示の差し替え（出どころ共通）。src/at は上段の「いつ時点か」表示に使う。
+function _showData(data, src, at){
   // ユーザーが手動で日付を選んだ時のみ選択を維持。未選択(自動)なら最新日(=当日があれば当日)を表示。
   // これにより、朝の初回描画で前日を自動選択後に getAllData が当日を返したら当日へ更新される
   // （日報送信→即・当日反映。エスマルシェ収集とは独立）。
-  _stopAutoRetry();
   var prevSel = userPickedDate ? document.getElementById('dateSelect').value : null;
   _applyAllData(data, prevSel);
-  _writeSummaryCache({availableDates:data.availableDates||[], allData:data.allData||{}, esmarcheStatus:null});
-  startupCache = _readSummaryCache();   // 次に失敗した時に出す「表示は◯時点」を最新化
+  SHOWN = { at: at, src: src };
+  renderEsmStat();
+}
+
+// seq: この応答を投げた通し番号。後から投げた要求の応答がすでに出ていれば捨てる
+// （遅れて届いた古い応答で表示を巻き戻さない）。
+function applyFromGas(data, seq){
+  if(!data || data.error || !data.availableDates || !data.allData) return false;
+  if(seq < appliedSeq) return true;
+  appliedSeq = seq;
+  lastGasOkAt = Date.now();
+  _stopAutoRetry();
+  // 販売数だけはスナップショットと大きい方を採る（自社入力は GAS が正）。
+  if(snapLatest) _mergeSales(data, snapLatest);
+  _showData(data, 'gas', lastGasOkAt);
+  _writeSummaryCache({availableDates:data.availableDates||[], allData:data.allData||{},
+                      esmarcheStatus:esmStatus, dataAt:lastGasOkAt});
+  startupCache = _readSummaryCache();
   var ed = document.getElementById('error'); if(ed) ed.style.display='none';
   _updateSummaryStale(null);
+  return true;
 }
 
 // attempt: 0=初回。RETRY_DELAYS.length に達したら打ち切り（=自動再取得へ移行）。
 // silent=true: 自動／手動の再取得。既存の警告バーを保ったまま裏で1回だけ試す。
 function _fetchAllDataFromGas(attempt, silent){
-  jsonp(API_URL+'?action=getAllData', applyFromGas, function(){
+  var seq = ++reqSeq;
+  lastAttemptAt = Date.now();
+  function onFail(){
+    if(lastGasOkAt > lastAttemptAt) return;   // 別の要求（遅れて届いた分を含む）がすでに成功
     if(attempt < RETRY_DELAYS.length){
       if(!silent){
-        _updateSummaryStale('🔄 再取得中…');
-        if(!startupCache) document.getElementById('loading').innerHTML='<div class="spinner"></div><br>再取得中...<br><small>しばらくお待ちください</small>';
+        _updateSummaryStale(SHOWN.at ? '🔄 最新を再取得中…（'+shownLabel()+'）' : '🔄 再取得中…');
+        if(!SHOWN.at) document.getElementById('loading').innerHTML='<div class="spinner"></div><br>再取得中...<br><small>しばらくお待ちください</small>';
       }
-      setTimeout(function(){ _fetchAllDataFromGas(attempt+1, silent); }, RETRY_DELAYS[attempt]);
+      var at = Date.now();
+      setTimeout(function(){
+        if(lastGasOkAt > at) return;   // 待っている間に遅れて届いた応答で成功済み
+        _fetchAllDataFromGas(attempt+1, silent);
+      }, RETRY_DELAYS[attempt]);
       return;
     }
-    // 打ち切り：キャッシュ表示は維持したまま警告＋手動ボタン。以後60秒ごとに自動再取得。
-    if(startupCache){
-      var when = new Date(startupCache.cachedAt).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
-      _updateSummaryStale('⚠️ 最新の取得に失敗（表示は '+when+' 時点）', true);
+    // 打ち切り：表示は維持したまま「いつ時点か」を添えて警告＋手動ボタン。以後60秒ごとに自動再取得。
+    if(SHOWN.at){
+      _updateSummaryStale('⚠️ 最新の取得に失敗（'+shownLabel()+'）', true);
     } else {
       document.getElementById('loading').style.display='none';
       document.getElementById('error').innerHTML='データ取得に失敗しました。<br>自動で再取得を続けます。';
@@ -368,48 +525,98 @@ function _fetchAllDataFromGas(attempt, silent){
       _updateSummaryStale('⚠️ 最新の取得に失敗（自動再取得中）', true);
     }
     _startAutoRetry();
+  }
+  jsonp(API_URL+'?action=getAllData',
+    function(d){ if(!applyFromGas(d, seq)) onFail(); },
+    onFail,
+    { timeoutMs: GAS_TIMEOUT_MS, lateMs: GAS_LATE_MS,
+      onLate: function(d){ applyFromGas(d, seq); } });
+}
+
+// summary.json（GCS）を取りに行く。GAS より先に届き、表示中のものより新しければ
+// 「控え」として出す（GAS が詰まっている間の代わり）。GAS がすでに出ていれば
+// 販売数だけ取り込む。
+function _loadSnapshot(){
+  _fetchSummarySnapshot(function(j){
+    if(!j) return;
+    snapLatest = j;
+    if(lastGasOkAt){
+      _mergeSales({availableDates:Object.keys(CACHED||{}), allData:CACHED}, j);
+      var d=document.getElementById('dateSelect').value;
+      if(d && CACHED && CACHED[d]) render(d, CACHED[d]);
+      return;
+    }
+    if(SHOWN.at && j._genAt <= SHOWN.at) return;   // 端末の控えのほうが新しい
+    _showData({availableDates:j.availableDates, allData:j.allData}, 'snapshot', j._genAt);
+    _updateSummaryStale('🔄 最新確認中…（'+shownLabel()+'）');
   });
 }
 
+// 画面に戻ってきたとき（タブ切替・アプリ切替・戻る）に取り直す。
+// 【2026-09-27】従来は onload の1回だけで、開いたまま裏に回したサマリーに戻ると
+// 何時間前の表示でも取り直さず、時点の表示も無かった。
+var REVALIDATE_MIN_MS = 30000;   // 直近30秒以内に取得成功していれば取り直さない
+function _revalidate(){
+  var now = Date.now();
+  if(now - lastGasOkAt < REVALIDATE_MIN_MS) return;
+  if(lastAttemptAt > lastGasOkAt && now - lastAttemptAt < GAS_TIMEOUT_MS) return;   // 取得中
+  _updateSummaryStale(SHOWN.at ? '🔄 最新確認中…（'+shownLabel()+'）' : '🔄 最新確認中…');
+  jsonp(API_URL+'?action=getEsmarcheStatus',handleEsmarcheStatus,function(){});
+  _fetchAllDataFromGas(0, false);
+}
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState === 'visible') _revalidate();
+});
+window.addEventListener('pageshow', function(e){ if(e.persisted) _revalidate(); });
+
 window.onload=function(){
   // ──── SWR起動フロー ────
-  // Step 1: localStorage キャッシュがあれば即描画（0秒表示）
-  // Step 2: GAS(getAllData)で最新を取得して差替（即時性最優先・スナップショット非依存）
+  // Step 1: localStorage キャッシュがあれば即描画（0秒表示）。「いつ時点か」を上段とバーに出す
+  // Step 2: GAS(getAllData)で最新を取得して差替（正）。並行して summary.json も取り、
+  //         GAS より先に届いてキャッシュより新しければ控えとして出す
   // Step 3: 失敗なら5秒後→15秒後にリトライ→なお駄目なら警告バー＋60秒ごとの自動再取得
+  //         （見切った後に遅れて届いた GAS の応答も採用する）
   startupCache = _readSummaryCache();
 
   if(startupCache && startupCache.availableDates && startupCache.availableDates.length){
-    _applyAllData({availableDates:startupCache.availableDates, allData:startupCache.allData}, null);
-    if(startupCache.esmarcheStatus) handleEsmarcheStatus(startupCache.esmarcheStatus);
-    _updateSummaryStale('🔄 最新確認中…');
+    if(startupCache.esmarcheStatus) esmStatus = startupCache.esmarcheStatus;
+    _showData({availableDates:startupCache.availableDates, allData:startupCache.allData},
+              'cache', startupCache.cachedAt||0);
+    _updateSummaryStale('🔄 最新確認中…（'+shownLabel()+'）');
   }
 
-  // スナップショット依存を廃止：サマリーは即時性最優先（日報送信・値引き修正が
-  // 数秒で反映される必要がある）のため、裏の確認先を常に GAS(getAllData) にする。
-  // localStorage 即時表示(SWR)は上の cache 描画で維持されるので体感速度は変わらない。
-  // ※ haitatsu 側のスナップショットは夜入力・翌朝閲覧で即時性不要のため据え置き。
   jsonp(API_URL+'?action=getEsmarcheStatus',handleEsmarcheStatus,function(){});
   _fetchAllDataFromGas(0, false);
+  _loadSnapshot();
 };
 
 function showReport(date){
   if(!date||!CACHED) return;
-  if(CACHED[date]) { render(date, CACHED[date]); return; }
-  // 直近14日外: getDayDataで個別取得（GAS側で5分キャッシュ）
   document.getElementById('error').style.display='none';
+  if(CACHED[date]) { render(date, CACHED[date]); return; }
+  // 手元に無い日（まだデータの無い当日・直近14日外）: getDayData でシートから個別取得（GAS側で5分キャッシュ）。
+  // 取得中・失敗時は前の日の表示を残さない。
   document.getElementById('report').innerHTML='';
-  document.getElementById('loading').innerHTML='<div class="spinner"></div><br>過去日データを取得中...';
+  document.getElementById('loading').innerHTML='<div class="spinner"></div><br>'+_dateLabel(date)+' のデータを取得中...';
   document.getElementById('loading').style.display='block';
+  function stillShown(){ return document.getElementById('dateSelect').value===date; }
   jsonp(API_URL+'?action=getDayData&date='+encodeURIComponent(date),
     function(d){
+      var stores=(d&&!d.error&&d.stores)||null;
+      if(stores && CACHED && !CACHED[date]) CACHED[date]=stores;
+      if(!stillShown()) return;   // 待っている間に別の日へ切り替えた
       document.getElementById('loading').style.display='none';
-      var stores=(d&&d.stores)||{};
-      CACHED[date]=stores;
+      if(!stores){
+        document.getElementById('error').innerHTML=_dateLabel(date)+' のデータの取得に失敗しました。';
+        document.getElementById('error').style.display='block';
+        return;
+      }
       render(date, stores);
     },
     function(){
+      if(!stillShown()) return;
       document.getElementById('loading').style.display='none';
-      document.getElementById('error').innerHTML='過去日データの取得に失敗しました。';
+      document.getElementById('error').innerHTML=_dateLabel(date)+' のデータの取得に失敗しました。';
       document.getElementById('error').style.display='block';
     }
   );
@@ -500,6 +707,16 @@ function render(date,dayData){
 
   var html='<div class="rhdr"><div class="rhdr-l"><h2>配 達 日 報</h2><p>'+ROUTE_GROUPS[currentRoute].label+'</p></div>';
   html+='<div class="rhdr-r"><div class="dbig">'+ds+'</div><div>担当：'+(staff||'―')+'</div></div></div>';
+
+  // データの無い日・当日の代わりに前の日を自動で出しているときは、黙らずに画面に出す
+  var today=fmtTodayLocal(), note='';
+  if(!_hasDayData(dayData)){
+    note='📭 '+ds+' のデータはまだありません（日報の送信・ヤオコー販売数の取り込みがまだ）';
+  } else if(date<today && !userPickedDate && !_hasDayData(CACHED&&CACHED[today])){
+    note='📭 今日（'+_dateLabel(today)+'）の分はまだこの画面に届いていません。表示は '+ds+' です。'
+        +' <button onclick="pickDate(\''+today+'\')" style="margin-left:6px;padding:3px 10px;font-size:12px;font-weight:600;color:#e65100;background:#fff;border:1px solid #ffb74d;border-radius:6px;cursor:pointer">今日を開く</button>';
+  }
+  if(note) html+='<div id="dayNote" style="background:#fff3e0;color:#e65100;border:1px solid #ffb74d;border-radius:8px;padding:6px 10px;margin:8px 0;font-size:13px;font-weight:600;text-align:center">'+note+'</div>';
 
   rs.forEach(function(store){
     html+='<div class="ssec"><div class="shdr"><span class="sname '+store.cls+'">■ '+store.name+'</span>';
