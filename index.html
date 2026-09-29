@@ -854,7 +854,10 @@ function applyStaffMemory(id){
 // 済ませれば境目そのものが不要になる）。
 var HAITATSU_BUILD = 'haitatsu-target-day-20260924';   // 本番反映の確認用マーカー
 var HAITATSU_EVENING_CUTOFF_H = 12;   // ↑のとおり暫定
-var HAITATSU_TIMEOUT      = 20000;   // 起動時取得のタイムアウト
+// 【2026-09-29】取得中が長く続く対策。応答の遅れは転送層の裾（実測 中央値1.45秒・最大19.7秒）で、
+// 1本の要求を長く待つより、4秒で応答が無ければ同じ要求をもう1本並べるほうが早い。
+var HAITATSU_TIMEOUT      = 10000;   // 1本あたりのタイムアウト（旧20秒）
+var HAITATSU_HEDGE_MS     = 4000;    // この時間応答が無ければ同じ要求をもう1本出す
 var HAITATSU_RETRY_WAIT   = 8000;    // 失敗時に1回だけ置く間隔（1-4）
 
 function _haitatsuTargetDay(lastUpdated){
@@ -932,15 +935,41 @@ function applyHaitatsuDefault(id, opts) {
 }
 
 var _haitatsuBgInflight = false;
+var _haitatsuGen = 0;          // 取得の世代。前面復帰で取り直したとき、古い世代の応答は捨てる
+var _haitatsuStartedAt = 0;
 // 起動時に1回だけ取得する（1-5）。失敗したときだけ、少し置いて1回再試行する（1-4）。
 // 成功後は店舗を開くたびに叩き直さない。
+// 【2026-09-29】4秒で応答が無ければ同じ要求をもう1本出し、先に返ったほうを使う
+// （後から返ったほうは捨てる）。両方失敗したときだけ失敗扱い。
 function fetchHaitatsuBackground(attempt) {
   attempt = attempt || 0;
   if(_haitatsuBgInflight) return;
   _haitatsuBgInflight = true;
+  _haitatsuStartedAt = Date.now();
+  var gen = ++_haitatsuGen;
+  var settled = false, inflight = 0, hedgeT = null;
+  function current(){ return !settled && gen === _haitatsuGen; }
+  function fire(){
+    inflight++;
+    // 日付キー廃止：常に最新1セットを取得
+    jsonp(API_URL+'?action=getHaitatsu&_cb='+Date.now(),'cb_hai',function(res){
+      inflight--;
+      if(!current()) return;
+      if(res && res.success && res.items){ settled = true; clearTimeout(hedgeT); onOk(res); return; }
+      onFail();
+    },function(){ inflight--; if(current()) onFail(); }, HAITATSU_TIMEOUT);
+  }
+  function onFail(){
+    if(inflight > 0) return;   // もう1本がまだ返っていない
+    if(hedgeT){ clearTimeout(hedgeT); hedgeT = null; }
+    settled = true;
+    _haitatsuBgInflight = false;
+    _haitatsuFetchFailed(attempt);
+  }
   if(haitatsuStatus !== 'ok') { haitatsuStatus = 'loading'; _updateHaitatsuNotice(); }
-  // 日付キー廃止：常に最新1セットを取得
-  jsonp(API_URL+'?action=getHaitatsu','cb_hai',function(res){
+  fire();
+  hedgeT = setTimeout(function(){ hedgeT = null; if(current()) fire(); }, HAITATSU_HEDGE_MS);
+  function onOk(res){
     _haitatsuBgInflight = false;
     if(res && res.success && res.items){
       var target = _haitatsuTargetDay(res.lastUpdated);
@@ -953,20 +982,32 @@ function fetchHaitatsuBackground(attempt) {
       haitatsuStatus = (target === todayStr) ? 'ok' : 'stale';
       if(haitatsuStatus === 'ok') _applyHaitatsuToOpenForm();
       _updateHaitatsuNotice();
-      return;
     }
-    _haitatsuFetchFailed(attempt);
-  },function(){ _haitatsuBgInflight = false; _haitatsuFetchFailed(attempt); }, HAITATSU_TIMEOUT);
+  }
 }
 function _haitatsuFetchFailed(attempt){
   if(attempt === 0){
-    setTimeout(function(){ fetchHaitatsuBackground(1); }, HAITATSU_RETRY_WAIT);
+    var gen = _haitatsuGen;
+    // 待ちの間に前面復帰などで取り直していれば、この再試行は出さない
+    setTimeout(function(){ if(gen === _haitatsuGen && !_haitatsuBgInflight) fetchHaitatsuBackground(1); }, HAITATSU_RETRY_WAIT);
     return;   // 再試行中は 'loading' のまま
   }
   if(haitatsuStatus !== 'ok') haitatsuStatus = 'error';
   _updateHaitatsuNotice();
 }
 function retryHaitatsu(){ fetchHaitatsuBackground(1); }
+// アプリが前面に戻ったとき、当日分がまだ取れていなければ取り直す。
+// 背面の間はタイマーが止まり、取得中の要求は宙に浮いたままになるので、
+// 始めてから HAITATSU_HEDGE_MS 以上たった要求は見切って（世代を進めて応答を捨てる）出し直す。
+function _haitatsuOnForeground(){
+  if(haitatsuStatus === 'ok') return;
+  if(_haitatsuBgInflight){
+    if(Date.now() - _haitatsuStartedAt < HAITATSU_HEDGE_MS) return;
+    _haitatsuGen++;
+    _haitatsuBgInflight = false;
+  }
+  fetchHaitatsuBackground(0);
+}
 
 // 当日分が裏の取得で届いたときに、すでに描画済みの入力画面へ反映する（1-2）。
 // 【2026-09-24 変更】従来は「納品欄にひとつでも値が入っていたら何もしない」
@@ -1387,44 +1428,64 @@ function tryLoadDate(date, isFallback) {
 //         （画面を離れていれば店舗一覧のバナーが即座に出る）
 //     層3 次回起動時に reqId 照合し、未記録なら必ずバナーで知らせる
 //   二重記録対策（reqId dedup / ScriptLock / 確認導線）は一切弱めていない。
-var SUBMIT_MAX_ATTEMPTS = 3;
-var SUBMIT_RETRY_WAIT   = 600;
-// 【2026-08-12】12秒 → 7.5秒。実測 RTT 中央値3.6秒・p90 9.7秒に対し12秒は待ちすぎで、
-// 尾を引いた回は12秒フル待ちしてから確認・再送に入っていた。onLate があるので
-// 見切っても遅延到着した success は拾え、成立済みの書き込みを捨てることはない。
-var SUBMIT_TIMEOUT      = 7500;
-var SUBMIT_LATE_GRACE   = 25000;  // 見切り後に遅延到着を拾う猶予(ms)
-var CONFIRM_TIMEOUT     = 8000;   // getSubmitStatus 実測 p90≈3.8秒
-var SUBMIT_DEADLINE     = 22000;  // 新しい試行を始めてよい上限(ms)
-var LS_SUBMIT_PENDING   = lsKey('nippo_submit_pending_v1');
+// 【2026-09-29 再設計：送信は裏で届くまで面倒を見る。誤警告を出さない】
+// 調査（_backup\20260929_nippo3件調査\report.md 件3）で分かった穴:
+//   ・getSubmitStatus はロックを取らないので、送信が処理中・順番待ちでも「見つからない」を返す。
+//     それを「未送信」と確定扱いしていた（誤警告）
+//   ・見切った後に届いた成功を捨てていた。照合の結果も一度決まると再照合しなかった
+//   ・JSONP（script タグ）は画面を移るとページごと中断される
+//   ・日付が変わると前日の退避を黙って捨てていた
+// 新方式:
+//   ・送信は fetch の keepalive（画面を移っても送信が続く）。使えない端末は従来の JSONP
+//   ・照合と再送は裏で自動に回す（送信の5秒・15秒・45秒・2分後、以後3分ごと。前面復帰・起動時も）
+//   ・最後の送信から90秒以内の「見つからない」は処理中とみなし、数えない
+//   ・90秒を過ぎて見つからなければ同じ reqId で自動再送（二重記録にはならない）
+//   ・赤い警告は「最初の送信から10分・見つからない3回以上・自動再送2回済み」がそろったときだけ
+//   ・警告を出した後も照合は続け、届いたと分かれば黙って「送信済み」に直す
+//   ・前日以前の退避も捨てず、その日付のまま照合・再送する
+// reqId による重複排除（GAS のロック内照合）はそのまま使う。GAS は変えていない。
+var SUBMIT_BUILD          = 'submit-deliver-20260929';   // 本番反映の確認用マーカー
+var SUBMIT_RETRY_WAIT     = 600;     // retryable（ロック待ち）のときの再送間隔(ms)
+var SUBMIT_RETRYABLE_MAX  = 2;       // retryable の即時再送の上限（1回の送信あたり）
+var SUBMIT_TIMEOUT        = 7500;    // 送信の応答を待つ時間。過ぎたら照合に任せる（送信自体は続く）
+var SUBMIT_LATE_GRACE     = 25000;   // JSONP で見切り後に遅延到着を拾う猶予(ms)
+var CONFIRM_TIMEOUT       = 8000;    // getSubmitStatus 実測 p90≈3.8秒
+var SUBMIT_PROCESSING_MS  = 90000;   // 最後の送信からこの間の「見つからない」は処理中扱い
+var SUBMIT_CHECK_STEPS    = [5000, 15000, 45000, 120000];   // 最後の送信からの照合の間隔
+var SUBMIT_CHECK_EVERY    = 180000;  // 上の後は3分ごと
+var SUBMIT_ALERT_AFTER_MS = 600000;  // 赤い警告の条件：最初の送信から10分
+var SUBMIT_ALERT_NOTFOUND = 3;       //                  見つからない（処理中を除く）3回以上
+var SUBMIT_AUTO_RESEND    = 2;       //                  自動再送2回済み
+var SUBMIT_AUTO_RESEND_MAX = 6;      // 自動再送の上限（警告の後も続けるが、ここで止める）
+var SUBMIT_AUTO_RESEND_GAP = 300000; // 2回目以降の自動再送の間隔の下限（警告後）
+var SUBMIT_UNREACHABLE_MS = 900000;  // 照合に15分応答が無ければ「電波の良い所で自動で送ります」
+var LS_SUBMIT_PENDING     = lsKey('nippo_submit_pending_v1');
 var _submitBusy = false;
-// 楽観的UIでは「A店を送信→完了→B店を送信」が確認完了前に起こりうるので、
-// セッションは店舗ごとに並行して生かす（単一の _submitSess では後発が前発を殺す）。
-var _submitSessions = {};
 function _setSubmitBtnDisabled(d){
   var b=document.getElementById('submitBtn');
   if(b) b.disabled=!!d;
 }
 
-// ---- 未送信日報の退避と再送導線 ----
-// 保存するのは「そのまま再送できる完全な送信内容」。reqId も一緒に持つので、
-// 再送しても GAS 側の同一 date × reqId 重複検知で二重記録にならない。
+// ---- 未送信日報の退避 ----
+// 保存するのは「そのまま再送できる完全な送信内容」と、配送の進み具合
+// （firstSentAt/lastSentAt/sends/notFound/autoResends/lastReplyAt/rejected）。
+// reqId も一緒に持つので、再送しても GAS 側の同一 date × reqId 重複検知で二重記録にならない。
 //
-// 【店舗ごとに保持する】配達員は1経路で3〜6店舗を順に回り、店舗ごとに送信する。
-// 退避枠が1つしかないと「寄居店が失敗 → 次のみどりが丘店を送信 → 寄居店の
-// 退避が上書きされ、みどりが丘店の成功で消える」で失敗分の入力が消えてしまう。
-// 店舗名をキーにしたマップで持ち、成功した店舗の分だけを消す。
+// 【店舗×日付ごとに保持する】配達員は1経路で3〜6店舗を順に回り、店舗ごとに送信する。
+// 【2026-09-29】前日分を捨てずに残すので、キーは「日付|店舗名」にする
+// （前日の長瀬店が未着のまま今日の長瀬店を送っても、前日分を上書きしない）。
+// 旧形式（キー＝店舗名）も読み込み時に同じ形へ直す。
+function _pendingKey(p){ return p.date+'|'+p.storeName; }
 function _readPendingMap(){
   try{
     var raw=localStorage.getItem(LS_SUBMIT_PENDING);
     if(!raw) return {};
     var m=JSON.parse(raw);
     if(!m||typeof m!=='object'||Array.isArray(m)) return {};
-    // 当日分だけを残す（日付が変わったものは自然に消える）
     var out={};
     Object.keys(m).forEach(function(k){
       var o=m[k];
-      if(o&&o.storeName&&o.reqId&&o.items&&o.date===todayStr) out[k]=o;
+      if(o&&o.storeName&&o.reqId&&o.items&&/^\d{4}-\d{2}-\d{2}$/.test(String(o.date||''))) out[_pendingKey(o)]=o;
     });
     return out;
   }catch(e){ return {}; }
@@ -1436,101 +1497,249 @@ function _savePendingMap(m){
   }catch(e){}
 }
 function _writeSubmitPending(p){
-  var m=_readPendingMap(); m[p.storeName]=p; _savePendingMap(m);
+  var m=_readPendingMap(); m[_pendingKey(p)]=p; _savePendingMap(m);
 }
-function _clearSubmitPendingFor(storeName){
-  var m=_readPendingMap(); delete m[storeName]; _savePendingMap(m);
+function _findPendingByReq(reqId){
+  var m=_readPendingMap(), ks=Object.keys(m);
+  for(var i=0;i<ks.length;i++){ if(m[ks[i]].reqId===reqId) return m[ks[i]]; }
+  return null;
 }
-function _readSubmitPendingFor(storeName){
-  return _readPendingMap()[storeName] || null;
+// reqId で書き換える（同じ店舗・日付を後から別の送信で上書きしていたら何もしない）
+function _patchPending(reqId, fn){
+  var m=_readPendingMap(), ks=Object.keys(m);
+  for(var i=0;i<ks.length;i++){
+    if(m[ks[i]].reqId===reqId){ fn(m[ks[i]]); _savePendingMap(m); return m[ks[i]]; }
+  }
+  return null;
+}
+function _clearPendingByReq(reqId){
+  var m=_readPendingMap(), hit=false;
+  Object.keys(m).forEach(function(k){ if(m[k].reqId===reqId){ delete m[k]; hit=true; } });
+  if(hit) _savePendingMap(m);
+  return hit;
 }
 function _listSubmitPending(){
   var m=_readPendingMap();
-  return Object.keys(m).map(function(k){ return m[k]; });
+  return Object.keys(m).map(function(k){ return m[k]; })
+    .sort(function(a,b){ return a.date<b.date ? -1 : a.date>b.date ? 1 : 0; });
 }
-// ---- 未送信日報のサーバ照合（「未確認」と「未送信」を区別する）----
-// 【2026-09-21 修正】従来このバナーは「localStorage に退避が残っているか」だけで
-// 出していた。退避は送信を始める前に書くので、確認が返る前に画面を離れる
-// （完了画面→店舗一覧、サマリーへ移動、アプリを閉じる）と、まだ確認中でしかない
-// ものが「未送信」と表示され、配達員が不要な再送を強いられていた。
-// 以後は必ず reqId でサーバ照合してから状態を決める:
-//   checking … 照合中／送信セッション進行中 → 「確認中…」（警告しない）
-//   unsent   … サーバに無いと確定         → 「送信されていません」＋再送
-//   unknown  … 照合自体が失敗              → 「確認できませんでした」＋再送（断定しない）
-// 記録済みと分かったものは黙って退避を消す（バナーを出さない）。
-// 安全網（退避・再送・reqId dedup）は一切弱めていない。
-var SUBMIT_VERIFY_BUILD = 'submit-verify-20260921';
-var _pendingCheck = {};   // storeName -> 'checking' | 'unsent' | 'unknown'
 
-// その店舗の送信セッションがまだ生きているか（生きていれば重ねて照合しない）。
-function _hasLiveSubmitSession(storeName){
-  var ks=Object.keys(_submitSessions);
-  for(var i=0;i<ks.length;i++){
-    var s=_submitSessions[ks[i]];
-    if(s && !s.done && s.storeName===storeName) return true;
+// ---- 配送（送信・照合・自動再送）----
+// 状態は退避（localStorage）に持つので、画面の再読み込み・日付の変わり目をまたいで続く。
+// ここ（_dlRun）はこの画面の中だけの作業状態（通信中か・次のタイマー）。
+var _dlRun = {};   // reqId -> { sending, checking, timer, checks（次に使う照合の段）, retryable }
+function _dl(reqId){ return _dlRun[reqId] || (_dlRun[reqId]={ sending:false, checking:false, timer:null, checks:0, retryable:0 }); }
+
+// 状態: 'checking'（確認中・処理中。警告しない）／'offline'（照合に長く応答が無い）／
+//       'unsent'（赤い警告の条件がそろった）／'rejected'（サーバが受け付けなかった）
+function _submitState(p, now){
+  now = now || Date.now();
+  if(p.rejected) return 'rejected';
+  var first = p.firstSentAt || now;
+  if(now-first >= SUBMIT_ALERT_AFTER_MS && (p.notFound||0) >= SUBMIT_ALERT_NOTFOUND
+     && (p.autoResends||0) >= SUBMIT_AUTO_RESEND) return 'unsent';
+  if(now-(p.lastReplyAt||first) >= SUBMIT_UNREACHABLE_MS) return 'offline';
+  return 'checking';
+}
+
+function _submitUrl(p){
+  return API_URL+'?action=submit&store='+encodeURIComponent(p.storeName)+'&date='+p.date
+    +'&staff='+encodeURIComponent(p.staff)+'&items='+encodeURIComponent(JSON.stringify(p.items))
+    +'&reqId='+encodeURIComponent(p.reqId);
+}
+function _canKeepalive(){
+  try{ return typeof fetch==='function' && typeof Request==='function' && ('keepalive' in Request.prototype); }
+  catch(e){ return false; }
+}
+
+// 1回送る。結果は onResult(kind,res)：'ok'／'retryable'／'rejected'／'unknown'（読めない・遅い・通信失敗）。
+// 'unknown' の後に遅れて届いた応答も _dlOnLate で拾う。
+function _dlTransmit(p, onResult){
+  var url=_submitUrl(p)+'&_cb='+Date.now();
+  var done=false;
+  function fin(kind,res){ if(done) return false; done=true; onResult(kind,res); return true; }
+  function classify(res){
+    if(res&&res.success) return 'ok';               // duplicate:true（同じreqIdの再送）も成功
+    if(res&&res.retryable) return 'retryable';      // ロックが取れず、書き込みは起きていない
+    if(res&&res.success===false) return 'rejected'; // データ起因。行は追記されていない
+    return 'unknown';
   }
-  return false;
+  if(_canKeepalive()){
+    // keepalive：画面を移っても・アプリを切り替えても要求は送られ続ける。
+    // GAS は ANYONE_ANONYMOUS の GET なので、CORS で応答（JSON）を読める。
+    // 読めなくても（CORS・通信断）書き込みは成立し得るので、結果は reqId の照合で確かめる。
+    // タイムアウトで abort はしない（abort すると keepalive の意味が無くなる）。
+    var t=setTimeout(function(){ fin('unknown'); }, SUBMIT_TIMEOUT);
+    fetch(url,{ method:'GET', keepalive:true, mode:'cors', credentials:'omit', cache:'no-store' })
+      .then(function(r){ return r.json(); })
+      .then(function(res){ clearTimeout(t); var k=classify(res); if(!fin(k,res)) _dlOnLate(p.reqId,k,res); })
+      .catch(function(){ clearTimeout(t); fin('unknown'); });
+    return;
+  }
+  // keepalive の無い端末：従来の JSONP。画面を移ると中断されるが、次に開いたときの照合と自動再送で拾う。
+  jsonp(url,'cb_sub',function(res){ var k=classify(res); if(!fin(k,res)) _dlOnLate(p.reqId,k,res); },
+    function(){ fin('unknown'); }, SUBMIT_TIMEOUT,
+    { lateGraceMs: SUBMIT_LATE_GRACE, onLate: function(res){ _dlOnLate(p.reqId,classify(res),res); } });
+}
+// 見切った後に届いた応答。成功ならその時点で「送信済み」に直す（警告を出した後でも）。
+function _dlOnLate(reqId, kind, res){
+  if(kind==='ok') _dlDelivered(reqId);
+  else if(kind==='rejected') _dlRejected(reqId, res);
 }
 
-// reqId でサーバ照合する。found なら退避を黙って消す。
-function _verifySubmitPending(p){
-  _pendingCheck[p.storeName]='checking';
+// why: 'first'（送信ボタン）／'auto'（自動再送）／'manual'（再送ボタン）
+function _dlSend(reqId, why){
+  var r=_dl(reqId);
+  if(r.sending) return;
+  var now=Date.now();
+  var p=_patchPending(reqId, function(o){
+    if(why==='manual' || !o.firstSentAt){
+      // 再送ボタンは数え直し（ここから改めて10分・自動再送2回を待ってから警告する）
+      o.firstSentAt=now; o.notFound=0; o.autoResends=0; o.rejected='';
+    }
+    if(why==='auto') o.autoResends=(o.autoResends||0)+1;
+    o.sends=(o.sends||0)+1;
+    o.lastSentAt=now;
+    if(!o.lastReplyAt || why==='manual') o.lastReplyAt=now;
+  });
+  if(!p) return;
+  r.sending=true; r.checks=0;
+  clearTimeout(r.timer); r.timer=null;
+  _dlTransmit(p, function(kind,res){
+    r.sending=false;
+    if(kind==='ok'){ _dlDelivered(reqId); return; }
+    if(kind==='rejected'){ _dlRejected(reqId,res); return; }
+    if(kind==='retryable' && r.retryable<SUBMIT_RETRYABLE_MAX){
+      // 書き込みは起きていないので、照合を挟まずすぐ同じ reqId で送り直す（自動再送には数えない）
+      r.retryable++;
+      r.timer=setTimeout(function(){ r.timer=null; _dlSend(reqId,'retry'); }, SUBMIT_RETRY_WAIT);
+      return;
+    }
+    r.retryable=0;
+    _dlArm(reqId);
+    _submitRefreshViews();
+  });
+}
+
+// 次の照合を予約する（最後の送信からの経過で決める）
+function _dlArm(reqId){
+  var r=_dl(reqId), p=_findPendingByReq(reqId);
+  if(!p || r.sending || r.checking || p.rejected) return;
+  clearTimeout(r.timer);
+  // 過ぎてしまった段（再読み込み・背面復帰の後）は飛ばし、次の未来の段に合わせる（照合を連打しない）
+  var steps=SUBMIT_CHECK_STEPS, base=p.lastSentAt||0, now=Date.now(), at;
+  for(;;){
+    var i=r.checks;
+    at = base + (i<steps.length ? steps[i] : steps[steps.length-1]+(i-steps.length+1)*SUBMIT_CHECK_EVERY);
+    if(at>now) break;
+    r.checks++;
+  }
+  r.timer=setTimeout(function(){ r.timer=null; _dlCheck(reqId); }, at-now);
+}
+
+function _dlCheck(reqId){
+  var r=_dl(reqId), p=_findPendingByReq(reqId);
+  if(!p || r.sending || r.checking) return;
+  if(!p.sends){
+    // 送った記録を持たない退避（旧版の退避・送信直前に画面が閉じた等）。届いている可能性があるので
+    // まず照合し、見つからなければそのまま自動再送に進む（lastSentAt=0＝処理中とはみなさない）。
+    var now0=Date.now();
+    p=_patchPending(reqId,function(o){ o.sends=1; o.firstSentAt=o.firstSentAt||now0; o.lastSentAt=0; o.lastReplyAt=o.lastReplyAt||now0; });
+  }
+  r.checking=true;
+  clearTimeout(r.timer); r.timer=null;
   jsonp(API_URL+'?action=getSubmitStatus&store='+encodeURIComponent(p.storeName)
     +'&date='+p.date+'&reqId='+encodeURIComponent(p.reqId)+'&_cb='+Date.now(),
     'cb_pend_chk',function(res){
-      if(res&&res.success&&res.found){
-        delete _pendingCheck[p.storeName];
-        _clearSubmitPendingFor(p.storeName);   // 記録済み → 警告せず消す
-      } else if(res&&res.success){
-        _pendingCheck[p.storeName]='unsent';   // サーバに無いと確定
-      } else {
-        _pendingCheck[p.storeName]='unknown';  // 照合できず（未送信とは断定しない）
+      r.checking=false;
+      if(res&&res.success&&res.found){ _dlDelivered(reqId); return; }
+      var cur=_findPendingByReq(reqId);
+      if(!cur) return;
+      if(res&&res.success){
+        var now=Date.now();
+        var processing = now-(cur.lastSentAt||0) < SUBMIT_PROCESSING_MS;   // 処理中・順番待ちの可能性
+        cur=_patchPending(reqId,function(o){ o.lastReplyAt=now; if(!processing) o.notFound=(o.notFound||0)+1; });
+        if(!processing && _dlShouldAutoResend(cur, now)){ _dlSend(reqId,'auto'); _submitRefreshViews(); return; }
       }
-      _updateSubmitPendingBanner();
+      // 照合自体の失敗（success でない応答）は何も確定させない
+      _dlArm(reqId);
+      _submitRefreshViews();
     },function(){
-      _pendingCheck[p.storeName]='unknown';
-      _updateSubmitPendingBanner();
-    },CONFIRM_TIMEOUT);
+      r.checking=false;
+      _dlArm(reqId);
+      _submitRefreshViews();
+    },CONFIRM_TIMEOUT,{
+      lateGraceMs: SUBMIT_LATE_GRACE,
+      onLate: function(res){ if(res&&res.success&&res.found) _dlDelivered(reqId); }
+    });
+}
+function _dlShouldAutoResend(p, now){
+  var n=p.autoResends||0;
+  if(n < SUBMIT_AUTO_RESEND) return true;
+  if(n >= SUBMIT_AUTO_RESEND_MAX) return false;
+  return now-(p.lastSentAt||0) >= SUBMIT_AUTO_RESEND_GAP;
 }
 
-// 退避が残っている店舗のうち、まだ状態が決まっていないものの照合を始める。
-function _kickSubmitPendingChecks(){
+function _dlDelivered(reqId){
+  var r=_dlRun[reqId];
+  if(r){ clearTimeout(r.timer); delete _dlRun[reqId]; }
+  _clearPendingByReq(reqId);
+  _setDoneStatus(reqId,'ok','送信済み（サーバへの記録を確認しました）');
+  _updateSubmitPendingBanner();
+}
+function _dlRejected(reqId, res){
+  var r=_dlRun[reqId];
+  if(r){ clearTimeout(r.timer); r.timer=null; }
+  _patchPending(reqId,function(o){ o.rejected=String((res&&res.error)||'サーバエラー'); });
+  _submitRefreshViews();
+}
+
+// 退避が残っているものすべてについて、照合を始める。
+// now=true：前面復帰・起動時。予約を待たずにすぐ照合する（最後の送信から5秒以内は除く）。
+function _kickSubmitPendingChecks(now){
   _listSubmitPending().forEach(function(p){
-    if(_pendingCheck[p.storeName]) return;         // 照合済み／照合中
-    if(_hasLiveSubmitSession(p.storeName)){        // 送信セッション自身が確定させる
-      _pendingCheck[p.storeName]='checking';
-      return;
-    }
-    _verifySubmitPending(p);
+    var r=_dl(p.reqId);
+    if(r.sending || r.checking || p.rejected) return;
+    if(now && Date.now()-(p.lastSentAt||0) >= SUBMIT_CHECK_STEPS[0]){ _dlCheck(p.reqId); return; }
+    if(!r.timer) _dlArm(p.reqId);
   });
+}
+
+function _submitRefreshViews(){
+  _updateSubmitPendingBanner();
+  var el=document.getElementById('done_status');
+  var reqId=el && el.getAttribute('data-req');
+  if(!reqId) return;
+  var p=_findPendingByReq(reqId);
+  if(!p) return;
+  var st=_submitState(p);
+  if(st==='unsent' || st==='rejected') _setDoneStatus(reqId,'ng',_submitStateMsg(p,st),reqId);
+  else if(st==='offline') _setDoneStatus(reqId,'warn','電波の良い所で自動で送ります',null);
+  else _setDoneStatus(reqId,'pending','確認中…（届いていなければ自動で送り直します）');
+}
+function _mdOf(date){ var m=/^\d{4}-(\d{2})-(\d{2})$/.exec(date||''); return m ? (parseInt(m[1],10)+'/'+parseInt(m[2],10)) : String(date||''); }
+function _submitStateMsg(p, st){
+  if(st==='rejected') return 'サーバが受け付けませんでした（'+p.rejected+'）';
+  return (p.date!==todayStr ? '前日以前（'+_mdOf(p.date)+'）の日報が' : '')+'まだサーバに届いていません';
 }
 
 function _updateSubmitPendingBanner(){
+  _kickSubmitPendingChecks(false);
   var list=_listSubmitPending();
   var el=document.getElementById('submit_pending_notice');
   if(list.length===0){
-    _pendingCheck={};
     if(el&&el.parentNode) el.parentNode.removeChild(el);
     return;
   }
-  _kickSubmitPendingChecks();
-  // 照合が即座に決着して退避が消えることがある（記録済み）。list を取り直してから描く。
-  list=_listSubmitPending();
-  if(list.length===0){
-    _pendingCheck={};
-    el=document.getElementById('submit_pending_notice');
-    if(el&&el.parentNode) el.parentNode.removeChild(el);
-    return;
-  }
-  el=document.getElementById('submit_pending_notice');
-  // 全体の色は最も重い状態に合わせる（未着 ＞ 照合できず ＞ 確認中）
-  var anyUnsent=false, anyUnknown=false;
+  var now=Date.now();
+  // 全体の色は最も重い状態に合わせる（未着・受付不可 ＞ 照合できず ＞ 確認中）
+  var anyRed=false, anyOffline=false;
   list.forEach(function(p){
-    var st=_pendingCheck[p.storeName]||'checking';
-    if(st==='unsent') anyUnsent=true; else if(st==='unknown') anyUnknown=true;
+    var st=_submitState(p,now);
+    if(st==='unsent'||st==='rejected') anyRed=true; else if(st==='offline') anyOffline=true;
   });
-  var tone = anyUnsent  ? {bg:'#fdecea',fg:'#b71c1c',bd:'#ef9a9a',rule:'#f3c4c0',btn:'#b71c1c'}
-           : anyUnknown ? {bg:'#fff8e1',fg:'#8a6100',bd:'#ffd54f',rule:'#f0dca8',btn:'#8a6100'}
+  var tone = anyRed     ? {bg:'#fdecea',fg:'#b71c1c',bd:'#ef9a9a',rule:'#f3c4c0',btn:'#b71c1c'}
+           : anyOffline ? {bg:'#fff8e1',fg:'#8a6100',bd:'#ffd54f',rule:'#f0dca8',btn:'#8a6100'}
            :              {bg:'#f0f4f8',fg:'#5b7a99',bd:'#b0bec5',rule:'#d4dde4',btn:'#5b7a99'};
   if(!el){
     el=document.createElement('div');
@@ -1540,35 +1749,38 @@ function _updateSubmitPendingBanner(){
   }
   el.style.cssText='background:'+tone.bg+';color:'+tone.fg+';border:1px solid '+tone.bd
     +';border-radius:8px;padding:10px;margin:0 16px 8px;font-size:12px;text-align:center;font-weight:600;line-height:1.8';
-  var h = anyUnsent  ? '⚠️ 送信されていない日報があります<br>入力内容は端末に残してあります。'
-        : anyUnknown ? '記録を確認できませんでした<br>送信済みかどうかは不明です。入力内容は端末に残してあります。'
-        :              '確認中…<br>送信した日報がサーバに記録されたか確かめています。';
+  var h = anyRed     ? '⚠️ サーバに届いていない日報があります<br>入力内容はこの端末に残っています。自動で送り直していますが、まだ届いていません。'
+        : anyOffline ? 'サーバに確認できていない日報があります<br>入力内容はこの端末に残っています。電波の良い所で自動で送ります。'
+        :              '送信を確認しています…<br>入力内容はこの端末に残っています。届いていなければ自動で送り直します。';
   list.forEach(function(p){
-    var sn=p.storeName.replace(/'/g,'');
-    var st=_pendingCheck[p.storeName]||'checking';
-    var lbl = (st==='unsent') ? '送信されていません'
-            : (st==='unknown') ? '確認できませんでした' : '確認中…';
+    var st=_submitState(p,now);
+    var lbl = (st==='unsent'||st==='rejected') ? _submitStateMsg(p,st)
+            : (st==='offline') ? '自動で送ります（電波待ち）' : '確認中…';
+    var when = (p.date!==todayStr ? _mdOf(p.date)+' ' : '')+(p.at||'');
     h+='<div style="margin-top:7px;padding-top:7px;border-top:1px solid '+tone.rule+'">'
-      +eH(p.storeName)+'（'+eH(p.staff)+'・'+eH(p.at||'')+'）　'+eH(lbl)+'<br>';
-    if(st!=='checking'){
-      h+='<button onclick="resendSubmitPending(\''+sn+'\')" style="margin-top:5px;background:'+tone.btn+';color:#fff;border:none;border-radius:6px;padding:6px 14px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">再送する</button>'
-        +' <button onclick="discardSubmitPending(\''+sn+'\')" style="margin-top:5px;margin-left:4px;background:none;border:1px solid '+tone.bd+';border-radius:6px;padding:6px 10px;font-family:inherit;font-size:12px;color:'+tone.fg+';cursor:pointer">破棄</button>';
+      +eH(p.storeName)+'（'+eH(p.staff)+'・'+eH(when)+'）　'+eH(lbl)+'<br>';
+    if(st==='unsent'||st==='rejected'){
+      var rq=eA(String(p.reqId).replace(/'/g,''));
+      h+='<button onclick="resendSubmitPending(\''+rq+'\')" style="margin-top:5px;background:'+tone.btn+';color:#fff;border:none;border-radius:6px;padding:6px 14px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">いますぐ再送する</button>'
+        +' <button onclick="discardSubmitPending(\''+rq+'\')" style="margin-top:5px;margin-left:4px;background:none;border:1px solid '+tone.bd+';border-radius:6px;padding:6px 10px;font-family:inherit;font-size:12px;color:'+tone.fg+';cursor:pointer">破棄</button>';
     }
     h+='</div>';
   });
   el.innerHTML=h;
 }
-function resendSubmitPending(storeName){
-  var p=_readSubmitPendingFor(storeName);
-  if(!p){ _updateSubmitPendingBanner(); return; }
-  _pendingCheck[storeName]='checking';
-  _updateSubmitPendingBanner();
-  _runSubmit(p, true);
+// 再送ボタン（同じ reqId で送るので二重記録にはならない）
+function resendSubmitPending(reqId){
+  if(!_findPendingByReq(reqId)){ _updateSubmitPendingBanner(); return; }
+  _dlSend(reqId,'manual');
+  _submitRefreshViews();
 }
-function discardSubmitPending(storeName){
-  if(!confirm(storeName+' の未送信日報を破棄します。よろしいですか？')) return;
-  delete _pendingCheck[storeName];
-  _clearSubmitPendingFor(storeName);
+function discardSubmitPending(reqId){
+  var p=_findPendingByReq(reqId);
+  if(!p){ _updateSubmitPendingBanner(); return; }
+  if(!confirm(p.storeName+'（'+_mdOf(p.date)+'）の未送信日報を破棄します。よろしいですか？')) return;
+  var r=_dlRun[reqId];
+  if(r){ clearTimeout(r.timer); delete _dlRun[reqId]; }
+  _clearPendingByReq(reqId);
   _updateSubmitPendingBanner();
 }
 
@@ -1589,176 +1801,41 @@ function doSubmit() {
   };
   // 【最優先】送信を始める前に端末へ退避。以降どこで失敗しても入力は失われない。
   _writeSubmitPending(pending);
-  _runSubmit(pending, false);
+  _runSubmit(pending);
 }
 
-// 完了画面に出す「確認中／確認済み／確認できず」の控えめな表示。
+// 完了画面に出す「確認中／送信済み／届いていない」の控えめな表示。
 // 操作はブロックしない。表示中の完了画面が別の送信のものなら何もしない
 // （A店の完了画面を見ている最中に、先に出したB店の確認結果で書き換えない）。
-function _setDoneStatus(reqId, kind, msg, storeName){
+function _setDoneStatus(reqId, kind, msg, resendReqId){
   var el=document.getElementById('done_status');
   if(!el || el.getAttribute('data-req')!==reqId) return false;
   el.className='done-status ds-'+kind;
   if(kind==='ng'||kind==='warn'){
     el.innerHTML='<div class="ds-msg">⚠️ '+eH(msg)+'</div>'
-      +'<div class="ds-sub">入力内容は端末に保存してあります。二重記録にはなりません。</div>'
-      +'<button class="ds-retry" onclick="resendSubmitPending(\''+eA(String(storeName||'').replace(/'/g,''))+'\')">🔄 いますぐ再送する</button>';
+      +'<div class="ds-sub">入力内容はこの端末に残っています。自動で送り直しています（二重記録にはなりません）。</div>'
+      +(resendReqId ? '<button class="ds-retry" onclick="resendSubmitPending(\''+eA(String(resendReqId).replace(/'/g,''))+'\')">🔄 いますぐ再送する</button>' : '');
   } else {
     el.innerHTML='<div class="ds-msg">'+eH(msg)+'</div>';
   }
   return true;
 }
 
-function _runSubmit(pending, isResend){
-  // 楽観的UIは通常送信のみ。バナーからの再送は従来どおり結果を待って知らせる。
-  var optimistic = !isResend;
-  if(!optimistic && _submitBusy) return;
-  var sess={ done:false, timers:[], t0:Date.now(), storeName:pending.storeName };
-  _submitSessions[pending.reqId]=sess;
-  // 【重要】単一セッション比較（旧: _submitSess===sess）はやめる。楽観的UIでは
-  // 複数店舗の確認が同時に走るため、後発の送信が前発の確認を殺してしまう。
-  function alive(){ return !sess.done; }
-  function endSess(){ sess.done=true; sess.timers.forEach(function(h){clearTimeout(h);}); sess.timers=[]; delete _submitSessions[pending.reqId]; }
-  function later(fn,ms){ var h=setTimeout(function(){ if(alive()) fn(); },ms); sess.timers.push(h); }
-
-  var url=API_URL+'?action=submit&store='+encodeURIComponent(pending.storeName)+'&date='+pending.date
-    +'&staff='+encodeURIComponent(pending.staff)+'&items='+encodeURIComponent(JSON.stringify(pending.items))
-    +'&reqId='+encodeURIComponent(pending.reqId);
-  _submitBusy=true; _setSubmitBtnDisabled(true);
-
-  function succeed(){
-    endSess();
-    _submitBusy=false; hideLoading(); _setSubmitBtnDisabled(false);
-    delete _pendingCheck[pending.storeName];
-    _clearSubmitPendingFor(pending.storeName);   // 成功した店舗の分だけ消す
-    _updateSubmitPendingBanner();
-    if(optimistic){
-      // 完了画面は既に出ている。確認できた旨だけ静かに差し替える。
-      _setDoneStatus(pending.reqId,'ok','サーバへの記録を確認しました');
-      return;
-    }
-    if(isResend){
-      alert('✅ 未送信だった日報を送信しました。\n'+pending.storeName);
-      renderHome();
-    } else {
-      rememberStaff(state.store, pending.staff);
-      renderDone();
-    }
-  }
-  // 記録を確認できなかった。入力は退避済みなので失われない。
-  //   ・完了画面がまだ開いていれば、その場で警告＋再送ボタン（層2）
-  //   ・画面を離れていれば店舗一覧のバナーが即座に出る（層2の代替）
-  //   ・どちらも見逃しても次回起動時の reqId 照合でバナーが出る（層3）
-  function warnUnconfirmed(kind,msg){
-    _pendingCheck[pending.storeName]=kind;
-    _updateSubmitPendingBanner();
-    if(optimistic){
-      if(_setDoneStatus(pending.reqId,(kind==='unsent'?'ng':'warn'),msg,pending.storeName)) return;
-      // 完了画面を離れている → バナーは既に出ている。操作を邪魔しないため
-      // alert は出さず、ホーム表示中ならバナーへ視線を誘導するだけにする。
-      return;
-    }
-    alert(msg+'\n\n入力内容は端末に保存してあります。\n'
-      +'店舗一覧のバナーから再送できます\n'
-      +'（同じ送信IDで送るので二重記録にはなりません）。');
-  }
-  // 見切り。入力は退避済みなので失われない。店舗一覧のバナーから再送できる。
-  function giveUp(kind,msg){
-    endSess();
-    _submitBusy=false; hideLoading(); _setSubmitBtnDisabled(false);
-    warnUnconfirmed(kind,msg);
-    if(!optimistic && isResend) renderHome();
-  }
-  // データ起因の失敗は再送しても変わらないので退避を残したまま即通知
-  function hardFail(msg){
-    endSess();
-    _submitBusy=false; hideLoading(); _setSubmitBtnDisabled(false);
-    // GAS が success:false を返した＝データ起因のエラーで、行は追記されていない。
-    _pendingCheck[pending.storeName]='unsent';
-    _updateSubmitPendingBanner();
-    if(optimistic){
-      if(_setDoneStatus(pending.reqId,'ng',msg,pending.storeName)) return;
-    }
-    alert(msg);
-  }
-  // 見切った後に遅れて届いた応答。成功なら即完了にして再送を打ち切る。
-  function lateOk(res){ if(alive() && res && res.success) succeed(); }
-
-  // 記録されたかを reqId でサーバに確認する（誤った再送信＝別reqIdでの二重行を防ぐ）
-  // onResolved(kind): 'notfound'＝サーバに無いと確定 / 'unknown'＝照合自体が失敗
-  // （送信済みかどうか不明）。この2つを混同すると「未確認」を「未送信」と誤認する。
-  function confirmSubmit(onResolved){
-    if(!alive()) return;
-    // 楽観的UIでは画面を覆わない（配達員の操作をブロックしない）
-    if(optimistic){ _setDoneStatus(pending.reqId,'pending','確認中…'); }
-    else { hideLoading(); showLoading('確認中...'); }
-    jsonp(API_URL+'?action=getSubmitStatus&store='+encodeURIComponent(pending.storeName)
-      +'&date='+pending.date+'&reqId='+encodeURIComponent(pending.reqId)+'&_cb='+Date.now(),
-      'cb_sub_confirm',function(res){
-        if(!alive()) return;
-        if(res&&res.success&&res.found){ succeed(); return; }
-        onResolved((res&&res.success) ? 'notfound' : 'unknown');
-      },function(){
-        if(!alive()) return;
-        onResolved('unknown');
-      },CONFIRM_TIMEOUT,{
-        lateGraceMs: SUBMIT_LATE_GRACE,
-        onLate: function(res){ if(alive() && res && res.success && res.found) succeed(); }
-      });
-  }
-
-  function attempt(i){
-    if(!alive()) return;
-    if(optimistic){
-      _setDoneStatus(pending.reqId,'pending', i===0?'確認中…':'確認中…（再送 '+i+'）');
-    } else {
-      hideLoading();
-      showLoading(i===0?'送信中...':'再送信中...（'+i+'/'+(SUBMIT_MAX_ATTEMPTS-1)+'）');
-    }
-    // _cb はGoogle側リダイレクト状態のリフレッシュ用（冪等キーではない）
-    jsonp(url+'&_cb='+Date.now()+'_'+i,'cb_sub',function(res){
-      if(!alive()) return;
-      // duplicate:true（同じreqIdの再送）も success として扱う
-      if(res&&res.success){ succeed(); return; }
-      if(res&&res.retryable){
-        // GAS が ScriptLock を取れなかった＝書き込みは起きていない。
-        // 確認を挟まず短い間隔ですぐ再送する（長時間ブロックしない）。
-        if(i+1<SUBMIT_MAX_ATTEMPTS && Date.now()-sess.t0<SUBMIT_DEADLINE){
-          if(optimistic) _setDoneStatus(pending.reqId,'pending','他の送信と重なりました。すぐに再送します…');
-          else showLoading('他の送信と重なりました。すぐに再送します...');
-          later(function(){attempt(i+1);},SUBMIT_RETRY_WAIT);
-          return;
-        }
-        // retryable は GAS がロックを取れなかった＝書き込みは起きていないケース。
-        giveUp('unsent','送信されていません（他の配達員の送信と重なり、順番待ちが解消しませんでした）。');
-        return;
-      }
-      hardFail('送信に失敗しました。\n'+((res&&res.error)||'')+'\nもう一度お試しください。');
-    },function(){
-      // タイムアウト/通信失敗。JSONP はキャンセルできず書き込みが成立している
-      // 可能性があるので、再送の前に必ず reqId で確認する。
-      if(!alive()) return;
-      confirmSubmit(function(kind){
-        if(i+1<SUBMIT_MAX_ATTEMPTS && Date.now()-sess.t0<SUBMIT_DEADLINE){
-          later(function(){attempt(i+1);},SUBMIT_RETRY_WAIT);
-          return;
-        }
-        if(kind==='notfound') giveUp('unsent','送信されていません。');
-        else giveUp('unknown','記録を確認できませんでした（送信済みかどうかは不明です）。');
-      });
-    },SUBMIT_TIMEOUT,{ lateGraceMs: SUBMIT_LATE_GRACE, onLate: lateOk });
-  }
-
-  if(optimistic){
-    // 【楽観的UI】応答を待たず完了画面へ。退避は呼び出し元で済んでいる（層1）。
-    // 担当者の引継ぎもここで記憶する（確認の成否に関わらず害はない）。
-    rememberStaff(state.store, pending.staff);
-    _pendingCheck[pending.storeName]='checking';
-    _submitBusy=false; _setSubmitBtnDisabled(false); hideLoading();
-    renderDone(pending.reqId);
-  }
-  attempt(0);
+// 【楽観的UI】応答を待たず完了画面へ。退避は呼び出し元で済んでいる。
+// 以降の送信・照合・再送はすべて裏（_dlSend/_dlCheck）で行う。
+function _runSubmit(pending){
+  rememberStaff(state.store, pending.staff);   // 確認の成否に関わらず害はない
+  _submitBusy=false; _setSubmitBtnDisabled(false); hideLoading();
+  renderDone(pending.reqId);
+  _dlSend(pending.reqId,'first');
 }
+
+// 前面に戻ったとき：送信の照合と、納品指示の取り直し（件2）
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState !== 'visible') return;
+  try{ _kickSubmitPendingChecks(true); _updateSubmitPendingBanner(); }catch(e){}
+  try{ _haitatsuOnForeground(); }catch(e){}
+});
 // reqId を渡すと、その送信の確認状態を表示する枠を出す（楽観的UI）。
 // 渡さない場合（従来の再送成功時など）は枠を出さない。
 function renderDone(reqId) {
@@ -1949,7 +2026,9 @@ function saveCfg(){
 // 閉じた・リロードした場合は実際にはサーバに記録済みのことがある。
 // 照合の実体は _kickSubmitPendingChecks（記録済みなら黙って消し、未着と
 // 確定したときだけ警告する）。ここは起動時の入口として残す。
+// 【2026-09-29】起動時は予約を待たずにすぐ照合する（前日以前の退避も対象）。
 function _autoResolveSubmitPending(){
+  _kickSubmitPendingChecks(true);
   _updateSubmitPendingBanner();
 }
 
