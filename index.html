@@ -366,21 +366,43 @@ var LS_HAITATSU_FETCHED = lsKey('haitatsu_fetched_day_v1');
 // 判定はこちらで行う。値は 'YYYY-MM-DD'。
 var LS_HAITATSU_TARGET  = lsKey('haitatsu_target_day_v1');
 var LS_SANCHI_ISSUED    = lsKey('sanchi_issued_today_v1');
+// 【2026-09-29】保存と送信の記録（GAS の「保存送信ログ」シート）に付ける端末IDと画面の版。
+// 端末IDはこの端末で一度だけ作るランダムな値（haitatsu.html と同じキーを共有＝同じ端末は同じID）。
+// 氏名・電話番号などは入れない。localStorage が使えない端末では画面を開くたびに変わる。
+var PAGE_BUILD = 'audit-log-20260929';   // 画面を変えて出すときに更新する（記録の「画面の版」）
+var LS_DEVICE_ID = lsKey('device_id_v1');
+var _deviceIdMemo = '';
+function _deviceId(){
+  if(_deviceIdMemo) return _deviceIdMemo;
+  var id='';
+  try{ id=localStorage.getItem(LS_DEVICE_ID)||''; }catch(e){}
+  if(!/^[0-9a-z]{6,20}$/.test(id)){
+    id=Math.random().toString(36).slice(2,8)+Date.now().toString(36).slice(-4);
+    try{ localStorage.setItem(LS_DEVICE_ID,id); }catch(e){}
+  }
+  return (_deviceIdMemo=id);
+}
+function _auditQuery(extra){
+  var q='&dev='+encodeURIComponent(_deviceId())+'&ver='+encodeURIComponent(PAGE_BUILD);
+  Object.keys(extra||{}).forEach(function(k){ q+='&'+k+'='+encodeURIComponent(String(extra[k])); });
+  return q;
+}
 
 var state = { screen:'home', route:0, store:null, formData:{}, staff:'', config:null, extraPrices:[], labelAlert:null, labelIssued:{}, labelIssuedTotal:null, manualIssueOpen:false, sanchiIssuedToday:0 };
 var today = new Date();
 var DAYS = ['日','月','火','水','木','金','土'];
 var todayStr = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
-// 臨時品目の有効期間（haitatsu.html の _extrasEntryAlive と同一規則）。
-// 配達商品情報は前夜に翌日分を入力するので、対象日(extrasDate)または
-// 最終編集日(extrasTouched)が「当日または前日」なら有効とする。
-// touched を持たない旧形式データは extrasDate だけで判定する（後方互換）。
-var yesterdayStr = (function(){
-  var d = new Date(today.getFullYear(), today.getMonth(), today.getDate()-1);
-  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-})();
-function _dAlive(d){ return !!d && String(d).slice(0,10) >= yesterdayStr; }
-function _extrasEntryAlive(e){ return !!e && (_dAlive(e.extrasDate) || _dAlive(e.extrasTouched)); }
+// 臨時品目の有効判定（haitatsu.html の _extraUntil / _extraAliveOn と同じ中身）。
+// 【2026-09-29】「対象日・最終編集日が当日か前日なら有効」（2日で失効）をやめ、
+// 品目ごとの終了日 entry.extrasUntil = {'¥360':'', '¥178':'2026-09-30'} で判定する。
+// 終了日が無い（''＝消すまで・旧データ）か、終了日が当日以降の品目だけが有効。
+var EXTRAS_UNTIL_BUILD = 'extras-until-20260929';   // 本番反映の確認用マーカー
+function _extraUntil(e, price){
+  var u = e && e.extrasUntil;
+  var v = String((u && typeof u === 'object' && u[price]) || '').slice(0,10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '';
+}
+function _extraAliveOn(e, price, day){ var u = _extraUntil(e, price); return !u || u >= day; }
 document.getElementById('hDate').textContent = today.getFullYear()+'年'+(today.getMonth()+1)+'月'+today.getDate()+'日（'+DAYS[today.getDay()]+'）';
 
 function loadConfig(cb) {
@@ -915,12 +937,14 @@ function applyHaitatsuDefault(id, opts) {
     // extrasDate === todayStr（入力日一致）だと入力の翌朝＝配達当日に消えていた。
     // 【2026-08-14 修正】さらに、前日日付のまま生きているセットを前夜に編集した分は
     // extrasDate が延びず翌朝に失効していたので、最終編集日(extrasTouched)も見る
-    // （haitatsu.html の _extrasEntryAlive と同一規則）。
+    // 【2026-09-29】上の2日失効をやめ、品目ごとの終了日で判定する（_extraAliveOn）。
+    // ここに来るのは対象日が当日の指示だけなので、当日（todayStr）と比べる。
     // 既存価格と同じ値は取り込まない（納品_¥99 等を二重に上書きしない）。
-    if(entry.extras && _extrasEntryAlive(entry) && (def.type==='yaoko' || def.type==='choku')){
+    if(entry.extras && typeof entry.extras === 'object' && (def.type==='yaoko' || def.type==='choku')){
       Object.keys(entry.extras).forEach(function(price){
         if(!/^¥\d+$/.test(price)) return;
         if((def.prices||[]).indexOf(price) > -1) return;
+        if(!_extraAliveOn(entry, price, todayStr)) return;   // 終了した品目は入れない
         var v = entry.extras[price];
         if(v===''||v===null||v===undefined) return;
         var had = state.extraPrices.indexOf(price) >= 0;
@@ -1556,6 +1580,8 @@ function _canKeepalive(){
 // 'unknown' の後に遅れて届いた応答も _dlOnLate で拾う。
 function _dlTransmit(p, onResult){
   var url=_submitUrl(p)+'&_cb='+Date.now();
+  // 保存と送信の記録用（GAS はこの値を記録するだけで、送信の処理には使わない）
+  try{ url+=_auditQuery({ via:(_canKeepalive()?'keepalive':'jsonp'), why:(p.lastWhy||''), n:(p.sends||1) }); }catch(e){}
   var done=false;
   function fin(kind,res){ if(done) return false; done=true; onResult(kind,res); return true; }
   function classify(res){
@@ -1599,6 +1625,7 @@ function _dlSend(reqId, why){
     }
     if(why==='auto') o.autoResends=(o.autoResends||0)+1;
     o.sends=(o.sends||0)+1;
+    o.lastWhy=why;   // 保存と送信の記録用（初回か再送か）
     o.lastSentAt=now;
     if(!o.lastReplyAt || why==='manual') o.lastReplyAt=now;
   });

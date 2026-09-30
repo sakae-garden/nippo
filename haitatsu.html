@@ -77,7 +77,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .ya-cell input:focus{outline:none;border-color:var(--green)}
 .ya-cell input:read-only{background:#f7f4ec;border-color:transparent;color:var(--ink)}
 
-/* ── 臨時品目（チラシ割引等・その日限りの価格）──────────────────
+/* ── 臨時品目（チラシ割引・大袋等の定番外の価格。消すまで残る）──────
    基本4価格の .ya-body とは別セクションにし、淡いアンバー地＋破線で
    「定番ではない」ことを控えめに示す。合計・サマリー・シール計算には
    一切入らない（フロントも updExtraPrice しか呼ばない）。 */
@@ -95,6 +95,11 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .ya-rinji-badge{font-size:9px;font-weight:700;color:#a1791f;background:#fdf3d8;border-radius:3px;padding:1px 5px;line-height:1.3;letter-spacing:.04em}
 .ya-extra-del{position:absolute;top:1px;right:2px;width:18px;height:18px;line-height:16px;padding:0;background:none;border:none;color:#c9b071;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer}
 .ya-extra-del:active{color:#8a6a1c}
+/* 【2026-09-29】価格の変更ボタンと、見出しの「追加から◯日」（消し忘れに気づくための表示だけ） */
+.ya-extra-price{font-family:inherit;font-size:10px;font-weight:700;color:#a1791f;background:#fff;border:1px solid #e0c97f;border-radius:10px;padding:1px 7px;line-height:1.4;white-space:nowrap;cursor:pointer}
+.ya-extra-age{font-size:9px;font-weight:500;color:#b0a27a;letter-spacing:0;margin-left:6px}
+.until-btns{display:flex;flex-direction:column;gap:7px}
+.until-btns button{width:100%;padding:10px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;border:1px solid #e0c97f;background:#fffdf5;color:#8a6a1c}
 /* 閲覧モード（配達員が見る画面）の臨時品目行。納品指示が入っている時だけ出す。 */
 .ya-extra-view{background:#fffdf5;border:1px solid #ede0bd;border-radius:10px;padding:9px 12px;margin:-6px 0 14px;font-size:12px;color:#8a6a1c;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 .ya-extra-view-ttl{font-size:10px;font-weight:700;letter-spacing:.1em;color:#a1791f;width:100%}
@@ -249,6 +254,8 @@ var SNAPSHOT_MAX_AGE_MS = 6 * 3600 * 1000;
 var ZAIKO_REVALIDATE_BUILD = 'zaiko-revalidate-20260816';
 // 未保存対策（固定バー＋下書き3層）の配信確認マーカー。
 var UNSAVED_GUARD_BUILD = 'unsaved-guard-20260910';
+// 臨時品目を消すまで残す（件1 案A・いつまでの選択なし）の配信確認マーカー。
+var EXTRAS_UNTIL_BUILD = 'extras-keep-20260929';
 var YAOKO_PRICES = ['¥99','¥198','¥398','¥598'];
 
 // SWR用 localStorage キー。/nippo/test/ は本番と同一オリジンで localStorage を共有するため、
@@ -266,6 +273,27 @@ var LS_HAITATSU_LATEST = lsKey('haitatsu_latest');
 // 残在庫/販売数のSWRキャッシュ。既存の haitatsu_cache_v1 は納品数(items)と
 // lastUpdated しか持たないため専用キーを新設する。必ず lsKey() 経由（環境別分離）。
 var LS_ZAIKO_CACHE = lsKey('zaiko_cache_v1');
+// 【2026-09-29】保存と送信の記録（GAS の「保存送信ログ」シート）に付ける端末IDと画面の版。
+// 端末IDはこの端末で一度だけ作るランダムな値（index.html と同じキーを共有＝同じ端末は同じID）。
+// 氏名・電話番号などは入れない。localStorage が使えない端末では画面を開くたびに変わる。
+var PAGE_BUILD = 'audit-log-20260929';   // 画面を変えて出すときに更新する（記録の「画面の版」）
+var LS_DEVICE_ID = lsKey('device_id_v1');
+var _deviceIdMemo = '';
+function _deviceId(){
+  if(_deviceIdMemo) return _deviceIdMemo;
+  var id='';
+  try{ id=localStorage.getItem(LS_DEVICE_ID)||''; }catch(e){}
+  if(!/^[0-9a-z]{6,20}$/.test(id)){
+    id=Math.random().toString(36).slice(2,8)+Date.now().toString(36).slice(-4);
+    try{ localStorage.setItem(LS_DEVICE_ID,id); }catch(e){}
+  }
+  return (_deviceIdMemo=id);
+}
+function _auditQuery(extra){
+  var q='&dev='+encodeURIComponent(_deviceId())+'&ver='+encodeURIComponent(PAGE_BUILD);
+  Object.keys(extra||{}).forEach(function(k){ q+='&'+k+'='+encodeURIComponent(String(extra[k])); });
+  return q;
+}
 
 var state = { mode:'view', route:0, data:{}, zaiko:{}, zaikoExtras:{}, zaikoDataDate:'', lastUpdated:'', dirty:false, loaded:false,
               // saveState: '' | 'saving' | 'failed' | 'unknown'（件C / 固定バーの表示に使う）
@@ -307,8 +335,22 @@ var yesterdayStr = (function(){
 //   ・extrasTouched … 人が実際に数値を入力した最終日。編集のたびに当日で更新する。
 // 人の入力がない限り延びないので、放置された品目は最終入力日から2日で自然に失効する。
 // touched を持たない旧形式データは extrasDate だけで判定する（後方互換）。
+//
+// 【2026-09-29 廃止 → 消すまで残す】上の「2日で失効」は、大袋¥360 を臨時品目で
+// 常設運用すると、前夜に数を打ち直さなかった店舗の分が翌朝黙って消えた（9/29 皆野・児玉バイパス）。
+// 失効の自動判定をやめ、臨時品目は大袋もチラシも、手で消す（数を空欄にする・×）まで残す。
+// 「いつまで」は選ばせない（杉さん判断 2026-09-29 12:09：終了日を設定する作業をしたくない）。
+// entry.extrasUntil（品目ごとの終了日。GAS が保存・読み出しする）は、この画面では常に ''（消すまで）で送る。
+// index.html の自動入力は _extraAliveOn（終了日が入っていれば除外）のままだが、終了日が入らないので全品目が対象。
+// extrasDate（臨時品目のセットを起こした日）は見出しの「追加から◯日」に使う。extrasTouched は旧版の画面のため。
+// _dAlive は下書きの有効期限（当日・前日）だけに使う。
 function _dAlive(d){ return !!d && String(d).slice(0,10) >= yesterdayStr; }
-function _extrasEntryAlive(e){ return !!e && (_dAlive(e.extrasDate) || _dAlive(e.extrasTouched)); }
+// 保存の照合用（終了日の読み取り。画面の判定には使わない）
+function _extraUntil(e, price){
+  var u = e && e.extrasUntil;
+  var v = String((u && typeof u === 'object' && u[price]) || '').slice(0,10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '';
+}
 document.getElementById('hDate').textContent = today.getFullYear()+'年'+(today.getMonth()+1)+'月'+today.getDate()+'日（'+DAYS[today.getDay()]+'）';
 
 // ============ jsonp ============
@@ -407,20 +449,41 @@ function updComment(storeName, val){
   _setDirty(true);
 }
 
-// ============ 臨時品目（その日限りの価格）============
+// ============ 臨時品目（定番外の価格。消すまで残る）============
 // 【設計 2026-08-11】
 // チラシ割引（178/188/158…毎回変わる）は常設列を作らず、店舗エントリの
 // entry.extras = {'¥178':'30'} / entry.extrasDate = 'YYYY-MM-DD' に持つ。
 //   ・entry.prices（既存4価格）には絶対に入れない。したがって
 //     経路合計・全ルート総合計・店舗小計・産地シール消費(¥99)・
 //     値段ラベル(男衾/川本の固定4価格)のどれにも混ざらない。
-//   ・extrasDate が当日でないものは「持ち越さない」ため読み込み時に捨てる。
-//     ただし『残在庫がある間の参照表示』は state.zaikoExtras 側で出続ける。
+//   ・【2026-09-29】日付では外さない。数を空欄にするか × で消すまで、すべて有効。
+//     『残在庫がある間の参照表示』は従来どおり state.zaikoExtras 側で出続ける。
+// 戻り値は品目のコピー（読み取り専用に使う）。
 function extrasOf(storeName){
   var e = state.data[storeName];
   if(!e || !e.extras || typeof e.extras !== 'object') return {};
-  if(!_extrasEntryAlive(e)) return {};   // 対象日・最終編集日ともに前々日以前なら失効
-  return e.extras;
+  var out = {};
+  Object.keys(e.extras).forEach(function(p){ out[p] = e.extras[p]; });
+  return out;
+}
+// 見出しの「追加から◯日」の起点。臨時品目のセットを起こした日（extrasDate）、
+// 分からなければ最終編集日（extrasTouched）。どちらも無ければ ''。
+function _extraAddedDay(e){
+  var d = String((e && e.extrasDate) || '').slice(0,10);
+  if(/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+  d = String((e && e.extrasTouched) || '').slice(0,10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : '';
+}
+// 'YYYY-MM-DD' 同士の日数差（to − from。端末の暦で数える）
+function _daysBetween(from, to){
+  function p(s){ var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s); return Date.UTC(+m[1], +m[2]-1, +m[3]); }
+  return Math.round((p(to) - p(from)) / 86400000);
+}
+function _extraAgeLabel(e){
+  var d = _extraAddedDay(e);
+  if(!d) return '';
+  var n = _daysBetween(d, todayStr);
+  return n <= 0 ? '今日追加' : ('追加から'+n+'日');
 }
 // 参照用（日報で発生した臨時品目の残在庫/販売数）
 function extraZanFor(storeName, price){
@@ -460,15 +523,15 @@ function updExtraPrice(storeName, price, val){
   if(YAOKO_PRICES.indexOf(price) > -1) return;        // 既存価格は臨時にしない
   if(!state.data[storeName]) state.data[storeName]={};
   var e = state.data[storeName];
-  if(!e.extras || typeof e.extras !== 'object' || !_extrasEntryAlive(e)){
-    // 新しくセットを起こすときだけ対象日(extrasDate)を刻む
+  if(!e.extras || typeof e.extras !== 'object'){
+    // 新しくセットを起こすときだけ対象日(extrasDate)を刻む（旧版の画面のため。判定には使わない）
     e.extras = {};
     e.extrasDate = todayStr;
   }
-  // 有効期間内の既存セットを編集した場合も extrasDate は書き換えない
-  // （その指示が「いつの分か」を保つ）。延ばすのは最終編集日だけ。
+  if(!e.extrasUntil || typeof e.extrasUntil !== 'object') e.extrasUntil = {};
   e.extras[price] = val;
-  e.extrasTouched = todayStr;   // 人が数値を入れた日。ここだけが有効期間を延ばす
+  if(!(price in e.extrasUntil)) e.extrasUntil[price] = '';
+  e.extrasTouched = todayStr;   // 人が数値を入れた日（旧版の画面のため。判定には使わない）
 
   _setDirty(true);
   // 既存4価格の合計（at_/rt_・店舗小計）はここでは触らない＝臨時は既存合計に入らない。
@@ -476,36 +539,44 @@ function updExtraPrice(storeName, price, val){
   updateAllRoutesTotal();
   updateRouteTotal();
 }
-// 保存済みデータのうち、失効した臨時指示を落とす。
-// 失効の条件は _extrasEntryAlive と完全に同じ＝対象日・最終編集日のどちらもが
-// 前々日以前のときだけ。有効なものを取りこぼして保存で消してしまわないよう、
-// 判定関数は必ずここでも共有する（独自の日付比較を書かない）。
-function _purgeStaleExtras(items){
+// 【2026-09-29】旧 _purgeStaleExtras（失効した臨時指示を読込時に落とす）の後継。
+// 落とすのはやめ、臨時品目の各キーの終了日（extrasUntil）を ''（消すまで）にそろえるだけにする。
+// シートに終了日が残っていても（試験中の版で入れたもの）、この画面で保存すれば消すまでに戻る。
+// 保存で送る extrasUntil が「until を知っている画面からの保存」の印になる
+// （GAS は extrasUntil が無い保存＝旧版の画面からの保存では、シートの until を引き継ぐ）。
+// 渡されたオブジェクトを直接書き換えるので、必ずコピーを渡すこと（2026-08-14 の焼き付き事故）。
+function _normExtras(items){
   Object.keys(items || {}).forEach(function(nm){
     var e = items[nm];
     if(!e || typeof e !== 'object') return;
-    if(e.extras && !_extrasEntryAlive(e)){
-      delete e.extras;
-      delete e.extrasDate;
-      delete e.extrasTouched;
-    }
+    if(!e.extras || typeof e.extras !== 'object'){ delete e.extrasUntil; return; }
+    var u = {};
+    Object.keys(e.extras).forEach(function(p){ u[p] = ''; });
+    e.extrasUntil = u;
   });
   return items;
 }
+function _parsePriceInput(v){
+  v = String(v).trim().replace(/[¥￥]/g,'').replace(/[,，]/g,'');
+  var n = parseInt(v,10);
+  if(!n || n<=0 || isNaN(n)){ alert('正の整数を入力してください'); return null; }
+  var label = '¥'+n;
+  // 【二重計上の遮断】既存4価格と同じ臨時品目は作らせない。
+  // ¥99 は産地シール消費の唯一の集計源なので特に重要。
+  if(YAOKO_PRICES.indexOf(label) > -1){
+    alert('既存価格('+label+')と同じです。使えません。\n既存価格は上の入力欄に入れてください。');
+    return null;
+  }
+  return label;
+}
+// 【2026-09-29】追加は品目（価格）だけで完了する。「いつまで」は聞かない（消すまで続ける）。
+// 残在庫・販売数だけで出ている行（指示なし）と同じ価格を追加したときは、その行が指示ありになる。
 function addExtraForStore(storeName){
   showPriceModal(function(v){
     if(v===null) return;
-    v = String(v).trim().replace(/[¥￥]/g,'').replace(/[,，]/g,'');
-    var n = parseInt(v,10);
-    if(!n || n<=0 || isNaN(n)){ alert('正の整数を入力してください'); return; }
-    var label = '¥'+n;
-    // 【二重計上の遮断】既存4価格と同じ臨時品目は作らせない。
-    // ¥99 は産地シール消費の唯一の集計源なので特に重要。
-    if(YAOKO_PRICES.indexOf(label) > -1){
-      alert('既存価格('+label+')と同じです。追加できません。\n既存価格は上の入力欄に入れてください。');
-      return;
-    }
-    if(storeExtraPrices(storeName).indexOf(label) > -1){
+    var label = _parsePriceInput(v);
+    if(!label) return;
+    if(extrasOf(storeName)[label] !== undefined){
       alert(label+'は既に追加されています');
       return;
     }
@@ -513,14 +584,88 @@ function addExtraForStore(storeName){
     renderRoute();
   });
 }
-// 金額入力モーダル（日報 index.html の showPriceModal と同一仕様：
-// type=text / inputmode=numeric / pattern=[0-9]* で数字テンキーが出る）
-function showPriceModal(cb){
+function _deleteExtraKey(storeName, price){
+  var e = state.data[storeName];
+  delete e.extras[price];
+  if(e.extrasUntil) delete e.extrasUntil[price];
+  if(!Object.keys(e.extras).length){
+    delete e.extras;
+    delete e.extrasDate;
+    delete e.extrasTouched;
+    delete e.extrasUntil;
+  } else {
+    e.extrasTouched = todayStr;   // 残った分は編集した扱い（旧版の画面のため）
+  }
+}
+// 価格の変更（例：大袋 ¥360→¥380）。店舗ごとの数はそのまま引き継ぐ。品目の「価格 ▾」から開く。
+// 対象は「この店舗だけ」か「この価格が入っている全店舗」。変更先の価格が既にある店舗は変えない。
+function changeExtraPrice(storeName, oldPrice){
+  showPriceModal(function(v){
+    if(v===null) return;
+    var label = _parsePriceInput(v);
+    if(!label) return;
+    if(label === oldPrice) return;
+    var all = Object.keys(state.data).filter(function(nm){
+      return extrasOf(nm)[oldPrice] !== undefined;
+    });
+    showChoiceModal(oldPrice+' → '+label+' に変えます',
+      '各店舗の数はそのまま引き継ぎます。',
+      [ { label: oldPrice+' が入っている全店舗（'+all.length+'店舗）', value: 'all' },
+        { label: 'この店舗だけ', value: 'one' } ],
+      function(scope){
+        if(scope===null) return;
+        var targets = scope === 'all' ? all : [storeName];
+        var done = [], skipped = [];
+        targets.forEach(function(nm){
+          var e = state.data[nm];
+          if(!e || !e.extras || !(oldPrice in e.extras)) return;
+          if(label in e.extras){ skipped.push(nm); return; }
+          if(!e.extrasUntil || typeof e.extrasUntil !== 'object') e.extrasUntil = {};
+          e.extras[label] = e.extras[oldPrice];
+          e.extrasUntil[label] = '';
+          delete e.extras[oldPrice];
+          delete e.extrasUntil[oldPrice];
+          e.extrasTouched = todayStr;
+          done.push(nm);
+        });
+        _setDirty(true);
+        renderRoute();
+        var msg = oldPrice+'→'+label+'（'+done.length+'店舗）。保存してください';
+        if(skipped.length){
+          alert(msg+'\n\n次の店舗は '+label+' が既にあるので変えていません：\n'
+            + skipped.map(function(nm){ return nm.replace('ヤオコー',''); }).join('、'));
+        } else showToast(msg);
+      });
+  }, { title: oldPrice+' を何円に変えますか（円）', ok: '次へ' });
+}
+// 選択肢モーダル（価格変更の対象の選択に使う）。cb(value) / キャンセルは null。
+function showChoiceModal(title, note, choices, cb){
   var ov=document.createElement('div');
   ov.className='price-modal-ov';
-  ov.innerHTML='<div class="price-modal"><div class="price-modal-ttl">追加する商品の価格（円）</div>'
+  var h='<div class="price-modal"><div class="price-modal-ttl">'+eH(title)+'</div>'
+    +(note ? '<div class="leave-modal-msg">'+eH(note)+'</div>' : '')
+    +'<div class="until-btns">';
+  choices.forEach(function(c, i){ h+='<button type="button" data-i="'+i+'">'+eH(c.label)+'</button>'; });
+  h+='</div><div class="price-modal-btns"><button type="button" class="price-modal-cancel">キャンセル</button></div></div>';
+  ov.innerHTML=h;
+  document.body.appendChild(ov);
+  var done=false;
+  function close(val){ if(done)return; done=true; if(ov.parentNode)ov.parentNode.removeChild(ov); cb(val); }
+  Array.prototype.forEach.call(ov.querySelectorAll('.until-btns button[data-i]'), function(b){
+    b.onclick=function(){ close(choices[parseInt(b.getAttribute('data-i'),10)].value); };
+  });
+  ov.querySelector('.price-modal-cancel').onclick=function(){ close(null); };
+  ov.addEventListener('click',function(e){ if(e.target===ov) close(null); });
+}
+// 金額入力モーダル（日報 index.html の showPriceModal と同一仕様：
+// type=text / inputmode=numeric / pattern=[0-9]* で数字テンキーが出る）
+function showPriceModal(cb, opts){
+  opts = opts || {};
+  var ov=document.createElement('div');
+  ov.className='price-modal-ov';
+  ov.innerHTML='<div class="price-modal"><div class="price-modal-ttl">'+eH(opts.title || '追加する商品の価格（円）')+'</div>'
     +'<input type="text" inputmode="numeric" pattern="[0-9]*" class="price-modal-inp" placeholder="例：178" maxlength="6">'
-    +'<div class="price-modal-btns"><button type="button" class="price-modal-cancel">キャンセル</button><button type="button" class="price-modal-ok">追加</button></div></div>';
+    +'<div class="price-modal-btns"><button type="button" class="price-modal-cancel">キャンセル</button><button type="button" class="price-modal-ok">'+eH(opts.ok || '次へ')+'</button></div></div>';
   document.body.appendChild(ov);
   var inp=ov.querySelector('.price-modal-inp');
   var done=false;
@@ -536,14 +681,7 @@ function rmExtraForStore(storeName, price){
   var ex = extrasOf(storeName);
   if(ex[price]===undefined) return;
   if(!confirm(price+' の臨時品目の納品指示を取り消しますか？')) return;
-  delete state.data[storeName].extras[price];
-  if(!Object.keys(state.data[storeName].extras).length){
-    delete state.data[storeName].extras;
-    delete state.data[storeName].extrasDate;
-    delete state.data[storeName].extrasTouched;
-  } else {
-    state.data[storeName].extrasTouched = todayStr;   // 残った分は編集した扱い
-  }
+  _deleteExtraKey(storeName, price);
   _setDirty(true);
   renderRoute();
 }
@@ -621,7 +759,7 @@ function extraTotalsFor(ids){
   ids.forEach(function(id){
     var def = STORE_DEFS[id];
     if(!def || def.type !== 'yaoko') return;      // 二重の防御
-    var ex = extrasOf(def.name);                  // 当日分のみ（extrasDate===todayStr）
+    var ex = extrasOf(def.name);                  // 納品指示のある臨時品目（消すまで残る）
     Object.keys(ex).forEach(function(p){
       if(YAOKO_PRICES.indexOf(p) > -1) return;
       if(!(p in m)) m[p] = 0;
@@ -822,10 +960,14 @@ function _extraTotalRowsHtml(list, idPrefix){
 // 編集モードの店舗カード下部に付く「臨時品目」セクション。
 // 表示対象は storeExtraPrices()（当日の納品指示があるもの＋残在庫が残っているもの）。
 // 対象が無くても「＋ 追加」だけは常に出す（困りごと2＝定番外商品の追加導線）。
+// 【2026-09-29】臨時品目は消すまで残るので、消し忘れに気づけるよう見出しに「追加から◯日」を出す（表示だけ）。
+// 納品指示のある品目には「価格 ▾」（価格の変更）を出す。参照行（残在庫・販売数だけ）はそのまま数を入れられる。
 function _extraSectionHtml(nm){
   var list = storeExtraPrices(nm);
   var ex = extrasOf(nm);
+  var age = Object.keys(ex).length ? _extraAgeLabel(state.data[nm]) : '';
   var h = '<div class="ya-extra"><div class="ya-extra-hdr"><span class="ya-extra-ttl">臨時品目'
+        + (age ? '<span class="ya-extra-age">'+eH(age)+'</span>' : '')
         + (list.length ? '' : '<span class="ya-extra-note">　定番外・チラシ割引など</span>')
         + '</span>'
         + '<button class="ya-extra-add" onclick="addExtraForStore(\''+eA(nm)+'\')">＋ 追加</button></div>';
@@ -846,10 +988,12 @@ function _extraSectionHtml(nm){
         zanCls   = (z ? '' : ' none') + zaikoCellUpd(nm, p);
         salesCls = ((z && z.hasSales) ? '' : ' none') + zaikoCellUpd(nm, p);
       }
+      var active = ex[p]!==undefined;
       h += '<div class="ya-cell">'
-         + (ex[p]!==undefined ? '<button class="ya-extra-del" onclick="rmExtraForStore(\''+eA(nm)+'\',\''+eA(p)+'\')" aria-label="削除">×</button>' : '')
+         + (active ? '<button class="ya-extra-del" onclick="rmExtraForStore(\''+eA(nm)+'\',\''+eA(p)+'\')" aria-label="削除">×</button>' : '')
          + '<div class="ya-rinji-badge">臨時</div>'
          + '<div class="ya-cell-p">'+eH(p)+'</div>'
+         + (active ? '<button class="ya-extra-price" onclick="changeExtraPrice(\''+eA(nm)+'\',\''+eA(p)+'\')">価格 ▾</button>' : '')
          + '<div class="ya-cell-sales'+salesCls+'">'+salesLbl+'</div>'
          + '<div class="ya-cell-zan'+zanCls+'">'+zanLbl+'</div>'
          + '<input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="0" value="'+eA(v)+'" oninput="updExtraPrice(\''+eA(nm)+'\',\''+eA(p)+'\',this.value)">'
@@ -1116,7 +1260,8 @@ function _elapsed(sess){ return Date.now() - sess.t0; }
 //     層3 失敗が確定したら固定バーを「保存できませんでした」＋再送に変える
 //     層4 次回起動時にサーバと照合してから下書きバナーを出す（_verifyLocalStateThenBanner）
 function doSave(){
-  var payload = JSON.parse(JSON.stringify(state.data || {}));
+  // 臨時品目には必ず extrasUntil を付けて送る（GAS はこれで「until を知っている画面」と判断する）
+  var payload = _normExtras(JSON.parse(JSON.stringify(state.data || {})));
   // 【最優先】送信を始める前に端末へ退避する。この時点以降、通信・タブ閉じ・
   // 端末再起動のいずれが起きても入力内容は失われない。
   _writePending(payload);
@@ -1167,12 +1312,15 @@ function _extrasNorm(entry){
   });
   return out;
 }
+// 【2026-09-29】終了日（extrasUntil）も突き合わせる（この画面は常に '' を送るので、
+// シートに残っていた終了日が消すまでに戻ったことも確認できる）。
 function _extrasMatch(exp, got){
   var a = _extrasNorm(exp), b = _extrasNorm(got);
   var ka = Object.keys(a), kb = Object.keys(b);
   if(ka.length !== kb.length) return false;
   for(var i=0;i<ka.length;i++){
     if(a[ka[i]] !== b[ka[i]]) return false;
+    if(_extraUntil(exp, ka[i]) !== _extraUntil(got, ka[i])) return false;
   }
   return true;
 }
@@ -1215,6 +1363,8 @@ function _doSaveAttempt(attempt, payload, sess){
   // 日付キー廃止：saveHaitatsu は常に最新1セットを店舗名キーで upsert
   // _cb: キャッシュバスター。Google 側リダイレクト状態のリフレッシュを促し 404 を軽減
   var url = API_URL+'?action=saveHaitatsu&data='+dataStr+'&_cb='+Date.now()+'_'+attempt;
+  // 保存と送信の記録用。reqId は1回の「保存」操作ごと（再送は同じ値）。GAS は記録するだけで保存の処理には使わない
+  try{ url += '&reqId='+encodeURIComponent(sess.id) + _auditQuery({ via:'jsonp', n:attempt+1 }); }catch(e){}
   jsonp(url, 'cb_save', function(res){
     if(!_sessAlive(sess)) return;
     if(res && res.success){
@@ -1390,7 +1540,7 @@ function _updatePendingBanner(){
 function resendPending(){
   var p = _readPending();
   if(!p){ _updatePendingBanner(); return; }
-  state.data = _purgeStaleExtras(JSON.parse(JSON.stringify(p.items)));
+  state.data = _normExtras(JSON.parse(JSON.stringify(p.items)));
   _setDirty(true);
   renderRoute();
   doSave();
@@ -1446,7 +1596,7 @@ function _readDraft(){
     var o = JSON.parse(raw);
     if(!o || !o.items || typeof o.items !== 'object') return null;
     // 復元対象は当日または前日の下書きだけ。それより古いものは自動破棄する。
-    // 判定は臨時品目と同じ _dAlive（前夜入力→翌日配達の運用に合わせた規則）。
+    // 判定は _dAlive（前夜入力→翌日配達の運用に合わせた規則。臨時品目の判定には 2026-09-29 から使っていない）。
     if(!_dAlive(o.date)){ _clearDraft(); return null; }
     return o;
   } catch(e){ return null; }
@@ -1609,9 +1759,9 @@ function _updateDraftBanner(unverified){
 function restoreDraft(){
   var d = _readDraft();
   if(!d){ _updateDraftBanner(); return; }
-  // 失効した臨時品目は保存時・再送時と同じ規則で落とす。下書き復元が extras の
-  // 日付判定に独自の解釈を持ち込まないよう、判定は _purgeStaleExtras に必ず統一する。
-  state.data   = _purgeStaleExtras(JSON.parse(JSON.stringify(d.items)));
+  // 臨時品目は保存時・再送時と同じ正規化（_normExtras）を通す。2026-09-29 から失効で落とすことはしない
+  // （臨時品目は消すまで残る）。
+  state.data   = _normExtras(JSON.parse(JSON.stringify(d.items)));
   state.loaded = true;
   if(!state.origData) state.origData = {};
   if(typeof ROUTES !== 'undefined' && typeof d.route === 'number'
@@ -1665,19 +1815,19 @@ function _writeCache(payload){
 }
 
 function _applyHaitatsuData(items, lastUpdated){
-  // 臨時品目は「その日限り」。前日以前の指示は読み込み時点で落とす
-  // （＝翌日以降に自動で持ち越さない。残在庫の参照表示は zaikoExtras 側で継続）。
+  // 【2026-09-29】臨時品目を読み込み時に落とすのはやめた（消すまで残す）。
+  // ここでは各品目の終了日（extrasUntil）を ''（消すまで）にそろえる正規化だけを行う。
   //
-  // 【2026-08-14 修正・重要】必ずコピーしてから purge する。
-  // _purgeStaleExtras は渡されたオブジェクトを直接 delete で書き換えるため、
+  // 【2026-08-14 修正・重要】必ずコピーしてから正規化する（当時は purge）。
+  // 当時の _purgeStaleExtras は渡されたオブジェクトを直接 delete で書き換えるため、
   // 引数の items をそのまま渡すと呼び出し元（_applyIfNewer）が直後に
   // _writeCache へ渡す items まで破壊され、「purge 済みの内容がサーバと同じ
   // lastUpdated でキャッシュに焼き付く」。こうなると次回以降、鮮度ガードが
   // 同一 lastUpdated を「新しくない」と判定して正しいデータの採用を永久に拒否し、
   // シートには存在する臨時品目がその端末だけ二度と出なくなる
   // （2026-08-14 に坂戸千代田店の¥300×4で実際に発生）。
-  // キャッシュはサーバの生データを保つ＝失効判定は毎回その日のルールでやり直す。
-  state.data = _purgeStaleExtras(JSON.parse(JSON.stringify(items || {})));
+  // キャッシュはサーバの生データを保つ＝有効判定は毎回その日のルールでやり直す。
+  state.data = _normExtras(JSON.parse(JSON.stringify(items || {})));
   state.lastUpdated = lastUpdated || '';
   state.origData = JSON.parse(JSON.stringify(state.data));
   state.loaded = true;
@@ -1705,7 +1855,7 @@ function _luMs(lu){
 function _sameGenerationDiffers(items, lastUpdated){
   if(_luMs(lastUpdated) !== _luMs(state.lastUpdated)) return false;
   try {
-    return JSON.stringify(_purgeStaleExtras(JSON.parse(JSON.stringify(items || {}))))
+    return JSON.stringify(_normExtras(JSON.parse(JSON.stringify(items || {}))))
         !== JSON.stringify(state.data || {});
   } catch(e){ return false; }
 }
@@ -2187,11 +2337,11 @@ function _hideStartupChecking(){
   if(_startupCheckEl && _startupCheckEl.parentNode) _startupCheckEl.parentNode.removeChild(_startupCheckEl);
   _startupCheckEl = null;
 }
-// 下書きはサーバへ送るときと同じ規則（_purgeStaleExtras）を通してから比べる。
+// 下書きはサーバへ送るときと同じ規則（_normExtras。2026-09-29 までは _purgeStaleExtras）を通してから比べる。
 // 比較用のコピーにだけ適用するので、復元して送る中身は一切変えない（件C-6）。
 function _draftMatchesServer(items, draft){
   try {
-    var cp = _purgeStaleExtras(JSON.parse(JSON.stringify(draft.items || {})));
+    var cp = _normExtras(JSON.parse(JSON.stringify(draft.items || {})));
     return _payloadMatches(items, cp);
   } catch(e){ return false; }
 }
