@@ -66,8 +66,6 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .summary-link-btn{display:flex;align-items:center;justify-content:center;gap:8px;background:var(--ink);color:#fff;border-radius:var(--r-btn);padding:13px 16px;text-decoration:none;font-size:15px;font-weight:700;letter-spacing:.04em;margin-bottom:10px;box-shadow:var(--shadow);transition:opacity .15s}
 .summary-link-btn:active{opacity:.8}
 /* 店舗依頼ボードへのリンク（サマリーの下。副次的な導線なので白地） */
-.irai-link-btn{display:flex;align-items:center;justify-content:center;gap:8px;background:var(--card);color:var(--ink);border:1px solid var(--border);border-radius:var(--r-btn);padding:11px 16px;text-decoration:none;font-size:14px;font-weight:700;letter-spacing:.04em;margin-bottom:10px;box-shadow:var(--shadow)}
-.irai-link-btn:active{opacity:.7}
 
 /* ============ 副次操作ボタン（保存データを読み込む） ============ */
 .load-btn{width:100%;padding:11px;background:var(--card);color:var(--ink);border:1px solid var(--border);border-radius:var(--r-btn);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:10px;letter-spacing:.02em;transition:opacity .15s;box-shadow:var(--shadow)}
@@ -522,7 +520,6 @@ function renderHome() {
   var cfg=state.config||getDefaultConfig(), route=ROUTES[state.route];
   var html='<div class="screen">'
     + '<a href="summary.html" class="summary-link-btn">📊 サマリーを見る</a>'
-    + '<a href="irai.html" class="irai-link-btn">📋 店舗依頼ボード</a>'
     + '<div class="action-row"><button class="action-btn" onclick="renderManual()"><span class="a-icon">📖</span>マニュアル</button><button class="action-btn" onclick="renderSettings()"><span class="a-icon">⚙️</span>設定</button></div>'
     // 並び順: ②産地シールのアラート（通知＋全社一括の発行指示枚数）→ 任意発行パネル。
     // 産地シールは全社共通1在庫なので、経路タブに関係なく常に同じ位置に出す。
