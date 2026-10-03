@@ -65,6 +65,9 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .action-btn:active{transform:scale(.97)}.a-icon{font-size:20px}
 .summary-link-btn{display:flex;align-items:center;justify-content:center;gap:8px;background:var(--ink);color:#fff;border-radius:var(--r-btn);padding:13px 16px;text-decoration:none;font-size:15px;font-weight:700;letter-spacing:.04em;margin-bottom:10px;box-shadow:var(--shadow);transition:opacity .15s}
 .summary-link-btn:active{opacity:.8}
+/* 店舗依頼ボードへのリンク（サマリーの下。副次的な導線なので白地） */
+.irai-link-btn{display:flex;align-items:center;justify-content:center;gap:8px;background:var(--card);color:var(--ink);border:1px solid var(--border);border-radius:var(--r-btn);padding:11px 16px;text-decoration:none;font-size:14px;font-weight:700;letter-spacing:.04em;margin-bottom:10px;box-shadow:var(--shadow)}
+.irai-link-btn:active{opacity:.7}
 
 /* ============ 副次操作ボタン（保存データを読み込む） ============ */
 .load-btn{width:100%;padding:11px;background:var(--card);color:var(--ink);border:1px solid var(--border);border-radius:var(--r-btn);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:10px;letter-spacing:.02em;transition:opacity .15s;box-shadow:var(--shadow)}
@@ -342,6 +345,7 @@ td.itbl-cell.ctl-brown{background:#fff}
 </div>
 <div id="app"></div>
 <script src="shared-stores.js"></script>
+<script src="irai-notice.js"></script>
 <script>
 var API_URL = 'https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkVvYc7V77OJrh7h_PZCqtuV4aUL7NYz83VsNc5lY6sXONw/exec';
 // ラベル在庫アラート スナップショット（夜の再計算結果。日中は固定表示）。
@@ -369,7 +373,7 @@ var LS_SANCHI_ISSUED    = lsKey('sanchi_issued_today_v1');
 // 【2026-09-29】保存と送信の記録（GAS の「保存送信ログ」シート）に付ける端末IDと画面の版。
 // 端末IDはこの端末で一度だけ作るランダムな値（haitatsu.html と同じキーを共有＝同じ端末は同じID）。
 // 氏名・電話番号などは入れない。localStorage が使えない端末では画面を開くたびに変わる。
-var PAGE_BUILD = 'audit-log-20260929';   // 画面を変えて出すときに更新する（記録の「画面の版」）
+var PAGE_BUILD = 'irai-board-20261003';   // 画面を変えて出すときに更新する（記録の「画面の版」）
 var LS_DEVICE_ID = lsKey('device_id_v1');
 var _deviceIdMemo = '';
 function _deviceId(){
@@ -518,6 +522,7 @@ function renderHome() {
   var cfg=state.config||getDefaultConfig(), route=ROUTES[state.route];
   var html='<div class="screen">'
     + '<a href="summary.html" class="summary-link-btn">📊 サマリーを見る</a>'
+    + '<a href="irai.html" class="irai-link-btn">📋 店舗依頼ボード</a>'
     + '<div class="action-row"><button class="action-btn" onclick="renderManual()"><span class="a-icon">📖</span>マニュアル</button><button class="action-btn" onclick="renderSettings()"><span class="a-icon">⚙️</span>設定</button></div>'
     // 並び順: ②産地シールのアラート（通知＋全社一括の発行指示枚数）→ 任意発行パネル。
     // 産地シールは全社共通1在庫なので、経路タブに関係なく常に同じ位置に出す。
@@ -539,6 +544,7 @@ function renderHome() {
   _updateSubmitPendingBanner();
   // 納品指示が取れていない／当日分が無いときの警告バー
   _updateHaitatsuNotice();
+  _updateIraiNotice();
 }
 
 // ============ ラベル在庫アラート（②産地シール / ③値段シール） ============
@@ -784,6 +790,17 @@ function openStore(id) {
   // 起動時の1回で足りる。店舗を開くたびに GAS を叩くと 13 回/配達になる。
   // 取得が終わっていない／当日分が無い／取得に失敗した、は通知バーで知らせる。
   _updateHaitatsuNotice();
+  _updateIraiNotice();   // この店舗への未完了の依頼（登録から完了まで。期限切れ未完了は赤）
+}
+
+// ===== 店舗依頼ボードのアラート（2026-10-03） =====
+// 起動時の getHaitatsu（fetchHaitatsuBackground）の応答に同梱される irai を使う。通信は増やさない。
+// 入力画面で、開いた店舗の依頼だけを #app の直前に出す（ホーム・完了・マニュアル・設定では消す）。
+var IRAI_BOARD_BUILD = 'irai-board-20261003';   // 本番反映の確認用マーカー
+function _updateIraiNotice(){
+  if(typeof IraiNotice === 'undefined') return;
+  IraiNotice.render(state.irai, { storeId: state.storeId, hide: state.screen !== 'form',
+    onNavigate: function(href){ if(confirmLeaveIfDirty()) window.location.href = href; } });
 }
 
 // ===== 担当者の経路内自動引継 =====
@@ -996,6 +1013,8 @@ function fetchHaitatsuBackground(attempt) {
   function onOk(res){
     _haitatsuBgInflight = false;
     if(res && res.success && res.items){
+      // 店舗依頼のアラートは納品指示の対象日の判定と関係なく反映する
+      if(res.irai){ state.irai = res.irai; _updateIraiNotice(); }
       var target = _haitatsuTargetDay(res.lastUpdated);
       haitatsuInfo = { target: target, lastUpdated: String(res.lastUpdated||'') };
       try {
@@ -1866,7 +1885,7 @@ document.addEventListener('visibilitychange', function(){
 // reqId を渡すと、その送信の確認状態を表示する枠を出す（楽観的UI）。
 // 渡さない場合（従来の再送成功時など）は枠を出さない。
 function renderDone(reqId) {
-  state.screen='done';setHeader('送信完了',false,false);_updateHaitatsuNotice();
+  state.screen='done';setHeader('送信完了',false,false);_updateHaitatsuNotice();_updateIraiNotice();
   var s=state.store;
   var confirm=renderDoneConfirm(s);
   var status = reqId
@@ -1970,7 +1989,7 @@ function renderDoneConfirm(s) {
 }
 
 function renderManual() {
-  state.screen='manual';setHeader('📖 入力マニュアル',true,false);
+  state.screen='manual';setHeader('📖 入力マニュアル',true,false);_updateIraiNotice();
   var h='<div class="manual"><h2>配達日報 入力ガイド（新レイアウト）</h2>';
   h+='<div class="manual-tip">📱 「送信する」を押すまでデータは保存されません。<br>⚠️ 入力ミスは再送信で修正できます（最新データが反映されます）。<br>🔄 過去データは旧項目(S品/A品/B品/C品)から新項目(陳列数/値引き)に自動変換されます。</div>';
   h+='<h3><span class="manual-badge mb-green">🟩 納品数</span></h3><p>その日に店舗に持っていった個数。「→ 納品数を陳列数に一括反映」ボタンで、納品数をそのまま陳列数にコピーできます。<br>💡 配達商品情報アプリで事前入力していれば自動でデフォルト値が入ります。</p>';
@@ -1993,7 +2012,7 @@ function renderManual() {
 }
 
 function renderSettings() {
-  state.screen='settings';setHeader('⚙️ 設定',true,false);
+  state.screen='settings';setHeader('⚙️ 設定',true,false);_updateIraiNotice();
   var cfg=JSON.parse(JSON.stringify(state.config||getDefaultConfig()));
   var h='<div class="settings"><h2>設定</h2><div class="settings-sec"><div class="settings-sec-hdr">担当者リスト</div><div class="staff-list-edit"><div class="staff-tag-wrap" id="staffTagWrap">';
   cfg.staff.forEach(function(s,i){h+='<span class="staff-tag">'+eH(s)+'<button class="staff-tag-del" onclick="rmStaff('+i+')">×</button></span>';});

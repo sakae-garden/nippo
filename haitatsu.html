@@ -236,12 +236,13 @@ body.has-unsaved .toast{bottom:130px}
   <div class="route-tabs" id="routeTabs">
   </div>
 </div>
-<div class="nippo-link-wrap"><a href="index.html" class="nippo-link-btn">📝 日報入力へ</a></div>
+<div class="nippo-link-wrap"><a href="index.html" class="nippo-link-btn">📝 日報入力へ</a> <a href="irai.html" class="nippo-link-btn">📋 店舗依頼</a></div>
 <div id="app"><div id="loading"><div class="spinner"></div><br>読み込み中...</div></div>
 <div class="toast"><div class="toast-inner" id="toast"></div></div>
 <div class="unsaved-bar" id="unsavedBar" hidden><span class="unsaved-lbl" id="unsavedLbl">● 未保存</span><span id="unsavedAct"><button class="save-btn" onclick="doSave()">💾 保存する</button></span></div>
 <footer class="footer"><a href="https://sakae-garden.github.io/">🏠 ホームに戻る</a></footer>
 <script src="shared-stores.js"></script>
+<script src="irai-notice.js"></script>
 <script>
 var API_URL = 'https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkVvYc7V77OJrh7h_PZCqtuV4aUL7NYz83VsNc5lY6sXONw/exec';
 // スナップショット配信URL（GCS+CORS+publicRead。フロントの初期表示を高速化する）
@@ -256,6 +257,8 @@ var ZAIKO_REVALIDATE_BUILD = 'zaiko-revalidate-20260816';
 var UNSAVED_GUARD_BUILD = 'unsaved-guard-20260910';
 // 臨時品目を消すまで残す（件1 案A・いつまでの選択なし）の配信確認マーカー。
 var EXTRAS_UNTIL_BUILD = 'extras-keep-20260929';
+// 店舗依頼ボードのアラート（irai-notice.js）の配信確認マーカー。
+var IRAI_BOARD_BUILD = 'irai-board-20261003';
 var YAOKO_PRICES = ['¥99','¥198','¥398','¥598'];
 
 // SWR用 localStorage キー。/nippo/test/ は本番と同一オリジンで localStorage を共有するため、
@@ -276,7 +279,7 @@ var LS_ZAIKO_CACHE = lsKey('zaiko_cache_v1');
 // 【2026-09-29】保存と送信の記録（GAS の「保存送信ログ」シート）に付ける端末IDと画面の版。
 // 端末IDはこの端末で一度だけ作るランダムな値（index.html と同じキーを共有＝同じ端末は同じID）。
 // 氏名・電話番号などは入れない。localStorage が使えない端末では画面を開くたびに変わる。
-var PAGE_BUILD = 'audit-log-20260929';   // 画面を変えて出すときに更新する（記録の「画面の版」）
+var PAGE_BUILD = 'irai-board-20261003';   // 画面を変えて出すときに更新する（記録の「画面の版」）
 var LS_DEVICE_ID = lsKey('device_id_v1');
 var _deviceIdMemo = '';
 function _deviceId(){
@@ -1413,6 +1416,7 @@ function _verifyThenRetry(attempt, payload, reason, sess){
   _updateUnsavedBar();
   _sessTimer(sess, function(){
     jsonp(API_URL+'?action=getHaitatsu&_cb='+Date.now(), 'cb_verify', function(res){
+      _applyIrai(res);
       if(!_sessAlive(sess)) return;
       if(res && res.success && _payloadMatches(res.items, payload)){
         _saveSucceeded2(sess, payload, '✅ 保存されていました（サーバで確認）');
@@ -1474,6 +1478,7 @@ function _scheduleRecheck(payload, delaysMs){
     return setTimeout(function(){
       if(!_readPending()) return;   // 既に解消済み
       jsonp(API_URL+'?action=getHaitatsu&_cb='+Date.now(), 'cb_recheck', function(res){
+        _applyIrai(res);
         if(!_readPending()) return;
         if(!(res && res.success && _payloadMatches(res.items, payload))) return;
         _clearPending();
@@ -1873,6 +1878,25 @@ function _applyIfNewer(items, lastUpdated){
   return false;
 }
 
+// ============ 店舗依頼ボードのアラート（2026-10-03）============
+// getHaitatsu の応答の irai（未完了の依頼すべて。近い順に最大50件）を、配達データの更新判定（lastUpdated）とは
+// 関係なく、応答が届くたびに反映する。スナップショット（haitatsu.json）には載らないので、
+// 初期表示では出ず、GAS の応答（裏の確認）が届いた時点で出る。
+// 帯は #app の直前（stale_notice などと同じ差し込み方）。押すと小窓に内容、そこから依頼ボードへ。
+function _applyIrai(res){
+  if(!res || !res.success || !res.irai || typeof IraiNotice === 'undefined') return;
+  state.irai = res.irai;
+  _renderIraiNotice();
+}
+function _renderIraiNotice(){
+  if(typeof IraiNotice === 'undefined') return;
+  IraiNotice.render(state.irai, { onNavigate: function(href){
+    // 未保存の変更があれば、ホーム・日報へのリンクと同じ離脱確認を出す
+    if(state.dirty && state.mode === 'edit') _showLeaveModal(href);
+    else window.location.href = href;
+  }});
+}
+
 function _updateStaleBanner(msg){
   var el = document.getElementById('stale_notice');
   if(!msg){
@@ -1911,6 +1935,7 @@ function _fetchSnapshot(cb){
 function _fetchFromGas(onDone){
   // GAS直取得（コールドスタート考慮で1回自動リトライ）
   jsonp(API_URL+'?action=getHaitatsu','cb_get',function(res){
+    _applyIrai(res);
     if(res && res.success){
       onDone({ items: res.items||{}, lastUpdated: res.lastUpdated||'' });
     } else {
@@ -2366,6 +2391,7 @@ function _verifyLocalStateThenBanner(){
   if(!pend && !draft) return;              // 何も残っていなければ照合もしない
   _showStartupChecking();
   jsonp(API_URL+'?action=getHaitatsu&_cb='+Date.now(), 'cb_startup_verify', function(res){
+    _applyIrai(res);
     var ok = !!(res && res.success && res.items);
     _resolveStartupBanners(ok ? res.items : null, ok);
   }, function(){
