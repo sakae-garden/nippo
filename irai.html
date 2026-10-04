@@ -112,6 +112,9 @@ details.fold .fold-body{margin-top:8px}
 .toast-act{background:#fff;color:var(--ink);border:none;border-radius:6px;padding:6px 12px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer}
 .footer{position:fixed;bottom:0;left:0;width:100%;height:52px;background:#1c1c1e;display:flex;align-items:center;justify-content:center;z-index:100}
 .footer a{color:#fff;text-decoration:none;font-size:14px;font-weight:500}
+/* 【2026-10-04】取得できなかったとき（一覧は出さず、再取得だけ） */
+.fail-box{background:#fff;border:1px solid #ef9a9a;border-left:4px solid var(--red);border-radius:var(--r);padding:16px;text-align:center;font-size:13px;color:var(--red);font-weight:600;line-height:1.7}
+.fail-box button{display:block;margin:8px auto 0;padding:9px 18px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;background:var(--ink);color:#fff;border:none}
 </style>
 </head>
 <body>
@@ -151,10 +154,12 @@ var IS_TEST_ENV = API_URL.indexOf(PROD_GAS_ID) < 0;
 function lsKey(base){ return base + (IS_TEST_ENV ? '_test' : ''); }
 var LS_CONFIG     = lsKey('nippo_config');     // 日報と共有（担当者リスト）
 var LS_DEVICE_ID  = lsKey('device_id_v1');     // 日報・配達商品情報と共有（保存送信ログの端末ID）
-var LS_IRAI_CACHE = lsKey('irai_cache_v1');    // 最後に取れた一覧（次回の即表示用）
+// 【2026-10-04 廃止】最後に取れた一覧を端末に残していたキー（irai_cache_v1）。前回の一覧を画面に出す手段は
+// 設けない（杉さん決定 2026-10-04）ので、端末にも残さない。以前の版が残した値を消す。
+try{ localStorage.removeItem(lsKey('irai_cache_v1')); }catch(e){}
 var LS_IRAI_QUEUE = lsKey('irai_queue_v1');    // まだサーバで確認できていない操作
 var LS_IRAI_STAFF = lsKey('irai_staff_v1');    // 前回選んだ入力者
-var PAGE_BUILD = 'irai-board-20261003';        // 配信確認マーカー・保存送信ログの「画面の版」
+var PAGE_BUILD = 'latest-only-20261004';       // 配信確認マーカー・保存送信ログの「画面の版」
 var OTHER_ID = 'other', OTHER_NAME = 'その他';
 var DEFAULT_STAFF = ['八島', '青柳', '杉', 'その他'];
 
@@ -175,6 +180,8 @@ document.getElementById('hDate').textContent = today.getFullYear()+'年'+(today.
 var S = {
   server: {},        // id -> サーバの値（削除済みを含む）
   fetched: false, fetchAt: 0, loading: false, fetchErr: false,
+  // 【2026-10-04】一覧の表示：'loading' 取得中（一覧を出さない）/ 'fresh' 最新 / 'failed' 取得失敗
+  view: 'loading',
   queue: [],         // [{qid, type:'save'|'status', id, data, mode, op, at, n, failed}]
   sending: null,     // 送信中の qid
   form: null,        // 入力中のフォーム
@@ -273,30 +280,34 @@ function loadConfig(){
 }
 
 // ============ 一覧データ ============
-function readCache(){
-  try{ var o = JSON.parse(localStorage.getItem(LS_IRAI_CACHE) || 'null'); return (o && o.items) ? o : null; }catch(e){ return null; }
+// サーバの最新の一覧を反映する（getIrai の応答だけを渡すこと）
+function applyServerList(res){
+  S.server = _listMap(res);
+  S.fetched = true; S.fetchAt = Date.now(); S.fetchErr = false;
+  S.view = 'fresh';
 }
-function applyServerList(res, at){
+function _listMap(res){
   var m = {};
   (res.items || []).concat(res.deleted || []).forEach(function(it){ if(it && it.id) m[it.id] = it; });
-  S.server = m;
-  S.fetched = true; S.fetchAt = at || Date.now(); S.fetchErr = false;
-  try{ localStorage.setItem(LS_IRAI_CACHE, JSON.stringify({ items: res.items || [], deleted: res.deleted || [], at: S.fetchAt })); }catch(e){}
+  return m;
 }
-function saveServerCache(){
-  var items = [], deleted = [];
-  Object.keys(S.server).forEach(function(k){ (S.server[k].deleted ? deleted : items).push(S.server[k]); });
-  try{ localStorage.setItem(LS_IRAI_CACHE, JSON.stringify({ items: items, deleted: deleted, at: S.fetchAt })); }catch(e){}
-}
+// 【2026-10-04 最新だけを表示する】起動時・復帰時（前回の取得から REFETCH_MS 以上）・再読み込みでは、
+// 一覧を消して「最新を取得中…」にし、届いてから描く（従来は端末に残した一覧を先に描いていた）。
+// 取得できなければ一覧は出さず、再取得だけ（前回の一覧を見る手段は設けない）。
 function fetchList(){
   if(S.loading) return;
+  if(S.view === 'fresh' || S.view === 'failed') S.view = 'loading';
   S.loading = true; render();
   jsonp(API_URL+'?action=getIrai&deleted=1&_cb='+Date.now(), 'cb_list', function(res){
     S.loading = false;
     if(res && res.success){ applyServerList(res); }
-    else S.fetchErr = true;
+    else _listFailed();
     render();
-  }, function(){ S.loading = false; S.fetchErr = true; render(); }, 15000);
+  }, function(){ S.loading = false; _listFailed(); render(); }, 15000);
+}
+function _listFailed(){
+  S.fetchErr = true;
+  if(S.view === 'loading') S.view = 'failed';
 }
 
 // ============ 送信の待ち行列 ============
@@ -387,7 +398,7 @@ function sendOp(q){
 }
 function finishOk(q, res){
   var i = qIndex(q.qid);
-  if(res && res.item && res.item.id){ S.server[res.item.id] = res.item; saveServerCache(); }
+  if(res && res.item && res.item.id){ S.server[res.item.id] = res.item; }
   if(i > -1){ S.queue.splice(i, 1); saveQueue(); }
   if(S.sending === q.qid) S.sending = null;
   render();   // 行の「送信中…」が消える（トーストは出さない＝「元に戻す」のトーストを消さない）
@@ -499,11 +510,7 @@ function render(){
   var done = v.filter(function(it){ return !it.deleted && it.status === '完了'; }).sort(function(a,b){ return -byShukka(a,b); });
   var del = v.filter(function(it){ return it.deleted; }).sort(function(a,b){ return a.updatedAt < b.updatedAt ? 1 : -1; });
   var h = '';
-  // 取得の状態
-  if(S.loading && !S.fetched) h += '<div class="sync">一覧を取得中…</div>';
-  else if(S.fetchErr) h += '<div class="sync err">⚠ 一覧を取得できませんでした'+(S.fetchAt ? '（'+eH(stampHm(S.fetchAt))+' の内容を表示中）' : '')+' <button onclick="fetchList()">再読み込み</button></div>';
-  else if(S.fetched) h += '<div class="sync">'+eH(stampHm(S.fetchAt))+' 時点'+(S.loading ? '・更新中…' : '')+' <button onclick="fetchList()">再読み込み</button></div>';
-  // 送信できていない操作
+  // 送信できていない操作（この端末の操作。一覧の新旧とは関係なく出す）
   var failed = S.queue.filter(function(q){ return q.failed; });
   if(failed.length){
     var rej = failed.filter(function(q){ return q.failed === 'rejected'; });
@@ -514,9 +521,21 @@ function render(){
       + (rej.length ? '<button class="sub" onclick="discardFailed()">受け付けられなかった操作を取り消す</button>' : '')
       + '</div>';
   }
+  // 【2026-10-04】最新が届くまで一覧（件数を含む）を出さない
+  if(S.view === 'loading'){
+    app.innerHTML = h + '<div class="empty">最新を取得中…</div>';
+    return;
+  }
+  if(S.view === 'failed'){
+    app.innerHTML = h + '<div class="fail-box">⚠ 一覧の最新を取得できませんでした'
+      + '<button onclick="fetchList()">🔄 再取得</button>'
+      + '</div>';
+    return;
+  }
+  h += '<div class="sync">'+eH(stampHm(S.fetchAt))+' 時点 <button onclick="fetchList()">再読み込み</button></div>';
   h += '<div class="sec-lbl">これから（'+open.length+'件）</div>';
   if(open.length) h += open.map(function(it){ return rowHtml(it, 'open'); }).join('');
-  else h += '<div class="empty">'+(S.fetched || S.queue.length ? 'これからの依頼はありません' : (S.fetchErr ? '一覧を取得できませんでした' : '読み込み中…'))+'</div>';
+  else h += '<div class="empty">これからの依頼はありません</div>';
   h += '<details class="fold" id="foldDone"'+(S.openDone?' open':'')+'><summary>完了した依頼（'+done.length+'件）</summary><div class="fold-body">'
     + (done.length ? done.map(function(it){ return rowHtml(it, 'done'); }).join('') : '<div class="empty">ありません</div>') + '</div></details>';
   h += '<details class="fold" id="foldDel"'+(S.openDeleted?' open':'')+'><summary>削除した依頼（'+del.length+'件）</summary><div class="fold-body">'
@@ -524,7 +543,7 @@ function render(){
   app.innerHTML = h;
   document.getElementById('foldDone').addEventListener('toggle', function(){ S.openDone = this.open; });
   document.getElementById('foldDel').addEventListener('toggle', function(){ S.openDeleted = this.open; });
-  applyHash(v);
+  if(S.view === 'fresh') applyHash(v);   // 小窓からの移動は最新が届いてから
 }
 function stampHm(ms){ var d = new Date(ms); return (d.getMonth()+1)+'/'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
 
@@ -566,6 +585,7 @@ function showSheet(html){
   return el;
 }
 function openDetail(id){
+  if(S.view !== 'fresh') return;   // 取得中・取得失敗は完了・編集・削除させない
   var it = itemById(id);
   if(!it) return;
   S.detailId = id; S.form = null;
@@ -711,15 +731,18 @@ function saveForm(){
   S.queue = loadQueue();
   // 前回の送信中で閉じられた操作は、もう一度送り直す（同じIDなので二重にはならない）
   S.queue.forEach(function(q){ if(q.failed !== 'rejected'){ q.failed = ''; q.n = 0; } });
-  var c = readCache();
-  if(c){ applyServerList(c, c.at || 0); S.fetched = false; }
+  // 端末に残した一覧は先に描かない。最新が届くまで「最新を取得中…」
   render();
   fetchList();
   loadConfig();
   pump();
   document.addEventListener('visibilitychange', function(){
     if(document.visibilityState !== 'visible') return;
-    if(Date.now() - S.fetchAt > REFETCH_MS) fetchList();
+    // 日付が変わっていれば開き直す（残り日数の表示は開いた日の日付で持っている）。入力中は触らない
+    if(IraiNotice.ymd(new Date()) !== todayStr && !S.form){ location.reload(); return; }
+    // 前回の取得から REFETCH_MS 以上なら、一覧を消して取り直す。失敗の表示中も取り直す。
+    // 詳細・入力の小窓を開いている間は取り直さない（開いている依頼の土台を消さない）
+    if(!S.form && !S.detailId && (S.view !== 'fresh' || Date.now() - S.fetchAt > REFETCH_MS)) fetchList();
     if(S.queue.some(function(q){ return q.failed && q.failed !== 'rejected'; })) resendAll(true);
   });
   window.addEventListener('online', function(){ resendAll(true); });

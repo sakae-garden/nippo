@@ -81,6 +81,10 @@ body{font-family:'Noto Sans JP',sans-serif;background:#e8e0d0;min-height:100vh;p
 .esm-stat.reflected{color:#2ecc71;font-weight:600}
 .esm-stat.pending{color:rgba(255,255,255,.5)}
 .esm-stat.stale{color:#ffb74d;font-weight:600}
+/* 取得失敗（数字は出さない。再取得だけ） */
+.fail-btns{display:flex;flex-direction:column;align-items:center;gap:8px;margin-top:14px}
+.fail-btns button{font-family:inherit;font-size:13px;font-weight:700;padding:9px 18px;border-radius:8px;cursor:pointer}
+.fail-btns .retry{background:var(--ink);color:#fff;border:none}
 </style>
 </head>
 <body>
@@ -100,7 +104,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:#e8e0d0;min-height:100vh;p
 <!-- 経路タブは shared-stores.js の ROUTES から描画する（renderRouteTabs）。
      ラベルをここにベタ書きすると ROUTE_VERSION 切替で不整合になるので禁止。 -->
 <div class="route-tabs" id="routeTabs"></div>
-<div id="loading"><div class="spinner"></div><br>データを読み込んでいます...<br><small>初回のみ時間がかかります</small></div>
+<div id="loading"><div class="spinner"></div><br>最新を取得中…</div>
 <div id="error">データの取得に失敗しました。<br>しばらく待ってから再度お試しください。</div>
 <div id="report"></div>
 <div class="footer">栄ガーデン 配達日報システム</div>
@@ -109,20 +113,21 @@ body{font-family:'Noto Sans JP',sans-serif;background:#e8e0d0;min-height:100vh;p
 <script>
 var API_URL='https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkVvYc7V77OJrh7h_PZCqtuV4aUL7NYz83VsNc5lY6sXONw/exec';
 // スナップショット配信URL（GCS+CORS+publicRead）。
-// 【2026-09-27】GAS が詰まって getAllData が返らない間の「代わりの出どころ」として使う。
 // summary.json は 4:30 とエスマルシェの反映ごとに snapshot_writer が getAllData から作る。
-// GAS が返ってくれば GAS を正とし、販売数だけは両者の大きい方を採る（下の _mergeSales）。
+// 【2026-10-04】先に描く材料にはしない。GAS の応答に販売数だけ取り込む（GAS より大きい＝新しいときだけ。
+// 下の _mergeSales）だけ。GAS が取れなければ使わない。
 var SNAPSHOT_URL='https://storage.googleapis.com/sakae-garden-snapshots/summary.json';
 // スナップショット鮮度上限（超過時は使わない）
 var SNAPSHOT_MAX_AGE_MS = 6 * 3600 * 1000;
-// SWRキャッシュキー。/nippo/test/ は本番と同一オリジンで localStorage を共有するため、
+// /nippo/test/ は本番と同一オリジンで localStorage を共有するため、
 // スナップショットURL(/test/)で環境を判定してキーを分ける。本番のキー名は従来のまま。
 var IS_TEST_ENV = String(SNAPSHOT_URL).indexOf('/test/') > -1;
 function lsKey(base){ return base + (IS_TEST_ENV ? '_test' : ''); }
-var LS_SUMMARY_CACHE = lsKey('summary_cache_v1');
+// 【2026-10-04 廃止】サマリーの数字を端末に残していたキー（summary_cache_v1）。
+// 前回の数字を画面に出す手段は設けない（杉さん決定 2026-10-04）ので、端末にも残さない。以前の版が残した値を消す。
+try{ localStorage.removeItem(lsKey('summary_cache_v1')); }catch(e){}
 var CACHED=null, currentRoute=0, userPickedDate=false;
-// 表示中のデータが「いつ時点」か。src: 'gas'（今回取得）/'cache'（端末の前回取得分）/'snapshot'
-// at: gas=受信時刻・cache=前回の受信時刻・snapshot=generated_at（いずれも ms）
+// 表示中のデータが「いつ時点」か。src: 'gas'（今回取得）。at: 受信時刻(ms)
 var SHOWN = { at:0, src:'' };
 var esmStatus = null;        // getEsmarcheStatus の最新値
 var lastGasOkAt = 0;         // この画面で getAllData が最後に成功した時刻
@@ -213,56 +218,6 @@ function jsonp(url,ok,err,opts){
   document.body.appendChild(s);
 }
 
-// SWRキャッシュ read/write
-function _readSummaryCache(){
-  try {
-    var raw = localStorage.getItem(LS_SUMMARY_CACHE);
-    if(!raw) return null;
-    var o = JSON.parse(raw);
-    if(!o || typeof o !== 'object') return null;
-    return o;
-  } catch(e){ return null; }
-}
-function _writeSummaryCache(data){
-  try {
-    var o = {
-      availableDates: data.availableDates||[],
-      allData:        data.allData||{},
-      esmarcheStatus: data.esmarcheStatus||null,
-      // cachedAt は「中身がいつ時点のデータか」。GAS 取得なら受信時刻、
-      // スナップショット由来なら generated_at（保存した時刻ではない）。
-      cachedAt:       data.dataAt||Date.now()
-    };
-    localStorage.setItem(LS_SUMMARY_CACHE, JSON.stringify(o));
-  } catch(e){ /* 容量超は無視 */ }
-}
-
-// 「最新確認中…」「取得失敗（前回キャッシュ表示中）」等の控えめな通知バー
-// withRetry=true のとき「今すぐ再取得」ボタンを併記する（取得失敗時のみ）。
-// textContent の代入で既存の子要素（前回のボタン）は消えるのでボタンは重複しない。
-function _updateSummaryStale(msg, withRetry){
-  var el = document.getElementById('summaryStale');
-  if(!msg){ if(el) el.parentNode.removeChild(el); return; }
-  if(!el){
-    el = document.createElement('div');
-    el.id = 'summaryStale';
-    el.style.cssText='background:#fff3e0;color:#e65100;border:1px solid #ffb74d;border-radius:8px;padding:6px 10px;margin:8px auto;font-size:12px;text-align:center;font-weight:600;max-width:640px';
-    var host = document.getElementById('report');
-    if(host && host.parentNode) host.parentNode.insertBefore(el, host);
-  }
-  el.textContent = msg;
-  if(withRetry){
-    var b = document.createElement('button');
-    b.textContent = '今すぐ再取得';
-    b.style.cssText='margin-left:8px;padding:3px 10px;font-size:12px;font-weight:600;color:#e65100;background:#fff;border:1px solid #ffb74d;border-radius:6px;cursor:pointer';
-    b.onclick = function(){
-      b.disabled = true; b.textContent = '取得中…';
-      _fetchAllDataFromGas(RETRY_DELAYS.length, true);   // 1回だけ即試行
-    };
-    el.appendChild(b);
-  }
-}
-
 // スナップショット取得（generated_at検証、鮮度確認）
 function _fetchSummarySnapshot(cb){
   var url = SNAPSHOT_URL + '?_=' + Date.now();
@@ -321,13 +276,6 @@ function fmtAt(ms){
   var isToday = (d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')) === fmtTodayLocal();
   return isToday ? hm : (d.getMonth()+1)+'/'+d.getDate()+' '+hm;
 }
-// 表示中データの時点ラベル（通知バー・上段に出す）
-function shownLabel(){
-  if(!SHOWN.at) return '';
-  if(SHOWN.src === 'snapshot') return '表示は '+fmtAt(SHOWN.at)+' 時点の控え';
-  return '表示は '+fmtAt(SHOWN.at)+' 時点';
-}
-
 function switchRoute(i){
   currentRoute=i;
   for(var j=0;j<ROUTE_GROUPS.length;j++){ var t=document.getElementById('rtab'+j); if(t) t.classList.toggle('active',j===i); }
@@ -368,8 +316,6 @@ function pickDate(d){
   var sel=document.getElementById('dateSelect');
   userPickedDate=true; sel.value=d; showReport(d);
 }
-
-function handleAllDataSuccess(data){ _applyAllData(data, null); }
 
 // 差替時に既選択の日付を維持するSWR対応版。
 // preserveDate: 明示指定があればそれを優先。無ければ現在のselect値を維持。
@@ -419,9 +365,7 @@ function renderEsmStat(){
     if(!d){ el.textContent=''; }
     else if(d.date===fmtTodayLocal() && d.updateTime){
       var refAt = d.ts ? Date.parse(d.ts) : NaN;
-      // スナップショットは「反映の記録」の直前に作られる（数十秒差）ので2分だけ許す
-      var tol = (SHOWN.src==='snapshot') ? 120000 : 0;
-      if(!isNaN(refAt) && SHOWN.at && SHOWN.at + tol < refAt){
+      if(!isNaN(refAt) && SHOWN.at && SHOWN.at < refAt){
         el.className='esm-stat stale';
         el.textContent='🛒 ヤオコー '+d.updateTime+' 売上：この画面は未反映';
       } else {
@@ -436,25 +380,39 @@ function renderEsmStat(){
   var sh=document.getElementById('shownStat');
   if(sh){
     if(!SHOWN.at){ sh.textContent=''; }
-    else if(SHOWN.src==='gas'){ sh.className='esm-stat'; sh.textContent='🕐 '+fmtAt(SHOWN.at)+' に取得'; }
-    else { sh.className='esm-stat stale'; sh.textContent='🕐 '+shownLabel()+(SHOWN.src==='cache'?'（前回取得分）':''); }
+    else { sh.className='esm-stat'; sh.textContent='🕐 '+fmtAt(SHOWN.at)+' に取得'; }
   }
 }
+// ──── 最新だけを表示する（2026-10-04 杉さん要望）────
+// 従来は 端末に残した値（localStorage）→ スナップショット → GAS の順に描き、開いた直後に古い数字が出て
+// 2〜3秒後に最新へ切り替わっていた。最終更新の表示を見て古い数字を正しいと思い込むミスにつながる。
+//   ・起動時・復帰時（前回の取得から60秒以上）は数字を出さず「最新を取得中…」。GAS の応答で確定してから描く
+//   ・スナップショットは GAS の応答に販売数だけ取り込む（販売数は1日の中で減らないので、大きい方＝新しい方）。
+//     GAS より先に届いても描かない。GAS が先に届いたら、スナップショットを最大 SNAP_WAIT_MS だけ待つ
+//     （待たないと、販売数だけ後から書き換わる2段階の表示になる）
+//   ・取得できなければ数字なしで「最新を取得できませんでした」＋再取得。裏で自動の再取得を続ける。
+//     前回の数字を見る手段は設けない（杉さん決定 2026-10-04 09:54）。サマリーの数字は端末にも残さない
+var LATEST_ONLY_BUILD = 'latest-only-20261004';   // 本番反映の確認用マーカー
+var VIEW = 'loading';   // 'loading' 取得中 / 'fresh' 最新 / 'failed' 取得失敗（数字なし）
 // ──── GAS取得ドライバ（初回・リトライ・自動再取得・手動再取得の共通経路）────
 // GASは混雑時に404/タイムアウトを返すことがある（収集バッチ併走時に実測）。
-// 1回の失敗で諦めず、5秒後→15秒後まで自動リトライし、それでも駄目なら
-// 警告バー＋「今すぐ再取得」ボタンを出したうえで60秒ごとに裏で試し続ける。
-// 成功した時点でバーを消して表示を差し替えるので、放置していても復旧する。
+// 1回の失敗で失敗の画面を出し（数字は出さない）、裏で5秒後→15秒後→以後60秒ごとに試し続ける。
+// 成功した時点で最新を描くので、放置していても復旧する。
 var RETRY_DELAYS  = [5000, 15000];  // 初回失敗→5秒後→15秒後（計3回）
-var AUTO_RETRY_MS = 60000;          // 警告バー表示中の自動再取得間隔
-// 1回あたりの見切り時間。見切った後も GAS_LATE_MS の間は遅れて届いた応答を採用する。
-// 通常は約3秒で返る（2026-09-27 実測 2.7〜3.2秒）。詰まると404(15秒)や51秒がある。
-var GAS_TIMEOUT_MS = 30000;
+var AUTO_RETRY_MS = 60000;          // 失敗表示中の自動再取得間隔
+// 1本あたりの見切り時間と、並走の2本目を出すまでの時間（日報の納品指示〔件2〕と同じ 10秒・4秒）。
+// 通常は約3秒で返る（2026-09-27 実測 2.7〜3.2秒）。遅れの多くは転送層の裾なので、待つより並べるほうが早い。
+// 見切った後も GAS_LATE_MS の間は遅れて届いた応答を採用する（詰まると51秒かかった実測がある）。
+var GAS_TIMEOUT_MS = 10000;
+var GAS_HEDGE_MS   = 4000;
 var GAS_LATE_MS    = 90000;
-var startupCache  = null;           // 直近に取得成功したキャッシュ
-var snapLatest    = null;           // 取得できた summary.json（販売数の取り込み元）
+var SNAP_WAIT_MS   = 500;           // GAS が先に届いたとき、スナップショットを待つ上限
+var snapLatest    = null;           // この画面で取得できた summary.json（販売数の取り込み元）
+var snapPending   = false;          // summary.json を取得中
+var _gasHold = null, _gasHoldT = null;   // スナップショット待ちの GAS 応答
 var lastAttemptAt = 0;              // getAllData を最後に投げた時刻
 var autoRetryTimer = null;
+var _keepDate = '';                 // 取り直しの間も、手で選んだ日付を覚えておく
 
 function _startAutoRetry(){
   if(autoRetryTimer) return;
@@ -471,12 +429,32 @@ function _showData(data, src, at){
   // ユーザーが手動で日付を選んだ時のみ選択を維持。未選択(自動)なら最新日(=当日があれば当日)を表示。
   // これにより、朝の初回描画で前日を自動選択後に getAllData が当日を返したら当日へ更新される
   // （日報送信→即・当日反映。エスマルシェ収集とは独立）。
-  var prevSel = userPickedDate ? document.getElementById('dateSelect').value : null;
-  _applyAllData(data, prevSel);
+  var prevSel = userPickedDate ? (document.getElementById('dateSelect').value || _keepDate) : null;
   SHOWN = { at: at, src: src };
+  _applyAllData(data, prevSel);
   renderEsmStat();
 }
 
+// 数字を消して「最新を取得中…」にし、取り直す（起動時・復帰時）。
+function _beginLoad(){
+  VIEW = 'loading';
+  var sel = document.getElementById('dateSelect');
+  if(userPickedDate && sel.value) _keepDate = sel.value;
+  CACHED = null; SHOWN = { at:0, src:'' };
+  _gasHold = null; clearTimeout(_gasHoldT);
+  appliedSeq = reqSeq + 1;   // 取り直しの前に投げた要求の応答は使わない（背面に回る前の内容のため）
+  var rp = document.getElementById('report'); rp.innerHTML = ''; rp.style.display = 'none';
+  document.getElementById('error').style.display = 'none';
+  var ld = document.getElementById('loading');
+  ld.innerHTML = '<div class="spinner"></div><br>最新を取得中…'; ld.style.display = 'block';
+  sel.innerHTML = '<option value="">最新を取得中…</option>'; sel.disabled = true;
+  esmStatus = null; renderEsmStat();
+  jsonp(API_URL+'?action=getEsmarcheStatus',handleEsmarcheStatus,function(){});
+  _loadSnapshot();
+  _fetchAllDataFromGas(0, false);
+}
+
+// GAS の応答を受け取る。形が正しければ true（＝この取得は成功）。
 // seq: この応答を投げた通し番号。後から投げた要求の応答がすでに出ていれば捨てる
 // （遅れて届いた古い応答で表示を巻き戻さない）。
 function applyFromGas(data, seq){
@@ -485,84 +463,123 @@ function applyFromGas(data, seq){
   appliedSeq = seq;
   lastGasOkAt = Date.now();
   _stopAutoRetry();
-  // 販売数だけはスナップショットと大きい方を採る（自社入力は GAS が正）。
-  if(snapLatest) _mergeSales(data, snapLatest);
-  _showData(data, 'gas', lastGasOkAt);
-  _writeSummaryCache({availableDates:data.availableDates||[], allData:data.allData||{},
-                      esmarcheStatus:esmStatus, dataAt:lastGasOkAt});
-  startupCache = _readSummaryCache();
-  var ed = document.getElementById('error'); if(ed) ed.style.display='none';
-  _updateSummaryStale(null);
+  if(snapPending){
+    // スナップショットがまだ届いていない。販売数を取り込んでから1回で描くために少しだけ待つ
+    _gasHold = data; clearTimeout(_gasHoldT);
+    _gasHoldT = setTimeout(_releaseGasHold, SNAP_WAIT_MS);
+    return true;
+  }
+  _commitGas(data);
   return true;
 }
+function _releaseGasHold(){
+  clearTimeout(_gasHoldT);
+  var d = _gasHold; _gasHold = null;
+  if(d) _commitGas(d);
+}
+function _commitGas(data){
+  // 販売数だけはスナップショットと大きい方を採る（自社入力は GAS が正）。
+  if(snapLatest) _mergeSales(data, snapLatest);
+  VIEW = 'fresh';
+  document.getElementById('error').style.display = 'none';
+  _showData(data, 'gas', lastGasOkAt);
+}
 
-// attempt: 0=初回。RETRY_DELAYS.length に達したら打ち切り（=自動再取得へ移行）。
-// silent=true: 自動／手動の再取得。既存の警告バーを保ったまま裏で1回だけ試す。
+// attempt: 0=初回。RETRY_DELAYS.length に達したら打ち切り（=60秒ごとの自動再取得へ移行）。
+// silent=true: 自動／手動の再取得（表示中の失敗の画面はそのまま）。
+// 【2026-10-04】4秒で応答が無ければ同じ要求をもう1本出し、先に返ったほうを使う。両方だめなら失敗。
 function _fetchAllDataFromGas(attempt, silent){
   var seq = ++reqSeq;
   lastAttemptAt = Date.now();
+  var won = false, done = false, inflight = 0, hedgeT = null;
+  function take(d){
+    if(won) return true;
+    if(applyFromGas(d, seq)){ won = true; done = true; clearTimeout(hedgeT); return true; }
+    return false;
+  }
+  function failOne(){
+    if(done || inflight > 0) return;   // もう1本がまだ返っていない
+    done = true; clearTimeout(hedgeT); hedgeT = null;
+    onFail();
+  }
+  function fire(){
+    inflight++;
+    jsonp(API_URL+'?action=getAllData',
+      function(d){ inflight--; if(!take(d)) failOne(); },
+      function(){ inflight--; failOne(); },
+      { timeoutMs: GAS_TIMEOUT_MS, lateMs: GAS_LATE_MS,
+        onLate: function(d){ take(d); } });
+  }
   function onFail(){
     if(lastGasOkAt > lastAttemptAt) return;   // 別の要求（遅れて届いた分を含む）がすでに成功
+    _showFailed();
     if(attempt < RETRY_DELAYS.length){
-      if(!silent){
-        _updateSummaryStale(SHOWN.at ? '🔄 最新を再取得中…（'+shownLabel()+'）' : '🔄 再取得中…');
-        if(!SHOWN.at) document.getElementById('loading').innerHTML='<div class="spinner"></div><br>再取得中...<br><small>しばらくお待ちください</small>';
-      }
       var at = Date.now();
       setTimeout(function(){
         if(lastGasOkAt > at) return;   // 待っている間に遅れて届いた応答で成功済み
-        _fetchAllDataFromGas(attempt+1, silent);
+        _fetchAllDataFromGas(attempt+1, true);
       }, RETRY_DELAYS[attempt]);
       return;
     }
-    // 打ち切り：表示は維持したまま「いつ時点か」を添えて警告＋手動ボタン。以後60秒ごとに自動再取得。
-    if(SHOWN.at){
-      _updateSummaryStale('⚠️ 最新の取得に失敗（'+shownLabel()+'）', true);
-    } else {
-      document.getElementById('loading').style.display='none';
-      document.getElementById('error').innerHTML='データ取得に失敗しました。<br>自動で再取得を続けます。';
-      document.getElementById('error').style.display='block';
-      _updateSummaryStale('⚠️ 最新の取得に失敗（自動再取得中）', true);
-    }
     _startAutoRetry();
   }
-  jsonp(API_URL+'?action=getAllData',
-    function(d){ if(!applyFromGas(d, seq)) onFail(); },
-    onFail,
-    { timeoutMs: GAS_TIMEOUT_MS, lateMs: GAS_LATE_MS,
-      onLate: function(d){ applyFromGas(d, seq); } });
+  fire();
+  hedgeT = setTimeout(function(){ hedgeT = null; if(!done) fire(); }, GAS_HEDGE_MS);
 }
 
-// summary.json（GCS）を取りに行く。GAS より先に届き、表示中のものより新しければ
-// 「控え」として出す（GAS が詰まっている間の代わり）。GAS がすでに出ていれば
-// 販売数だけ取り込む。
+// 取得失敗の表示。数字は出さず、再取得だけを置く（前回の数字を見る手段は設けない）。
+function _showFailed(){
+  if(VIEW === 'fresh') return;   // 表示中の最新はそのまま（ここには来ない想定）
+  VIEW = 'failed';
+  CACHED = null; SHOWN = { at:0, src:'' }; renderEsmStat();
+  document.getElementById('loading').style.display = 'none';
+  var rp = document.getElementById('report'); rp.innerHTML = ''; rp.style.display = 'none';
+  var sel = document.getElementById('dateSelect');
+  sel.innerHTML = '<option value="">取得できませんでした</option>'; sel.disabled = true;
+  var el = document.getElementById('error');
+  el.innerHTML = '⚠️ 最新を取得できませんでした<br><small>自動で再取得を続けています</small>'
+    + '<div class="fail-btns"><button class="retry" id="retryBtn" onclick="retryNow()">🔄 再取得</button>'
+    + '</div>';
+  el.style.display = 'block';
+}
+function retryNow(){
+  var b = document.getElementById('retryBtn');
+  if(b){ b.disabled = true; b.textContent = '取得中…'; }
+  if(!snapLatest && !snapPending) _loadSnapshot();
+  _fetchAllDataFromGas(RETRY_DELAYS.length, true);
+}
+
+// summary.json（GCS）を取りに行く。描く材料にはしない（上の方針）。
+// GAS がすでに出ていれば販売数だけ取り込み、GAS がスナップショット待ちならここで描く。
 function _loadSnapshot(){
+  snapPending = true;
   _fetchSummarySnapshot(function(j){
-    if(!j) return;
-    snapLatest = j;
-    if(lastGasOkAt){
-      _mergeSales({availableDates:Object.keys(CACHED||{}), allData:CACHED}, j);
-      var d=document.getElementById('dateSelect').value;
-      if(d && CACHED && CACHED[d]) render(d, CACHED[d]);
-      return;
-    }
-    if(SHOWN.at && j._genAt <= SHOWN.at) return;   // 端末の控えのほうが新しい
-    _showData({availableDates:j.availableDates, allData:j.allData}, 'snapshot', j._genAt);
-    _updateSummaryStale('🔄 最新確認中…（'+shownLabel()+'）');
+    snapPending = false;
+    if(j) snapLatest = j;
+    if(_gasHold){ _releaseGasHold(); return; }
+    if(!j || VIEW !== 'fresh') return;
+    _mergeSales({availableDates:Object.keys(CACHED||{}), allData:CACHED}, j);
+    var d=document.getElementById('dateSelect').value;
+    if(d && CACHED && CACHED[d]) render(d, CACHED[d]);
   });
 }
 
-// 画面に戻ってきたとき（タブ切替・アプリ切替・戻る）に取り直す。
-// 【2026-09-27】従来は onload の1回だけで、開いたまま裏に回したサマリーに戻ると
-// 何時間前の表示でも取り直さず、時点の表示も無かった。
-var REVALIDATE_MIN_MS = 30000;   // 直近30秒以内に取得成功していれば取り直さない
+// 画面に戻ってきたとき（タブ切替・アプリ切替・戻る）。
+// 【2026-09-27】従来は onload の1回だけで、開いたまま裏に回したサマリーに戻ると取り直さなかった。
+// 【2026-10-04】前回の取得から60秒以上たっていれば、数字を消して取り直す（古い表示のまま待たせない）。
+var REVALIDATE_MIN_MS = 60000;   // 直近60秒以内に取得成功していれば取り直さない
 function _revalidate(){
   var now = Date.now();
-  if(now - lastGasOkAt < REVALIDATE_MIN_MS) return;
+  if(VIEW === 'loading') return;
+  if(VIEW === 'fresh'){
+    if(now - lastGasOkAt < REVALIDATE_MIN_MS) return;
+    _beginLoad();
+    return;
+  }
+  // 失敗の表示中：そのまま裏で取り直す（届けば最新を描く）
   if(lastAttemptAt > lastGasOkAt && now - lastAttemptAt < GAS_TIMEOUT_MS) return;   // 取得中
-  _updateSummaryStale(SHOWN.at ? '🔄 最新確認中…（'+shownLabel()+'）' : '🔄 最新確認中…');
   jsonp(API_URL+'?action=getEsmarcheStatus',handleEsmarcheStatus,function(){});
-  _fetchAllDataFromGas(0, false);
+  _fetchAllDataFromGas(RETRY_DELAYS.length, true);
 }
 document.addEventListener('visibilitychange', function(){
   if(document.visibilityState === 'visible') _revalidate();
@@ -570,24 +587,8 @@ document.addEventListener('visibilitychange', function(){
 window.addEventListener('pageshow', function(e){ if(e.persisted) _revalidate(); });
 
 window.onload=function(){
-  // ──── SWR起動フロー ────
-  // Step 1: localStorage キャッシュがあれば即描画（0秒表示）。「いつ時点か」を上段とバーに出す
-  // Step 2: GAS(getAllData)で最新を取得して差替（正）。並行して summary.json も取り、
-  //         GAS より先に届いてキャッシュより新しければ控えとして出す
-  // Step 3: 失敗なら5秒後→15秒後にリトライ→なお駄目なら警告バー＋60秒ごとの自動再取得
-  //         （見切った後に遅れて届いた GAS の応答も採用する）
-  startupCache = _readSummaryCache();
-
-  if(startupCache && startupCache.availableDates && startupCache.availableDates.length){
-    if(startupCache.esmarcheStatus) esmStatus = startupCache.esmarcheStatus;
-    _showData({availableDates:startupCache.availableDates, allData:startupCache.allData},
-              'cache', startupCache.cachedAt||0);
-    _updateSummaryStale('🔄 最新確認中…（'+shownLabel()+'）');
-  }
-
-  jsonp(API_URL+'?action=getEsmarcheStatus',handleEsmarcheStatus,function(){});
-  _fetchAllDataFromGas(0, false);
-  _loadSnapshot();
+  // 端末に残した値もスナップショットも先に描かない。GAS(getAllData)の応答で確定してから描く（上の方針）。
+  _beginLoad();
 };
 
 function showReport(date){

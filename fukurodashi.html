@@ -253,8 +253,11 @@ var API_URL = 'https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkV
 // ============================================================
 var IS_TEST_ENV = String(location.pathname).indexOf('/test/') > -1;
 function lsKey(base){ return base + (IS_TEST_ENV ? '_test' : ''); }
-var LS_FUKURODASHI_CACHE   = lsKey('fukurodashi_cache_v2');
 var LS_FUKURODASHI_PENDING = lsKey('fukurodashi_pending_v2');
+// 【2026-10-04 廃止】月ごとの数字を端末に残していたキー（fukurodashi_cache_v2）。前回の数字を画面に出す
+// 手段は設けない（杉さん決定 2026-10-04）ので、端末にも残さない。以前の版が残した値を消す。
+// 未送信の入力の退避（fukurodashi_pending_v2）は引き続き端末に残す。
+try{ localStorage.removeItem(lsKey('fukurodashi_cache_v2')); }catch(e){}
 
 var DAYS = ['日','月','火','水','木','金','土'];
 var SITES = ['寄居','森林公園'];
@@ -273,7 +276,10 @@ var state = {
   ym: todayStr.substring(0,7),   // 表示中の月 'YYYY-MM'
   site: SITES[0],                // 表示中の拠点。SITE_ALL は両拠点合算の閲覧専用
   items: {},                     // 'YYYY-MM-DD' -> { '寄居': {planTsuki,planSakae,planG,actual,actualBy,ts}, ... }
-  loaded: false, loading: false, error: false, fromCache: false,
+  loaded: false, loading: false, error: false,
+  // 【2026-10-04】表示中の月が 'loading' 取得中 / 'fresh' 最新 / 'failed' 取得失敗 か。
+  // freshAt: 最新を受け取った時刻(ms)
+  view: 'loading', freshAt: 0,
   openDate: null, openSite: null, saving: false, saveErr: '', pending: null,
   // 入力中／送信中の値。再描画（バックグラウンド取得の完了・保存失敗の表示）で
   // モーダルを描き直しても入力を失わないための退避先。{date, site, payload}
@@ -372,30 +378,7 @@ function jsonp(url,base,onOk,onErr,timeoutMs,opts){
   document.body.appendChild(s);
 }
 
-// ============ localStorage キャッシュ（SWR：先に前回値を描いてから取得） ============
-function _readCacheAll(){
-  try{ var o=JSON.parse(localStorage.getItem(LS_FUKURODASHI_CACHE)||'null'); return (o&&typeof o==='object')?o:{}; }
-  catch(e){ return {}; }
-}
-function _readCache(ym){
-  var all=_readCacheAll(), e=all[ym];
-  return (e && e.items && typeof e.items==='object') ? e : null;
-}
-function _writeCache(ym, items){
-  try{
-    var all=_readCacheAll();
-    all[ym]={ items: items, savedAt: Date.now() };
-    // 直近12か月ぶんだけ残す（localStorage を無制限に太らせない）
-    var keys=Object.keys(all).sort();
-    while(keys.length>12){ delete all[keys.shift()]; }
-    localStorage.setItem(LS_FUKURODASHI_CACHE, JSON.stringify(all));
-  }catch(e){}
-}
-function _writeCacheFromState(ym){
-  var monthItems={}, pre=ym+'-';
-  for(var k in state.items){ if(k.indexOf(pre)===0) monthItems[k]=state.items[k]; }
-  _writeCache(ym, monthItems);
-}
+// ============ 未送信の入力の退避（localStorage） ============
 function _readPending(){
   try{ var p=JSON.parse(localStorage.getItem(LS_FUKURODASHI_PENDING)||'null');
        return (p && p.date && p.site && p.payload) ? p : null; }catch(e){ return null; }
@@ -446,6 +429,20 @@ function renderAll(){
   _captureDraft();
   document.getElementById('mTtl').textContent = monthTitle(state.ym);
   renderTabs();
+  var app=document.getElementById('app');
+  // 【2026-10-04】最新が届くまでは数字を出さない
+  if(state.view==='loading'){
+    app.innerHTML='<div id="loading"><div class="spinner"></div><br>最新を取得中…</div>';
+    return;
+  }
+  if(state.view==='failed'){
+    // 前回の数字を見る手段は設けない（2026-10-04 追補）。再取得だけ
+    app.innerHTML=renderPendingBanner()
+      +'<div class="err-box">最新を取得できませんでした。<br>通信状態を確認してください。'
+      +'<br><button onclick="fetchMonth(state.ym)">再取得</button>'
+      +'</div>';
+    return;
+  }
   var html='';
   html+=renderPendingBanner();
   html+=renderSummary();
@@ -453,7 +450,7 @@ function renderAll(){
   html+=renderBulkPanel();
   html+=renderCalendar();
   html+=renderStateLine();
-  document.getElementById('app').innerHTML=html;
+  app.innerHTML=html;
   if(state.openDate) renderModal();
 }
 function setSite(s){
@@ -502,7 +499,7 @@ function renderCalendar(){
   var p=state.ym.split('-'), y=parseInt(p[0],10), m=parseInt(p[1],10);
   var lead=new Date(y, m-1, 1).getDay();   // 月初までの空きセル（日曜始まり）
   var days=daysInMonth(state.ym);
-  var ro=(state.site===SITE_ALL);          // 合計タブは閲覧専用
+  var ro=(state.site===SITE_ALL || state.view!=='fresh');   // 合計タブは閲覧専用
   var pv=(state.bulk.preview && state.bulk.preview.site===state.site && state.bulk.preview.month===state.ym)
          ? state.bulk.preview : null;
   // 曜日ヘッダも日セルも同じ1つのグリッドの子にする。
@@ -543,49 +540,56 @@ function renderCalendar(){
   return h;
 }
 function renderStateLine(){
-  if(state.error && !state.loaded){
-    return '<div class="err-box">データを取得できませんでした。<br>通信状態を確認してください。'
-      +'<br><button onclick="fetchMonth(state.ym)">再読み込み</button></div>';
-  }
-  var msg;
-  if(state.loading) msg='最新データを取得中...';
-  else if(state.error) msg='⚠️ 最新の取得に失敗しました（表示は端末の保存分）';
-  else if(state.fromCache) msg='端末の保存分を表示中';
-  else msg='最終取得：'+(_lastFetchStamp||'—');
-  return '<div class="state-line'+(state.error?' err':'')+'">'+eH(msg)+'</div>';
+  return '<div class="state-line">'+eH('最終取得：'+(_lastFetchStamp||'—'))+'</div>';
 }
 var _lastFetchStamp='';
 
 // ============ 取得 ============
+// 【2026-10-04 最新だけを表示する】従来は端末に残した値（fukurodashi_cache_v2）を先に描いてから取得していた。
+// 月を開く・切り替える・復帰（受け取りから60秒以上）のたびに、その月の数字を消して「最新を取得中…」にし、
+// GAS の応答で確定してから描く。取得できなければ数字なしで再取得だけ（前回の数字を見る手段は設けない）。
 var FETCH_TIMEOUT = 15000;
+var RESUME_STALE_MS = 60000;
+var _fetchGen = 0;
 function fetchMonth(ym){
+  var gen=++_fetchGen;
   state.ym=ym;
-  var c=_readCache(ym);
-  if(c){ state.items=_mergeItems(state.items, c.items, ym); state.loaded=true; state.fromCache=true; }
-  state.loading=true; state.error=false;
-  if(state.loaded) renderAll(); else document.getElementById('app').innerHTML='<div id="loading"><div class="spinner"></div><br>読み込み中...</div>';
+  state.items=_mergeItems(state.items, {}, ym);   // この月の古い値は持たない（描かない）
+  state.view='loading'; state.loading=true; state.error=false;
+  renderAll();
   jsonp(API_URL+'?action=getFukurodashi&month='+encodeURIComponent(ym)+'&_cb='+Date.now(),
     'cb_get',
     function(res){
-      if(state.ym!==ym) return;   // 取得中に月を切り替えられていたら捨てる
+      if(gen!==_fetchGen || state.ym!==ym) return;   // 取得中に月を切り替えた・取り直した
       state.loading=false;
       if(res && res.success && res.items){
         state.items=_mergeItems(state.items, res.items, ym);
-        state.loaded=true; state.fromCache=false; state.error=false;
-        _writeCache(ym, res.items);
+        state.loaded=true; state.error=false;
+        state.view='fresh'; state.freshAt=Date.now();
         var nd=new Date();
         _lastFetchStamp=pad2(nd.getHours())+':'+pad2(nd.getMinutes());
+        if(state.bulk.open && state.bulk.previewAfterFetch===ym){ state.bulk.previewAfterFetch=''; doBulkPreview(); return; }
       } else {
-        state.error=true;
+        state.error=true; state.view='failed';
       }
       renderAll();
     },
     function(){
-      if(state.ym!==ym) return;
-      state.loading=false; state.error=true;
+      if(gen!==_fetchGen || state.ym!==ym) return;
+      state.loading=false; state.error=true; state.view='failed';
       renderAll();
     }, FETCH_TIMEOUT);
 }
+// 復帰時：日付が変わっていれば開き直す。最新の受け取りから60秒以上なら取り直す（入力中・送信中は触らない）
+function _onForeground(){
+  if(state.openDate || state.saving || state.bulk.open) return;
+  if(ymd(new Date())!==todayStr){ location.reload(); return; }
+  if(state.view==='loading') return;
+  if(state.view==='fresh' && Date.now()-state.freshAt < RESUME_STALE_MS) return;
+  fetchMonth(state.ym);
+}
+document.addEventListener('visibilitychange', function(){ if(document.visibilityState==='visible') _onForeground(); });
+window.addEventListener('pageshow', function(e){ if(e.persisted) _onForeground(); });
 // 対象月のぶんだけ置き換える（他の月のキャッシュ表示は残す）
 function _mergeItems(cur, fresh, ym){
   var out={}, pre=ym+'-';
@@ -667,12 +671,13 @@ function doBulkPreview(){
   state.bulk.err=''; state.bulk.preview=null;
   var b=state.bulk;
   if(b.total===''){ b.err='栄完熟の月間合計を入力してください。'; renderAll(); return; }
+  // プレビューは対象拠点・対象月のカレンダー上に出す（見えない場所へ書かないため切り替える）
+  state.site=b.site;
+  // 【2026-10-04】別の月は、その月の最新を受け取ってから割り当てを計算する
+  if(state.ym!==b.month || state.view!=='fresh'){ b.previewAfterFetch=b.month; fetchMonth(b.month); return; }
   var r=computeAllocation(b.month, b.site, parseInt(b.total,10));
   if(r.error){ b.err=r.error; renderAll(); return; }
   b.preview=r;
-  // プレビューは対象拠点・対象月のカレンダー上に出す（見えない場所へ書かないため切り替える）
-  state.site=b.site;
-  if(state.ym!==b.month){ fetchMonth(b.month); return; }
   renderAll();
 }
 function doBulkCommit(){
@@ -783,6 +788,7 @@ function onBulkNum(el){
 function openDay(ds){
   if(state.saving) return;
   if(state.site===SITE_ALL) return;   // 合計タブは閲覧専用
+  if(state.view!=='fresh') return;    // 最新が確定するまで入力させない（古い数字を土台に保存しない）
   state.openDate=ds; state.openSite=state.site; state.saveErr='';
   // 未送信ぶんが残っている日は、その内容を復元して開く（入力のやり直しを防ぐ）
   var p=state.pending;
@@ -939,7 +945,7 @@ function _verifyThenRetry(attempt, sess){
       'cb_verify', function(res){
         if(!_sessAlive(sess)) return;
         if(res && res.success && res.items && _entryMatches(res.items[sess.date], sess.site, sess.payload)){
-          if(state.ym===ym){ state.items=_mergeItems(state.items,res.items,ym); _writeCache(ym,res.items); }
+          if(state.ym===ym){ state.items=_mergeItems(state.items,res.items,ym); }
           _saveSucceeded(sess, '✅ 保存済みを確認しました');
         } else {
           _retryOrGiveUp(attempt, sess, '未反映');
@@ -976,7 +982,7 @@ function _recheck(sess){
     'cb_recheck', function(res){
       if(!_sessAlive(sess)) return;
       if(res && res.success && res.items && _entryMatches(res.items[sess.date], sess.site, sess.payload)){
-        if(state.ym===ym){ state.items=_mergeItems(state.items,res.items,ym); _writeCache(ym,res.items); }
+        if(state.ym===ym){ state.items=_mergeItems(state.items,res.items,ym); }
         _saveSucceeded(sess, '✅ 保存されていました（自動確認）');
       }
     }, function(){}, VERIFY_TIMEOUT);
@@ -1002,7 +1008,6 @@ function _saveSucceeded(sess, msg){
                             planG:toNum(p.planG), actual:toNum(p.actual),
                             actualBy:(p.actual===''?'':'手入力'), ts:ts };
   }
-  _writeCacheFromState(ds.substring(0,7));
   state.openDate=null; state.openSite=null; state.saveErr=''; state.draft=null;
   var el=document.getElementById('modalBack'); if(el&&el.parentNode) el.parentNode.removeChild(el);
   renderAll();
@@ -1012,6 +1017,7 @@ function _saveSucceeded(sess, msg){
 function resendPending(){
   var p=state.pending||_readPending();
   if(!p) return;
+  if(state.view!=='fresh'){ showToast('最新の取得が済んでから再送してください'); return; }
   state.site=p.site;
   if(state.ym!==p.date.substring(0,7)){ fetchMonth(p.date.substring(0,7)); }
   state.openDate=p.date; state.openSite=p.site; state.saveErr='';

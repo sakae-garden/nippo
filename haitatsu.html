@@ -222,6 +222,13 @@ body.has-unsaved .toast{bottom:130px}
 .nippo-link-wrap{padding:12px 16px 0}
 .nippo-link-btn{display:inline-flex;align-items:center;gap:6px;background:var(--ink);color:#fff;border-radius:18px;padding:6px 14px;text-decoration:none;font-size:12px;font-weight:600;letter-spacing:.02em;box-shadow:var(--shadow)}
 .nippo-link-btn:active{opacity:.8}
+
+/* 【2026-10-04】最新だけを表示する。取得できなければ数字は出さず、再取得だけを置く（前回の数字を見る手段は設けない） */
+.mode-btn:disabled{opacity:.35;cursor:not-allowed}
+.fail-btns{display:flex;flex-direction:column;align-items:center;gap:8px;margin-top:10px}
+.fail-btns button{font-family:inherit;font-size:13px;font-weight:700;padding:10px 18px;border-radius:8px;cursor:pointer}
+.fail-btns .retry-btn{margin-top:0}
+.zaiko-asof button{margin-left:6px;padding:2px 8px;font-family:inherit;font-size:10px;font-weight:700;color:#5b7a99;background:#fff;border:1px solid #b0bec5;border-radius:10px;cursor:pointer;letter-spacing:0}
 </style>
 </head>
 <body>
@@ -245,11 +252,13 @@ body.has-unsaved .toast{bottom:130px}
 <script src="irai-notice.js"></script>
 <script>
 var API_URL = 'https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkVvYc7V77OJrh7h_PZCqtuV4aUL7NYz83VsNc5lY6sXONw/exec';
-// スナップショット配信URL（GCS+CORS+publicRead。フロントの初期表示を高速化する）
+// スナップショット配信URL（GCS）。【2026-10-04】納品指示の表示には使わない（getHaitatsu はシートを直接読むので、
+// スナップショットが GAS より新しいことは無い）。残す理由はテスト環境の判定（下の IS_TEST_ENV）だけ。
 var SNAPSHOT_URL = 'https://storage.googleapis.com/sakae-garden-snapshots/haitatsu.json';
-// 残在庫/販売数スナップショット（GASのgetYaokoZaiko代替。編集モード切替時のみ使用）
+// 残在庫/販売数スナップショット。【2026-10-04】GAS の応答に販売数だけ取り込む（大きい＝新しいときだけ）。
+// GAS より先に描く材料にはしない。GAS が取れなければ使わない。
 var ZAIKO_SNAPSHOT_URL = 'https://storage.googleapis.com/sakae-garden-snapshots/zaiko.json';
-// スナップショット鮮度の上限（これより古ければGAS直取得へフォールバック）。朝の運用に十分な6時間。
+// スナップショット鮮度の上限（これより古い zaiko.json は取り込まない）。
 var SNAPSHOT_MAX_AGE_MS = 6 * 3600 * 1000;
 // 配信確認用マーカー。本番URLの実応答にこの文字列が含まれるかで反映を判定する。
 var ZAIKO_REVALIDATE_BUILD = 'zaiko-revalidate-20260816';
@@ -261,25 +270,21 @@ var EXTRAS_UNTIL_BUILD = 'extras-keep-20260929';
 var IRAI_BOARD_BUILD = 'irai-board-20261003';
 var YAOKO_PRICES = ['¥99','¥198','¥398','¥598'];
 
-// SWR用 localStorage キー。/nippo/test/ は本番と同一オリジンで localStorage を共有するため、
+// localStorage キー。/nippo/test/ は本番と同一オリジンで localStorage を共有するため、
 // スナップショットURL(/test/)で環境を判定してキーを分ける。本番のキー名は従来のまま。
-// index.html も同じ規則で haitatsu_latest を読むので、両者のキーは常に一致する。
 var IS_TEST_ENV = String(SNAPSHOT_URL).indexOf('/test/') > -1;
 function lsKey(base){ return base + (IS_TEST_ENV ? '_test' : ''); }
-// 【2026-08-14 v1→v2】v1 には purge 済みの内容がサーバと同じ lastUpdated で
-// 焼き付いた端末があり、そのままでは鮮度ガードに阻まれて自力復帰できない
-// （坂戸千代田店の¥300×4がその端末だけ消えたままになった）。キー名を変えて
-// 汚染されたキャッシュを一斉に捨てさせる。キャッシュは再取得できる派生データ
-// なので捨てても失うものは無い（次回起動が一瞬遅くなるだけ）。
-var LS_HAITATSU_CACHE = lsKey('haitatsu_cache_v2');
-var LS_HAITATSU_LATEST = lsKey('haitatsu_latest');
-// 残在庫/販売数のSWRキャッシュ。既存の haitatsu_cache_v1 は納品数(items)と
-// lastUpdated しか持たないため専用キーを新設する。必ず lsKey() 経由（環境別分離）。
-var LS_ZAIKO_CACHE = lsKey('zaiko_cache_v1');
+// 【2026-10-04 廃止】納品数・残在庫/販売数を端末に残していたキー（haitatsu_cache_v2・haitatsu_latest・
+// zaiko_cache_v1）。前回の数字を画面に出す手段は設けない（杉さん決定 2026-10-04）ので、端末にも残さない。
+// 起動時に、以前の版が残した値を消す（index.html も haitatsu_latest を消す）。
+// 未保存の入力の退避（下書き）は数字の先出しではないので、引き続き端末に残す。
+['haitatsu_cache_v2','haitatsu_latest','zaiko_cache_v1'].forEach(function(k){
+  try{ localStorage.removeItem(lsKey(k)); }catch(e){}
+});
 // 【2026-09-29】保存と送信の記録（GAS の「保存送信ログ」シート）に付ける端末IDと画面の版。
 // 端末IDはこの端末で一度だけ作るランダムな値（index.html と同じキーを共有＝同じ端末は同じID）。
 // 氏名・電話番号などは入れない。localStorage が使えない端末では画面を開くたびに変わる。
-var PAGE_BUILD = 'irai-board-20261003';   // 画面を変えて出すときに更新する（記録の「画面の版」）
+var PAGE_BUILD = 'latest-only-20261004';   // 画面を変えて出すときに更新する（記録の「画面の版」）
 var LS_DEVICE_ID = lsKey('device_id_v1');
 var _deviceIdMemo = '';
 function _deviceId(){
@@ -301,18 +306,23 @@ function _auditQuery(extra){
 var state = { mode:'view', route:0, data:{}, zaiko:{}, zaikoExtras:{}, zaikoDataDate:'', lastUpdated:'', dirty:false, loaded:false,
               // saveState: '' | 'saving' | 'failed' | 'unknown'（件C / 固定バーの表示に使う）
               saveState:'',
-              zaikoLoaded:false, zaikoLoading:false, zaikoError:false, zaikoFromCache:false, zaikoFetched:false,
-              dataStale:false,
+              zaikoLoaded:false, zaikoLoading:false, zaikoError:false, zaikoFetched:false,
               // 【2026-08-16 追加】スナップショットを「初期表示用」、GAS getYaokoZaiko を
               // 「再検証用」に位置づけたことで増えた状態。
               //   zaikoFromGas   : 一度でも GAS の値で確定したか（スナップショットの逆行を防ぐ）
               //   zaikoRevalidating: GAS再検証が飛んでいる最中
               //   zaikoGasAt     : 最後に GAS 再検証が成功した時刻(ms)。鮮度表示と再検証の間引きに使う
-              //   zaikoSnapGenAt : 採用中スナップショットの generated_at（GAS失敗時の「HH:MM時点」表示用）
               //   zaikoChanged   : 再検証で数字が変わった {店舗価格} の集合。短時間ハイライトに使う
-              //   zaikoSrc       : 出どころ別の生データ。表示はこの3つのマージ結果（件A / 2026-09-21）
-              zaikoFromGas:false, zaikoRevalidating:false, zaikoGasAt:0, zaikoSnapGenAt:'', zaikoChanged:null,
-              zaikoSrc:{ gas:null, snap:null, cache:null } };
+              //   zaikoSrc       : 出どころ別の生データ。表示は gas と snap のマージ結果（件A / 2026-09-21。2026-10-04 から端末に残した値は入れない）
+              zaikoFromGas:false, zaikoRevalidating:false, zaikoGasAt:0, zaikoChanged:null,
+              zaikoSrc:{ gas:null, snap:null },
+              // 【2026-10-04】最新だけを表示する（下の「最新だけを表示する」）。
+              //   view      : 納品指示の表示 'loading' 取得中 / 'fresh' 最新 / 'failed' 取得失敗
+              //   freshAt   : 最新を受け取った時刻(ms)。復帰時に取り直すかの判定に使う
+              //   zaikoView : 残在庫/販売数 'none' 未取得 / 'loading' / 'fresh' / 'failed'
+              //   zaikoSnapPending : zaiko.json を取得中（GAS が先に届いたら少しだけ待つ）
+              view:'loading', freshAt:0, retrying:false,
+              zaikoView:'none', zaikoSnapPending:false, zaikoRecheckFailed:false };
 
 var today = new Date();
 var DAYS = ['日','月','火','水','木','金','土'];
@@ -828,6 +838,11 @@ function renderRouteTabs(){
   el.innerHTML=h;
 }
 function toggleMode(){
+  // 【2026-10-04】最新が確定するまで編集を始めさせない（古い数字を土台に保存して先祖返りさせないため）
+  if(state.mode==='view' && state.view!=='fresh'){
+    showToast('最新の取得が済むまで編集できません');
+    return;
+  }
   if(state.mode==='edit' && state.dirty){
     if(!confirm('未保存の変更があります。閲覧モードに戻すと変更は破棄されます（保存しても戻せます）。続けますか？')){
       return;
@@ -837,93 +852,88 @@ function toggleMode(){
   }
   var toEdit = (state.mode==='view');
   state.mode = (toEdit?'edit':'view');
-  var b=document.getElementById('modeBtn');
-  if(state.mode==='edit'){ b.textContent='👁 閲覧モードへ'; b.classList.add('edit'); }
-  else                  { b.textContent='✏️ 編集モード';   b.classList.remove('edit'); }
+  _updateModeBtn();
   // 【2026-08-14 変更】閲覧モードでは残在庫/販売数を一切表示しなくなったので、
   // 取得も編集モードに入るときだけに戻す（GCS/GAS への無駄な往復をしない）。
-  // 取得はスナップショット優先（GCS・GAS実行スロットを消費しない）で、
-  // スナップショットが使えないときだけ GAS へフォールバックする。
   var needFetch = (state.mode === 'edit') ? _prepareZaiko() : false;
   _updateUnsavedBar();
   renderRoute();
   if(needFetch) _fetchZaiko(0);
 }
+// 編集モードのボタン。最新が確定していない間（取得中・失敗）は押せない。
+function _updateModeBtn(){
+  var b=document.getElementById('modeBtn');
+  if(!b) return;
+  if(state.mode==='edit'){ b.textContent='👁 閲覧モードへ'; b.classList.add('edit'); }
+  else                  { b.textContent='✏️ 編集モード';   b.classList.remove('edit'); }
+  b.disabled = (state.mode==='view' && state.view!=='fresh');
+}
 
 // GAS再検証を間引く最小間隔。編集モードを何度も往復しても GAS を連打しない。
 var ZAIKO_REVALIDATE_MIN_MS = 30000;
+// 【2026-10-04】これより前に受け取った残在庫/販売数は「最新」と扱わない（数字を消して取り直す）。
+// 復帰時の納品指示の取り直し（RESUME_STALE_MS）と同じ60秒。
+var ZAIKO_STALE_MS = 60000;
 
 // 編集モードに入るときの残在庫/販売数の準備。
-//  - 初回はキャッシュがあれば描画前に載せて0秒表示にし、裏で最新を取得（層2 SWR）。
-//  - キャッシュが無いときだけ「読み込み中」状態にする（層1。「-」で黙って待たせない）。
-//  - 取得失敗後に編集モードへ入り直したら再試行する（従来の !zaikoLoaded 条件と同等）。
-// 【2026-08-16 変更】「取得済みなら何もしない」をやめた。スナップショットは
-//   4:30 とエスマルシェ変化検知時にしか再生成されないため、日報を訂正しても
-//   次の再生成まで古い残在庫が出続ける（東松山新宿店の蘇生庫付替えで実際に発生）。
-//   編集モードに入るたびに GAS getYaokoZaiko で再検証する。ただし直近
-//   ZAIKO_REVALIDATE_MIN_MS 以内に再検証が成功していれば省く。
+// 【2026-08-16】編集モードに入るたびに GAS getYaokoZaiko で再検証する（スナップショットは
+//   4:30 とエスマルシェ変化検知時にしか再生成されず、日報の訂正が翌朝まで出ないため）。
+//   ただし直近 ZAIKO_REVALIDATE_MIN_MS 以内に再検証が成功していれば省く。
+// 【2026-10-04】端末に残した値（旧 zaiko_cache_v1）を先に描くのをやめた。最新（GAS）が届くまでは
+//   「残・売 最新を取得中…」で数字を出さない。前回の取得から ZAIKO_STALE_MS 以上たっていれば
+//   表示中の数字も消して取り直す。
 // 戻り値: 取得を走らせるべきなら true（呼び出し側が renderRoute 後に実行する）。
 function _prepareZaiko(){
-  if(state.zaikoLoading) return false;      // 初回取得中は二重に走らせない
-  if(state.zaikoRevalidating) return false; // GAS再検証が飛んでいる最中も走らせない
-  if(!state.zaikoFetched){
-    state.zaikoFetched = true;
-    var zc = _readZaikoCache();
-    if(zc){
-      state.zaiko = zc.items;
-      state.zaikoExtras = zc.extras || {};
-      state.zaikoDataDate = zc.dataDate;   // ★参照日はキャッシュ保存時のものを必ず使う
-      state.zaikoLoaded = true;
-      state.zaikoFromCache = true;
-      // キャッシュもマージの出どころにする。保存されているのは前回のマージ結果なので、
-      // スナップショット/GAS が届くまでの間に販売数が逆行して見えるのを防げる。
-      state.zaikoSrc.cache = { items: zc.items, extras: zc.extras || {}, dataDate: zc.dataDate };
-    }
-  } else if(state.zaikoLoaded && !state.zaikoError && state.zaikoGasAt
-            && (Date.now() - state.zaikoGasAt) < ZAIKO_REVALIDATE_MIN_MS){
-    return false;   // 直近30秒以内にGASで再検証済み。叩き直さない
+  if(state.zaikoView === 'loading' || state.zaikoRevalidating) return false;   // 取得中は二重に走らせない
+  var age = Date.now() - state.zaikoGasAt;
+  if(state.zaikoView === 'fresh' && age < ZAIKO_REVALIDATE_MIN_MS) return false;   // 直近30秒以内に取得済み
+  if(state.zaikoView === 'fresh' && age < ZAIKO_STALE_MS){
+    state.zaikoRevalidating = true;   // 60秒以内：表示はそのまま、裏で確かめる
+    return true;
   }
-  state.zaikoLoading = !state.zaikoLoaded;  // 出せる値が無いときだけ「読み込み中」
-  state.zaikoError = false;
+  _zaikoBeginLoad();
   return true;
 }
+// 残在庫/販売数を消して「取得中」にする（出どころもいったん空にする＝前の回の値をマージに持ち込まない）
+function _zaikoBeginLoad(){
+  state.zaikoView = 'loading';
+  state.zaiko = {}; state.zaikoExtras = {}; state.zaikoDataDate = '';
+  state.zaikoSrc = { gas:null, snap:null };
+  state.zaikoLoaded = false; state.zaikoLoading = true; state.zaikoError = false;
+  state.zaikoFromGas = false; state.zaikoRevalidating = true; state.zaikoChanged = null;
+  state.zaikoFetched = true;
+}
 
-// 残在庫/販売数の状態ラベル（ヤオコー見出し横の控えめ表示）。
+// 残在庫/販売数の状態ラベル（ヤオコー見出し横の控えめな表示）。
 // 参照日は必ず state.zaikoDataDate（＝その値が実際にいつのものか）から作る。
-// キャッシュ表示中もキャッシュに保存された参照日を出すので、前日の値なのに
-// 当日日付を表示する誤表示は起こらない。
+// 戻り値の html は再取得ボタンを含むので、呼び出し側はそのまま埋め込む。
 function _hhmm(ms){
   var d = new Date(ms);
   if(isNaN(d.getTime())) return '';
   return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
 }
 function zaikoStatusLabel(){
-  if(!state.zaikoLoaded){
-    if(state.zaikoError) return { cls:'err', text:'残・売 取得失敗（再読込で再試行）' };
-    if(state.zaikoLoading) return { cls:'loading', text:'残・売 読み込み中…' };
-    return null;
+  var zv = state.zaikoView;
+  if(zv === 'loading') return { cls:'loading', html: eH('残・売 最新を取得中…') };
+  if(zv === 'failed'){
+    return { cls:'err', html: eH('残・売 最新を取得できませんでした')
+      + '<button onclick="retryZaiko()">再取得</button>' };
   }
+  if(zv !== 'fresh') return null;
   var m = String(state.zaikoDataDate||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if(!m) return null;
   var isToday = (state.zaikoDataDate === todayStr);
   var asof = parseInt(m[2])+'/'+parseInt(m[3])+'時点';
-
-  // ① GAS再検証が通っている＝サーバの現在値そのもの。
-  //    参照日が当日でない（前日フォールバック）ときは日付も必ず併記する。
-  //    そうしないと前日の値を「最新」と言い切ってしまう。
-  if(state.zaikoFromGas && !state.zaikoError){
-    return { cls:'live',
-             text:'残・売 '+(isToday ? '' : asof+'・')+'最新（'+_hhmm(state.zaikoGasAt)+'取得）' };
+  // GAS の値＝サーバの現在値そのもの。参照日が当日でない（前日フォールバック）ときは日付も必ず併記する。
+  // そうしないと前日の値を「最新」と言い切ってしまう。
+  if(state.zaikoRecheckFailed){
+    // 60秒以内に受け取った値の再確認だけが失敗した。「最新」とは言わず、受け取った時刻を出す
+    return { cls:'err', html: eH('残・売 '+(isToday ? '' : asof+'・')+_hhmm(state.zaikoGasAt)+'取得（再確認できませんでした）')
+      + '<button onclick="retryZaiko()">再取得</button>' };
   }
-  // ② GAS再検証が失敗／未達。スナップショット（またはキャッシュ）の値を出したまま、
-  //    「いつの値か」を明示する。失敗を隠して「最新」とは出さない。
-  var snapMs = state.zaikoSnapGenAt ? Date.parse(state.zaikoSnapGenAt) : NaN;
-  var snapHm = isNaN(snapMs) ? '' : _hhmm(snapMs);
-  var base = '残・売 ' + (snapHm ? (isToday ? snapHm+'時点' : asof+' '+snapHm+'時点') : asof);
-  if(state.zaikoError)     return { cls:'err',     text:base+'（更新失敗）' };
-  if(state.zaikoRevalidating) return { cls:'loading', text:base+' · 更新中…' };
-  if(state.zaikoFromCache) return { cls:'loading', text:base+' · 更新中…' };
-  return { cls:'', text:base };
+  return { cls:'live',
+           html: eH('残・売 '+(isToday ? '' : asof+'・')+'最新（'+_hhmm(state.zaikoGasAt)+'取得）'
+                    + (state.zaikoRevalidating ? ' · 確認中…' : '')) };
 }
 
 function fmtLastUpdated(ts){
@@ -980,25 +990,15 @@ function _extraSectionHtml(nm){
       var z = extraZanFor(nm, p);
       var v = ex[p];
       if(v===undefined || v===null) v='';
-      var zanLbl, salesLbl, zanCls, salesCls;
-      if(!state.zaikoLoaded && state.zaikoLoading){
-        zanLbl='残:･･･'; salesLbl='売:･･･'; zanCls=' loading'; salesCls=' loading';
-      } else if(!state.zaikoLoaded && state.zaikoError){
-        zanLbl='残:✕';  salesLbl='売:✕';  zanCls=' err';     salesCls=' err';
-      } else {
-        zanLbl   = z ? ('残:'+z.zan) : '残:-';
-        salesLbl = (z && z.hasSales) ? ('売:'+z.sales) : '売:-';
-        zanCls   = (z ? '' : ' none') + zaikoCellUpd(nm, p);
-        salesCls = ((z && z.hasSales) ? '' : ' none') + zaikoCellUpd(nm, p);
-      }
+      var zc = _zaikoCellView(nm, p, z);
       var active = ex[p]!==undefined;
       h += '<div class="ya-cell">'
          + (active ? '<button class="ya-extra-del" onclick="rmExtraForStore(\''+eA(nm)+'\',\''+eA(p)+'\')" aria-label="削除">×</button>' : '')
          + '<div class="ya-rinji-badge">臨時</div>'
          + '<div class="ya-cell-p">'+eH(p)+'</div>'
          + (active ? '<button class="ya-extra-price" onclick="changeExtraPrice(\''+eA(nm)+'\',\''+eA(p)+'\')">価格 ▾</button>' : '')
-         + '<div class="ya-cell-sales'+salesCls+'">'+salesLbl+'</div>'
-         + '<div class="ya-cell-zan'+zanCls+'">'+zanLbl+'</div>'
+         + '<div class="ya-cell-sales'+zc.salesCls+'">'+zc.salesLbl+'</div>'
+         + '<div class="ya-cell-zan'+zc.zanCls+'">'+zc.zanLbl+'</div>'
          + '<input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="0" value="'+eA(v)+'" oninput="updExtraPrice(\''+eA(nm)+'\',\''+eA(p)+'\',this.value)">'
          + '</div>';
     });
@@ -1039,27 +1039,48 @@ function _extraViewHtml(yaIds){
   return h + '</div>';
 }
 
+// 残在庫/販売数のセル表示。待機(取得中)・故障(取得失敗)・値なし(-) を見た目で区別する。
+// hasSales=true の場合のみ実数、それ以外は「-」プレースホルダで縦揃えを維持。
+// 【2026-10-04】取得中・失敗の間は数字を出さない。
+function _zaikoCellView(nm, p, z){
+  var zv = state.zaikoView;
+  if(zv === 'loading' || zv === 'none') return { zanLbl:'残:･･･', salesLbl:'売:･･･', zanCls:' loading', salesCls:' loading' };
+  if(zv === 'failed') return { zanLbl:'残:✕', salesLbl:'売:✕', zanCls:' err', salesCls:' err' };
+  return { zanLbl:   z ? ('残:'+z.zan) : '残:-',
+           salesLbl: (z && z.hasSales) ? ('売:'+z.sales) : '売:-',
+           zanCls:   (z ? '' : ' none') + zaikoCellUpd(nm, p),
+           salesCls: ((z && z.hasSales) ? '' : ' none') + zaikoCellUpd(nm, p) };
+}
+
 function _renderRouteUnsafe(){
-  if(!state.loaded){
-    // shared-stores.js が未ロード（STORE_DEFS なし）の場合は固有エラーにフォールバック
-    if(typeof STORE_DEFS==='undefined' || typeof ROUTES==='undefined'){
-      throw new Error('店舗定義(shared-stores.js)が読み込めません');
-    }
+  // shared-stores.js が未ロード（STORE_DEFS なし）の場合は固有エラーにフォールバック
+  if(typeof STORE_DEFS==='undefined' || typeof ROUTES==='undefined'){
+    throw new Error('店舗定義(shared-stores.js)が読み込めません');
+  }
+  _updateModeBtn();
+  // 【2026-10-04】最新（GAS）が届くまでは数字を出さない。
+  if(state.view === 'loading'){
     document.getElementById('app').innerHTML =
-      '<div id="loading"><div class="spinner"></div><br>読み込み中...'
+      '<div id="loading"><div class="spinner"></div><br>最新を取得中…'
       +'<div class="loading-retry" id="loadingRetry" style="display:none">'
       +'時間がかかっています。<button onclick="forceReload()">再試行</button></div>'
       +'</div>';
-    // 5秒以上ロードが続いたら再試行ボタンを表示
+    // 5秒以上取得が続いたら再試行ボタンを表示
     if(window._loadingTimer) clearTimeout(window._loadingTimer);
     window._loadingTimer = setTimeout(function(){
       var el = document.getElementById('loadingRetry');
-      if(el && !state.loaded) el.style.display='block';
+      if(el && state.view === 'loading') el.style.display='block';
     },5000);
     return;
   }
-  if(typeof STORE_DEFS==='undefined' || typeof ROUTES==='undefined'){
-    throw new Error('店舗定義(shared-stores.js)が読み込めません');
+  if(state.view === 'failed'){
+    // 【2026-10-04 追補】前回の数字を見る手段は設けない。再取得だけ
+    document.getElementById('app').innerHTML =
+      '<div class="err-box">⚠️ 最新を取得できませんでした<br>'
+      +'<span style="font-size:12px;color:#888">'+(state.retrying ? '再取得しています…' : '電波の良い場所で再取得してください')+'</span>'
+      +'<div class="fail-btns"><button class="retry-btn" onclick="retryLatest()"'+(state.retrying?' disabled':'')+'>🔄 再取得</button>'
+      +'</div></div>';
+    return;
   }
   var ro = state.mode==='view' ? 'readonly' : '';
   var html = '';
@@ -1067,6 +1088,7 @@ function _renderRouteUnsafe(){
   // 最終更新表示（目立たせる）
   // 【日付キー廃止】常に「最終更新：◯月◯日 ◯時」を表示。データが本当に一度も
   // 入力されていない場合のみ「未入力」。日付が変わってもデータは残る。
+  // 【2026-10-04】ここに出るのは、表示している最新の数字の最終更新だけ。
   if(state.lastUpdated){
     html += '<div class="last-upd">🕐 <span>最終更新 '+eH(fmtLastUpdated(state.lastUpdated))+'</span></div>';
   } else {
@@ -1127,32 +1149,18 @@ function _renderRouteUnsafe(){
     } else {
       // 編集モード：店舗ごとカード入力（既存）
       var zs = zaikoStatusLabel();
-      html += '<div class="sec-lbl">🏪 ヤオコー'+(zs?'<span class="zaiko-asof'+(zs.cls?' '+zs.cls:'')+'">'+eH(zs.text)+'</span>':'')+'</div>';
+      html += '<div class="sec-lbl">🏪 ヤオコー'+(zs?'<span class="zaiko-asof'+(zs.cls?' '+zs.cls:'')+'">'+zs.html+'</span>':'')+'</div>';
       ya.forEach(function(id){
         var d = STORE_DEFS[id], nm=d.name;
         var sub = storeSubtotal(nm);
         html += '<div class="ya-card"><div class="ya-hdr"><span class="ya-icon">'+d.icon+'</span><span class="ya-name">'+eH(nm)+'</span><span class="ya-stotal" id="st_'+esc(nm)+'">合計 '+sub+'個</span></div><div class="ya-body">';
         YAOKO_PRICES.forEach(function(p){
           var v = (state.data[nm] && state.data[nm].prices && state.data[nm].prices[p]) || '';
-          var z = zanFor(nm, p);
-          // 販売数（編集モードのみ表示。閲覧モードには到達しない分岐だが将来のため防御）
-          // 待機(取得中)・故障(取得失敗)・値なし(-) を見た目で区別する。
-          // hasSales=trueの場合のみ実数、それ以外は「-」プレースホルダで縦揃えを維持
-          var zanLbl, salesLbl, zanCls, salesCls;
-          if(!state.zaikoLoaded && state.zaikoLoading){
-            zanLbl='残:･･･'; salesLbl='売:･･･'; zanCls=' loading'; salesCls=' loading';
-          } else if(!state.zaikoLoaded && state.zaikoError){
-            zanLbl='残:✕';  salesLbl='売:✕';  zanCls=' err';     salesCls=' err';
-          } else {
-            zanLbl   = z ? ('残:'+z.zan) : '残:-';
-            salesLbl = (z && z.hasSales) ? ('売:'+z.sales) : '売:-';
-            zanCls   = (z ? '' : ' none') + zaikoCellUpd(nm, p);
-            salesCls = ((z && z.hasSales) ? '' : ' none') + zaikoCellUpd(nm, p);
-          }
+          var zc = _zaikoCellView(nm, p, zanFor(nm, p));
           html += '<div class="ya-cell">'
                 + '<div class="ya-cell-p">'+eH(p)+'</div>'
-                + '<div class="ya-cell-sales'+salesCls+'">'+salesLbl+'</div>'
-                + '<div class="ya-cell-zan'+zanCls+'">'+zanLbl+'</div>'
+                + '<div class="ya-cell-sales'+zc.salesCls+'">'+zc.salesLbl+'</div>'
+                + '<div class="ya-cell-zan'+zc.zanCls+'">'+zc.zanLbl+'</div>'
                 + '<input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="0" value="'+eA(v)+'" '+ro+' oninput="updPrice(\''+eA(nm)+'\',\''+eA(p)+'\',this.value)">'
                 + '</div>';
         });
@@ -1343,11 +1351,7 @@ function _saveSucceeded(payload, toastMsg){
   else           { _setDirty(false); }   // 下書きを破棄し、固定バーを消す
   state.origData = JSON.parse(JSON.stringify(payload));
   state.lastUpdated = _nowStamp();
-  // localStorageキャッシュ更新（保存本人は即時反映を体感できる。他閲覧者はスナップショット更新間隔待ち）
-  _writeCache({ items: payload, lastUpdated: state.lastUpdated });
-  // 旧キーも互換で更新（既存フォールバックのため）
-  try { localStorage.setItem(LS_HAITATSU_LATEST, JSON.stringify(payload)); } catch(e){}
-  state.dataStale = false;
+  state.freshAt = Date.now();   // サーバが保存を受け付けた＝この内容が最新
   renderRoute();
   showToast(toastMsg);
   // 「保存してから移動」で離脱待ちだった場合はここで移動する（保存成功時のみ）
@@ -1484,14 +1488,13 @@ function _scheduleRecheck(payload, delaysMs){
         _clearPending();
         state.saveState = '';
         _updateUnsavedBar();
-        try { localStorage.setItem(LS_HAITATSU_LATEST, JSON.stringify(payload)); } catch(e){}
-        // 画面状態の更新は初期ロード完了後だけ（読み込み中に横入りして
-        // 描画を壊さないようにする）。未完了ならバナー解消のみで十分。
-        if(state && state.data){
+        // 画面状態の更新は最新を表示しているときだけ（取得中・取得失敗の表示に横入りして
+        // 描画を壊さないようにする）。それ以外はバナー解消のみで十分。
+        if(state.view === 'fresh'){
           _setDirty(false);
           state.origData = JSON.parse(JSON.stringify(payload));
           state.lastUpdated = _nowStamp();
-          _writeCache({ items: payload, lastUpdated: state.lastUpdated });
+          state.freshAt = Date.now();
           renderRoute();
         }
         showToast('✅ 保存が確認できました');
@@ -1545,6 +1548,8 @@ function _updatePendingBanner(){
 function resendPending(){
   var p = _readPending();
   if(!p){ _updatePendingBanner(); return; }
+  // 【2026-10-04】最新が確定する前は画面の土台が無い（取得中・取得失敗）。最新が届いてから送り直す
+  if(state.view !== 'fresh'){ showToast('最新の取得が済んでから再送してください'); return; }
   state.data = _normExtras(JSON.parse(JSON.stringify(p.items)));
   _setDirty(true);
   renderRoute();
@@ -1764,10 +1769,11 @@ function _updateDraftBanner(unverified){
 function restoreDraft(){
   var d = _readDraft();
   if(!d){ _updateDraftBanner(); return; }
+  // 【2026-10-04】復元すると編集モードに入る。編集は最新が確定してから（toggleMode と同じ条件）
+  if(state.view !== 'fresh'){ showToast('最新の取得が済んでから復元してください'); return; }
   // 臨時品目は保存時・再送時と同じ正規化（_normExtras）を通す。2026-09-29 から失効で落とすことはしない
   // （臨時品目は消すまで残る）。
   state.data   = _normExtras(JSON.parse(JSON.stringify(d.items)));
-  state.loaded = true;
   if(!state.origData) state.origData = {};
   if(typeof ROUTES !== 'undefined' && typeof d.route === 'number'
      && d.route >= 0 && d.route < ROUTES.length){
@@ -1777,7 +1783,7 @@ function restoreDraft(){
   var el = document.getElementById('draft_notice');
   if(el && el.parentNode) el.parentNode.removeChild(el);
   if(state.mode !== 'edit') toggleMode();   // 編集モードへ（残在庫の取得も従来どおり）
-  _setDirty(true);                          // 以降サーバ応答で上書きされない(_applyIfNewer)
+  _setDirty(true);                          // 以降サーバ応答で上書きされない(_applyLatest)
   renderRoute();
   showToast('下書きを復元しました。保存ボタンを押してください');
 }
@@ -1789,49 +1795,32 @@ function discardDraft(){
 }
 
 
-// ============ SWR初期読み込み ============
-// 読み込み優先順位:
-//   1. localStorage（あれば即座に描画。0秒表示）
-//   2. スナップショット（GCS配信、~200ms、CORS対応）
-//      - generated_at が SNAPSHOT_MAX_AGE_MS 以内なら採用
-//   3. GAS 直接（最終手段、コールドスタート10秒スパイクの影響を受ける）
-// いずれのパスも成功時に localStorage を更新する（次回0秒表示のため）。
-var _haitatsuRetries = 0;
+/// ============ 最新だけを表示する（2026-10-04 杉さん要望）============
+// 従来（SWR）は 端末に残した値（localStorage）→ スナップショット（haitatsu.json）→ GAS の順に描いていたため、
+// 開いた直後に古い納品数が出て2〜3秒後に最新へ切り替わっていた。最終更新の表示を見て
+// 「これが正しい」と思い、古い数字で商品を持って行くミスにつながる。
+//   ・起動時・復帰時（最新の受け取りから RESUME_STALE_MS 以上）は数字を出さず「最新を取得中…」。
+//     GAS getHaitatsu の応答で確定してから描く
+//   ・スナップショット（haitatsu.json）は使わない。getHaitatsu はシートを直接読む（保存でキャッシュも消える）ので、
+//     スナップショットが GAS の応答より新しいことは無い
+//   ・取得できなければ数字なしで「最新を取得できませんでした」＋再取得（LATEST_RETRY_WAIT 後に1回だけ自動でも再取得）。
+//     前回の数字を見る手段は設けない（杉さん決定 2026-10-04 09:54）。納品数・残在庫/販売数は端末にも残さない
+//   ・最新が確定するまで編集モードに入れない（toggleMode・restoreDraft・resendPending）
+// 取得は日報の納品指示（件2）と同じ：1本 FETCH_TIMEOUT_MS で見切り、FETCH_HEDGE_MS 応答が無ければ
+// 同じ要求をもう1本並べて先に返ったほうを使う。見切った後に届いた応答も FETCH_LATE_MS の間は拾う。
+var LATEST_ONLY_BUILD = 'latest-only-20261004';   // 本番反映の確認用マーカー
+var FETCH_TIMEOUT_MS  = 10000;
+var FETCH_HEDGE_MS    = 4000;
+var FETCH_LATE_MS     = 25000;
+var LATEST_RETRY_WAIT = 8000;
+var RESUME_STALE_MS   = 60000;
 function forceReload(){ location.reload(); }
-
-function _readCache(){
-  try {
-    var raw = localStorage.getItem(LS_HAITATSU_CACHE);
-    if(!raw) return null;
-    var o = JSON.parse(raw);
-    if(!o || typeof o !== 'object') return null;
-    return o;
-  } catch(e){ return null; }
-}
-function _writeCache(payload){
-  try {
-    var o = {
-      items:       payload.items || {},
-      lastUpdated: payload.lastUpdated || '',
-      cachedAt:    Date.now()
-    };
-    localStorage.setItem(LS_HAITATSU_CACHE, JSON.stringify(o));
-  } catch(e){ /* 容量超等は無視 */ }
-}
 
 function _applyHaitatsuData(items, lastUpdated){
   // 【2026-09-29】臨時品目を読み込み時に落とすのはやめた（消すまで残す）。
   // ここでは各品目の終了日（extrasUntil）を ''（消すまで）にそろえる正規化だけを行う。
-  //
-  // 【2026-08-14 修正・重要】必ずコピーしてから正規化する（当時は purge）。
-  // 当時の _purgeStaleExtras は渡されたオブジェクトを直接 delete で書き換えるため、
-  // 引数の items をそのまま渡すと呼び出し元（_applyIfNewer）が直後に
-  // _writeCache へ渡す items まで破壊され、「purge 済みの内容がサーバと同じ
-  // lastUpdated でキャッシュに焼き付く」。こうなると次回以降、鮮度ガードが
-  // 同一 lastUpdated を「新しくない」と判定して正しいデータの採用を永久に拒否し、
-  // シートには存在する臨時品目がその端末だけ二度と出なくなる
-  // （2026-08-14 に坂戸千代田店の¥300×4で実際に発生）。
-  // キャッシュはサーバの生データを保つ＝有効判定は毎回その日のルールでやり直す。
+  // 【2026-08-14 修正・重要】必ずコピーしてから正規化する。渡されたオブジェクト（サーバの生データ）は書き換えない
+  // （2026-08-14 に坂戸千代田店の¥300×4 がその端末だけ消えたままになった事故の原因）。
   state.data = _normExtras(JSON.parse(JSON.stringify(items || {})));
   state.lastUpdated = lastUpdated || '';
   state.origData = JSON.parse(JSON.stringify(state.data));
@@ -1839,49 +1828,115 @@ function _applyHaitatsuData(items, lastUpdated){
   renderRoute();
 }
 
-// lastUpdated('yyyy-MM-dd HH:mm:ss')を比較可能なミリ秒に変換。空/不正は0。
-function _luMs(lu){
-  if(!lu) return 0;
-  var t = Date.parse(String(lu).replace(' ','T'));
-  return isNaN(t) ? 0 : t;
-}
-// 鮮度ガード：現在表示中(state.lastUpdated)より新しいデータの場合のみ差し替える。
-//  - 一度も描画していない(!state.loaded)場合は無条件採用（初回表示）。
-//  - 編集中(dirty)は入力を失わないよう一切上書きしない。
-//  - 採用時はlocalStorageキャッシュも更新（次回0秒表示 & 以後の上書きガードの基準）。
-// これにより generated_at が新しくても lastUpdated が古いスナップショットが、
-// 新しいlocalStorage/表示中データを上書きするバグを防ぐ。
-// 【2026-08-14 追加】lastUpdated が同じなら「同じ世代のデータ」なので、
-// 内容が食い違うときはサーバ側を正とする。厳密に > だけで判定していると、
-// 何らかの理由でキャッシュが実際と違う内容のまま同じ lastUpdated を持ってしまった
-// 端末が自力で復帰できない（キー名を変えて捨てさせるしか手が無くなる）。
-// 世代が同じもの同士の突合なので、古いスナップショットが新しいデータを潰す
-// 2026-07-22 型の回帰は起こさない。
-function _sameGenerationDiffers(items, lastUpdated){
-  if(_luMs(lastUpdated) !== _luMs(state.lastUpdated)) return false;
-  try {
-    return JSON.stringify(_normExtras(JSON.parse(JSON.stringify(items || {}))))
-        !== JSON.stringify(state.data || {});
-  } catch(e){ return false; }
-}
-function _applyIfNewer(items, lastUpdated){
-  if(state.dirty) return false;
-  if(state.saveState === 'saving') return false;   // 【件C】送信中の payload を消させない
-  if(!state.loaded || _luMs(lastUpdated) > _luMs(state.lastUpdated)
-     || _sameGenerationDiffers(items, lastUpdated)){
-    _applyHaitatsuData(items, lastUpdated);
-    // items は _applyHaitatsuData で破壊されない（コピーしてから purge している）。
-    // ここでキャッシュに入るのは必ずサーバの生データ。
-    _writeCache({ items: items, lastUpdated: lastUpdated });
+// 4秒で応答が無ければ同じ要求をもう1本出し、先に返った成功を使う（日報の納品指示〔件2〕と同じ）。
+// isOk(res) が真の応答を成功とする。全部が失敗・見切りになったら onFail。
+// 見切った後（onFail の後も含む）に届いた成功は onOk で渡すので、呼び出し側は世代で新旧を確かめること。
+function _hedgedJsonp(url, base, isOk, onOk, onFail){
+  var won = false, done = false, inflight = 0, hedgeT = null;
+  function take(res){
+    if(won) return true;
+    if(!isOk(res)) return false;
+    won = true; done = true; clearTimeout(hedgeT);
+    onOk(res);
     return true;
   }
-  return false;
+  function failOne(){
+    if(done || inflight > 0) return;   // もう1本がまだ返っていない
+    done = true; clearTimeout(hedgeT);
+    onFail();
+  }
+  function fire(){
+    inflight++;
+    jsonp(url+'&_cb='+Date.now()+'_'+Math.random().toString(36).slice(2,6), base,
+      function(res){ inflight--; if(!take(res)) failOne(); },
+      function(){ inflight--; failOne(); },
+      FETCH_TIMEOUT_MS,
+      { lateGraceMs: FETCH_LATE_MS, onLate: function(res){ take(res); } });
+  }
+  fire();
+  hedgeT = setTimeout(function(){ hedgeT = null; if(!done) fire(); }, FETCH_HEDGE_MS);
 }
+
+var _latestGen = 0;          // 取得の世代。取り直したら前の世代の応答は使わない
+var _latestRetryT = null;
+var _latestAutoRetried = false;
+// 数字を消して「最新を取得中…」にし、取りに行く（起動時・復帰時）
+function _beginLatestLoad(){
+  ++_latestGen;
+  clearTimeout(_latestRetryT);
+  _latestAutoRetried = false;
+  state.view = 'loading';
+  state.loaded = false;
+  state.retrying = false;
+  _updateUnsavedBar();
+  renderRoute();
+  _startLatestFetch();
+}
+function _startLatestFetch(){
+  var gen = ++_latestGen;
+  clearTimeout(_latestRetryT);
+  state.retrying = (state.view === 'failed');
+  _hedgedJsonp(API_URL+'?action=getHaitatsu', 'cb_get',
+    function(res){ _applyIrai(res); return !!(res && res.success && res.items); },
+    function(res){ if(gen === _latestGen) _applyLatest(res.items, res.lastUpdated || ''); },
+    function(){ if(gen === _latestGen) _latestFailed(gen); });
+}
+function _applyLatest(items, lastUpdated){
+  clearTimeout(_latestRetryT);
+  state.retrying = false;
+  state.view = 'fresh';
+  state.freshAt = Date.now();
+  // 入力中（保存中）の値は上書きしない。最新が確定する前は編集できないので、通常ここには来ない
+  if(state.dirty || state.saveState === 'saving'){ renderRoute(); return; }
+  _applyHaitatsuData(items, lastUpdated);
+}
+function _latestFailed(gen){
+  state.retrying = false;
+  if(state.view === 'loading') state.view = 'failed';
+  renderRoute();
+  if(!_latestAutoRetried){
+    _latestAutoRetried = true;
+    _latestRetryT = setTimeout(function(){
+      if(gen === _latestGen && state.view !== 'fresh'){ _startLatestFetch(); renderRoute(); }
+    }, LATEST_RETRY_WAIT);
+  }
+}
+function retryLatest(){
+  if(state.retrying) return;
+  _startLatestFetch();
+  renderRoute();
+}
+
+// 復帰時（アプリ・タブに戻ったとき）。
+//   ・日付が変わっていたら開き直す（「今日」の判定は画面を開いた時点の日付で持っているため）
+//   ・最新の受け取りから RESUME_STALE_MS 以上たっていれば、数字を消して取り直す
+//   ・編集中（未保存・保存中）は納品数に触らず、残在庫/販売数だけ取り直す
+function _localYmd(){
+  var n = new Date();
+  return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');
+}
+function _onForegroundLatest(){
+  var busy = state.dirty || !!state.saveState;
+  if(_localYmd() !== todayStr){ if(!busy){ _leaving = true; location.reload(); } return; }
+  if(state.view === 'loading') return;
+  if(state.view === 'failed'){ if(!state.retrying) retryLatest(); return; }
+  if(Date.now() - state.freshAt < RESUME_STALE_MS) return;
+  if(state.mode === 'edit' && busy){
+    if(_prepareZaiko()){ renderRoute(); _fetchZaiko(0); }
+    return;
+  }
+  if(state.mode === 'edit'){ state.mode = 'view'; _updateModeBtn(); }   // 編集は最新が確定してから入り直す
+  _beginLatestLoad();
+}
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState === 'visible'){ try{ _onForegroundLatest(); }catch(e){} }
+});
+window.addEventListener('pageshow', function(e){ if(e.persisted){ try{ _onForegroundLatest(); }catch(err){} } });
 
 // ============ 店舗依頼ボードのアラート（2026-10-03）============
 // getHaitatsu の応答の irai（未完了の依頼すべて。近い順に最大50件）を、配達データの更新判定（lastUpdated）とは
 // 関係なく、応答が届くたびに反映する。スナップショット（haitatsu.json）には載らないので、
-// 初期表示では出ず、GAS の応答（裏の確認）が届いた時点で出る。
+// GAS の応答が届いた時点で出る。
 // 帯は #app の直前（stale_notice などと同じ差し込み方）。押すと小窓に内容、そこから依頼ボードへ。
 function _applyIrai(res){
   if(!res || !res.success || !res.irai || typeof IraiNotice === 'undefined') return;
@@ -1897,152 +1952,10 @@ function _renderIraiNotice(){
   }});
 }
 
-function _updateStaleBanner(msg){
-  var el = document.getElementById('stale_notice');
-  if(!msg){
-    if(el) el.parentNode.removeChild(el);
-    return;
-  }
-  if(!el){
-    el = document.createElement('div');
-    el.id = 'stale_notice';
-    el.style.cssText = 'background:#fff3e0;color:#e65100;border:1px solid #ffb74d;border-radius:8px;padding:6px 10px;margin:0 16px 8px;font-size:12px;text-align:center;font-weight:600';
-    var app = document.getElementById('app');
-    if(app && app.parentNode) app.parentNode.insertBefore(el, app);
-  }
-  el.textContent = msg;
-}
-
-function _fetchSnapshot(cb){
-  // キャッシュバスターで CDN/ブラウザキャッシュを回避
-  var url = SNAPSHOT_URL + '?_=' + Date.now();
-  fetch(url, { cache: 'no-store' }).then(function(r){
-    if(!r.ok) throw new Error('http ' + r.status);
-    return r.json();
-  }).then(function(j){
-    if(!j || !j.generated_at){ cb(null); return; }
-    var gen = Date.parse(j.generated_at);
-    if(isNaN(gen)){ cb(null); return; }
-    if(Date.now() - gen > SNAPSHOT_MAX_AGE_MS){
-      // 古すぎる → 使わない（配達員が古いデータを新しいと誤認するのを防止）
-      cb(null, { tooOld: true, generated_at: j.generated_at });
-      return;
-    }
-    cb({ items: j.items||{}, lastUpdated: j.lastUpdated||'', generated_at: j.generated_at });
-  }).catch(function(){ cb(null); });
-}
-
-function _fetchFromGas(onDone){
-  // GAS直取得（コールドスタート考慮で1回自動リトライ）
-  jsonp(API_URL+'?action=getHaitatsu','cb_get',function(res){
-    _applyIrai(res);
-    if(res && res.success){
-      onDone({ items: res.items||{}, lastUpdated: res.lastUpdated||'' });
-    } else {
-      onDone(null);
-    }
-  },function(){
-    if(_haitatsuRetries===0){
-      _haitatsuRetries++;
-      setTimeout(function(){ _fetchFromGas(onDone); }, 2000);
-    } else {
-      onDone(null);
-    }
-  });
-}
-
 function loadInitial(){
-  var cache = _readCache();
-  // レガシーキーからのマイグレーション（旧`haitatsu_latest`しか持たない端末のため）
-  if(!cache){
-    try {
-      var legacy = localStorage.getItem(LS_HAITATSU_LATEST);
-      if(legacy){
-        var items = JSON.parse(legacy) || {};
-        cache = { items: items, lastUpdated: '', cachedAt: 0 };
-      }
-    } catch(e){}
-  }
-
-  // Step 1: キャッシュ即描画（0秒表示）
-  var haveDisplay = false;
-  if(cache){
-    _applyHaitatsuData(cache.items, cache.lastUpdated);
-    _updateStaleBanner('🔄 最新確認中…');
-    state.dataStale = true;
-    haveDisplay = true;
-  }
-
-  // Step 2: スナップショット試行（鮮度ガード付き）。
-  //   generated_at はスナップショット自体の鮮度(6h以内か)判定にのみ使う（_fetchSnapshot内）。
-  //   採用可否は lastUpdated 比較で決める（_applyIfNewer）ので、generated_atが新しくても
-  //   lastUpdatedが古いスナップショットは新しい表示中/localStorageデータを上書きしない。
-  _fetchSnapshot(function(snap, meta){
-    if(snap){
-      _applyIfNewer(snap.items, snap.lastUpdated);
-      haveDisplay = true;
-    }
-    if(haveDisplay){
-      // 即表示できている → 「確認中」は消す。GASは裏で静かに正として確認する
-      //（配達員の体感速度を悪化させない）。
-      _updateStaleBanner(null);
-      state.dataStale = false;
-    }
-    // Step 3: GASを正として裏で必ず確認（SWR完成形）。
-    //   スナップショット採否に関わらず実行。lastUpdatedがより新しければ差し替え＆キャッシュ更新。
-    //   これで他端末の最新保存も次のスナップショット生成を待たず反映される。
-    //   GASが遅い/失敗しても表示は既に出ているため体感速度は悪化しない。失敗時は静かに諦める
-    //  （「最終更新 ◯月◯日 ◯時」の鮮度表示は last-upd 表示として維持される）。
-    _fetchFromGas(function(gres){
-      if(gres){
-        _applyIfNewer(gres.items, gres.lastUpdated);
-        _updateStaleBanner(null);
-        state.dataStale = false;
-        return;
-      }
-      // GAS失敗
-      if(!haveDisplay && !state.dirty){
-        // キャッシュもスナップショットも無い→空描画（renderRoute内の「未入力」表示に任せる）
-        // ※下書きを復元済み(dirty)なら空で潰さない
-        _applyHaitatsuData({}, '');
-        _updateStaleBanner('⚠️ サーバ接続失敗。しばらく待って再読み込みしてください。');
-      }
-      // haveDisplay時は静かに諦める（既に表示済み・鮮度表示は維持）
-    });
-  });
-  // 【2026-08-14 変更】残在庫/販売数は編集モード専用の表示に戻したので、
-  // 初期表示（＝閲覧モード）では取得しない。編集モードに入った時点で
-  // toggleMode() が _prepareZaiko()/_fetchZaiko() を走らせる。
-}
-
-// ============ 残在庫/販売数のSWRキャッシュ ============
-// 値と「その値の参照日(actualDate)」をセットで保存する。参照日を必ず一緒に持つことで、
-// キャッシュを表示している間も『いつ時点の値か』を正しく出せる（当日日付の誤表示を防ぐ）。
-// 何日も前の値を出し続けないよう保存から7日で破棄する。日付ベースの足切りはしないので、
-// 「当日データが現れるまで前日値を出し続ける」既存要件は壊さない。
-var ZAIKO_CACHE_MAX_AGE_MS = 7 * 24 * 3600 * 1000;
-function _readZaikoCache(){
-  try {
-    var raw = localStorage.getItem(LS_ZAIKO_CACHE);
-    if(!raw) return null;
-    var o = JSON.parse(raw);
-    if(!o || typeof o !== 'object' || !o.items || !o.dataDate) return null;
-    if(!_zaikoItemsHaveValues(o.items)) return null;          // 空キャッシュは使わない
-    if(!o.cachedAt || (Date.now() - o.cachedAt) > ZAIKO_CACHE_MAX_AGE_MS) return null;
-    return o;
-  } catch(e){ return null; }
-}
-// 有効判定は従来どおり既存4価格(items)だけで行う。臨時(extras)は付随データとして
-// 一緒に保存するだけで、キャッシュ/スナップショットの採否には関与させない
-// （extras の有無で判定を変えると 2026-07-22 の「空スナップショット採用」型の
-//   回帰を作りかねないため）。
-function _writeZaikoCache(items, dataDate, extras){
-  try {
-    if(!dataDate || !_zaikoItemsHaveValues(items)) return;    // 空は保存しない
-    localStorage.setItem(LS_ZAIKO_CACHE, JSON.stringify({
-      items: items, extras: extras || {}, dataDate: dataDate, cachedAt: Date.now()
-    }));
-  } catch(e){ /* 容量超等は無視 */ }
+  // 端末に残した値もスナップショットも先に描かない（上の方針）。
+  // 【2026-08-14 変更】残在庫/販売数は編集モード専用の表示なので、初期表示（＝閲覧モード）では取得しない。
+  _beginLatestLoad();
 }
 
 // 再検証で数字が変わった店舗×価格を洗い出す。固定4価格(items)と臨時(extras)を
@@ -2058,7 +1971,7 @@ function _zaikoChangedKeys(oldItems, newItems, oldEx, newEx){
         if(!a) return;                 // 旧値が無い＝初回。ハイライト対象外
         var b = per[p] || {};
         if(num(a.zan) !== num(b.zan) || num(a.sales) !== num(b.sales)){
-          ch[sn+''+p] = true; n++;
+          ch[sn+''+p] = true; n++;
         }
       });
     });
@@ -2068,7 +1981,7 @@ function _zaikoChangedKeys(oldItems, newItems, oldEx, newEx){
   return n ? ch : null;
 }
 function zaikoCellUpd(storeName, price){
-  return (state.zaikoChanged && state.zaikoChanged[storeName+''+price]) ? ' upd' : '';
+  return (state.zaikoChanged && state.zaikoChanged[storeName+''+price]) ? ' upd' : '';
 }
 
 // ============ 残在庫/販売数の出どころマージ（件A / 2026-09-21）============
@@ -2084,7 +1997,7 @@ function zaikoCellUpd(storeName, price){
 // つまり「どちらが新しいか」は固定できない。片側を優先する設計では必ずどちらかで逆行する。
 //
 // 【採る規則】販売数は1日の中で減らない（変わらないことはある）という性質を使う。
-//   tenpo    : GAS を優先（日報の訂正が即時に効くのは GAS 経路だけ）→ snap → cache
+//   tenpo    : GAS を優先（日報の訂正が即時に効くのは GAS 経路だけ）→ snap
 //   sales    : 出どころの中で最大（＝いちばん新しい）
 //   hasSales : どれかが真なら真
 //   zan      : 下の式で再計算（各出どころの zan は採用しない）
@@ -2107,8 +2020,9 @@ function _zaikoZan(tenpo, sales, hasSales){
 }
 
 // 同一 店舗×価格 のセルを、出どころの配列からマージする。
-// cells: [{src:'gas'|'snap'|'cache', e:{zan,tenpo,sales,hasSales}}, ...]
-var _ZAIKO_TENPO_PREF = ['gas', 'snap', 'cache'];
+// cells: [{src:'gas'|'snap', e:{zan,tenpo,sales,hasSales}}, ...]
+// 【2026-10-04】端末に残した値はマージ元にしない。この回に取得した GAS とスナップショットだけ。
+var _ZAIKO_TENPO_PREF = ['gas', 'snap'];
 function _mergeZaikoCell(cells){
   var sales = 0, hasSales = false, tenpo = null;
   for(var i = 0; i < cells.length; i++){
@@ -2150,11 +2064,11 @@ function _mergeZaikoTree(use, key){
   return out;
 }
 
-// gas / snap / cache のうち、参照日がいちばん新しいものだけをマージして返す。
+// gas / snap のうち、参照日がいちばん新しいものだけをマージして返す。
 // 出どころが1つも無ければ null。
 function _mergeZaikoSources(){
   var srcs = [];
-  ['gas', 'snap', 'cache'].forEach(function(k){
+  ['gas', 'snap'].forEach(function(k){
     var d = state.zaikoSrc[k];
     if(d && d.dataDate) srcs.push({ src: k, d: d });
   });
@@ -2167,103 +2081,107 @@ function _mergeZaikoSources(){
            dataDate: newest };
 }
 
-// 取得成功時の共通適用。出どころを記録し、マージ結果で state を更新して再描画する。
-// source: 'snapshot'（GCS zaiko.json）/ 'gas'（getYaokoZaiko 再検証）
-// snapGenAt: スナップショット採用時のみ、その generated_at
-// 【件A / 2026-09-21】ここで items をそのまま state.zaiko に入れるのをやめた。
-// 入れてしまうと、後から届いた古い出どころが新しい値を上書きする（販売数の逆行）。
+/// 取得成功時の共通適用。出どころを記録し、マージ結果で state を更新して再描画する。
+// source: 'snapshot'（GCS zaiko.json）/ 'gas'（getYaokoZaiko）
+// snapGenAt: スナップショットのときだけ、その generated_at
+// 【件A / 2026-09-21】items をそのまま state.zaiko に入れず、出どころをマージする（販売数の逆行を防ぐ）。
+// 【2026-10-04】この回の GAS が届くまでは描かない（スナップショットは持っておくだけ）。
+//   GAS が先に届き、スナップショットがまだなら ZAIKO_SNAP_WAIT_MS だけ待って1回で描く
+//   （待たないと販売数だけ後から書き換わる2段階の表示になる）。
+var ZAIKO_SNAP_WAIT_MS = 500;
+var _zaikoHoldT = null;
 function _applyZaiko(items, dataDate, extras, source, snapGenAt){
   var isGas = (source === 'gas');
   state.zaikoSrc[isGas ? 'gas' : 'snap'] = {
-    items: items || {}, extras: extras || {}, dataDate: dataDate || todayStr
+    items: items || {}, extras: extras || {}, dataDate: dataDate || todayStr,
+    genAt: isGas ? 0 : (Date.parse(snapGenAt || '') || 0)
   };
+  if(isGas){
+    state.zaikoGasAt = Date.now();
+    state.zaikoRevalidating = false;
+    state.zaikoRecheckFailed = false;
+  }
+  if(!state.zaikoSrc.gas) return;   // 最新（GAS）がまだ。スナップショットは持っておくだけ（GAS が取れなければ使わない）
+  if(isGas && state.zaikoSnapPending){
+    clearTimeout(_zaikoHoldT);
+    _zaikoHoldT = setTimeout(_commitZaiko, ZAIKO_SNAP_WAIT_MS);
+    return;
+  }
+  _commitZaiko();
+}
+function _commitZaiko(){
+  clearTimeout(_zaikoHoldT); _zaikoHoldT = null;
   var merged = _mergeZaikoSources();
   if(!merged) return;
-  // ハイライトは「マージ後の値の変化」で判定する。逆行はマージで吸収されて
-  // 値が動かないので光らない。初回確定（まだGASが一度も届いていない）も光らせない。
-  var prevItems = state.zaiko, prevExtras = state.zaikoExtras;
-  state.zaikoChanged = (isGas || state.zaikoFromGas)
-    ? _zaikoChangedKeys(prevItems, merged.items, prevExtras, merged.extras)
+  // ハイライトは「マージ後の値の変化」で判定する。逆行はマージで吸収されて値が動かないので光らない。
+  // 取得中から最新になったとき（前の数字を出していない）は光らせない。
+  var prevShown = (state.zaikoView === 'fresh');
+  state.zaikoChanged = prevShown
+    ? _zaikoChangedKeys(state.zaiko, merged.items, state.zaikoExtras, merged.extras)
     : null;
   state.zaiko = merged.items;
   state.zaikoExtras = merged.extras;
   state.zaikoDataDate = merged.dataDate;
+  state.zaikoView = 'fresh';
   state.zaikoLoaded = true;
   state.zaikoLoading = false;
-  state.zaikoFromCache = false;
   state.zaikoError = false;
-  if(isGas){
-    state.zaikoFromGas = true;
-    state.zaikoRevalidating = false;
-    state.zaikoGasAt = Date.now();
-  } else {
-    state.zaikoSnapGenAt = snapGenAt || '';
-  }
-  // キャッシュの形式・キー名は従来のまま（items/extras/dataDate/cachedAt の v1）。
-  // GASの値もスナップショットの値も同じ構造なので、保存側の変更は不要。
-  _writeZaikoCache(state.zaiko, state.zaikoDataDate, state.zaikoExtras);
-  if(state.loaded) renderRoute();
+  state.zaikoFromGas = true;
+  renderRoute();
   // ハイライトは3秒のCSSアニメーション。終わったら状態だけ落とす（再描画はしない）。
   if(state.zaikoChanged){
     clearTimeout(window._zaikoUpdTimer);
     window._zaikoUpdTimer = setTimeout(function(){ state.zaikoChanged = null; }, 3500);
   }
 }
-// 取得失敗（スナップショットもGASもダメ）。キャッシュ表示中ならその値と参照日は
-// そのまま維持して「更新失敗」を添える。何も出せていなければ失敗を明示する
-// （黙って「-」＝値なし表示に戻さない）。
+// 取得失敗（GAS が返らない・_pending が続く）。数字は出さない。
+// 60秒以内に受け取った最新を出している最中の再確認が失敗したときは、その値を残して「再確認できなかった」を添える。
 function _zaikoFailed(){
+  clearTimeout(_zaikoHoldT); _zaikoHoldT = null;
   state.zaikoLoading = false;
   state.zaikoRevalidating = false;
+  if(state.zaikoView === 'fresh'){ state.zaikoRecheckFailed = true; renderRoute(); return; }
+  state.zaikoView = 'failed';
+  state.zaikoLoaded = false;
   state.zaikoError = true;
-  // state.zaiko / zaikoExtras / zaikoDataDate / zaikoSnapGenAt には触れない。
-  // スナップショットで出せている値はそのまま残し、鮮度表示だけ「（更新失敗）」にする。
-  if(state.loaded) renderRoute();
+  renderRoute();
+}
+function retryZaiko(){
+  if(state.zaikoView === 'loading' || state.zaikoRevalidating) return;
+  _zaikoBeginLoad();
+  renderRoute();
+  _fetchZaiko(0);
 }
 
-// 残在庫/販売数を取得。
-// 【2026-08-16 変更】スナップショットは「初期表示用」、GASは「再検証用」。
-//   従来はスナップショットが採用可なら GAS へ落ちず、そこで確定していた。
-//   しかし zaiko.json は 4:30 とエスマルシェ変化検知時にしか再生成されないため、
-//   日報を訂正しても最大で翌朝まで古い残在庫が出続ける。GAS getYaokoZaiko は
-//   L2キャッシュから即座に訂正後の値を返せる（フル計算は誘発しない）ので、
-//   スナップショットで即描画しつつ、常に GAS で上書き確認する。
-// 優先順位:
-//   0. localStorage キャッシュ（_prepareZaiko で描画前に適用。0秒表示）
-//   1. GCS zaiko.json（generated_atが6時間以内で、date=todayStr、値が非空なら採用。~200ms）
-//   2. GAS getYaokoZaiko（★常に走る。返れば 1 を上書きする。失敗しても 1 の値は残す）
-// 残在庫は補助情報なのでメイン表示はブロックしない。
+// 残在庫/販売数を取得。GAS getYaokoZaiko（L2キャッシュから即座に訂正後の値を返せる。フル計算は誘発しない）を正とし、
+// スナップショット zaiko.json は販売数の取り込み（大きい＝新しいときだけ）にだけ使う。
+// 【2026-10-04】どちらも描く前に GAS を待つ。取得は納品指示と同じく4秒で2本目・10秒で見切り。
+var _zaikoGen = 0;
 function _fetchZaiko(attempt){
+  var gen = (attempt === 0) ? ++_zaikoGen : _zaikoGen;
   if(attempt === 0){
-    // 初期表示用のスナップショット。すでに GAS で確定済みなら引き直さない
-    // （古い値で新しい値を上書きする逆行を防ぐ）。
-    if(!state.zaikoFromGas){
-      _fetchZaikoSnapshot(function(snap){
-        // 【件A】GASが先に返っていても捨てない。_applyZaiko がマージするので、
-        // スナップショット側の販売数が新しければそれが採用される（逆に古ければ無害）。
-        if(snap){
-          _applyZaiko(snap.items || {}, snap.actualDate || todayStr, snap.extras || {},
-                      'snapshot', snap.generated_at);
-        }
-        // スナップショット失敗（無し・古い・空・fetch失敗）でも何もしない。
-        // 並行して走っている GAS 再検証の結果を待つ。
-      });
-    }
-    state.zaikoRevalidating = true;
-    _fetchZaikoGas(0);
-    return;
+    state.zaikoSnapPending = true;
+    _fetchZaikoSnapshot(function(snap){
+      if(gen !== _zaikoGen) return;
+      state.zaikoSnapPending = false;
+      if(snap){
+        _applyZaiko(snap.items || {}, snap.actualDate || todayStr, snap.extras || {},
+                    'snapshot', snap.generated_at);
+      } else if(_zaikoHoldT){
+        _commitZaiko();   // スナップショットが無い・古い → 待っていた GAS をそのまま描く
+      }
+    });
   }
-  _fetchZaikoGas(attempt);
+  state.zaikoRevalidating = true;
+  _fetchZaikoGas(attempt, gen);
 }
 
 // zaiko スナップショットの items に「実データ」が1件でも入っているか。
 // 重要: items は {} でも truthy なので、存在チェック(!j.items)では空を弾けない。
 //   Cloud Run の早朝実行(4:30)は当日データが未収集のため items={} を書き出す。
-//   これを有効なスナップショットとして採用すると、GAS の直近日フォールバックへ
-//   落ちず「残:-／売:-」になる（2026-07-22 早朝の障害）。
+//   これを有効なスナップショットとして採用すると「残:-／売:-」になる（2026-07-22 早朝の障害）。
 // 判定はキーの存在ではなく「値が有効か」で行う。店舗×価格のいずれかに
 //   hasSales=true または zan/tenpo/sales のいずれかが非0 があれば実データとみなす。
-//   全店・全価格が 0 かつ hasSales=false（＝行はあるが値が空）も無効扱いにする。
 function _zaikoItemsHaveValues(items){
   if(!items || typeof items !== 'object') return false;
   var stores = Object.keys(items);
@@ -2291,11 +2209,8 @@ function _fetchZaikoSnapshot(cb){
     return r.json();
   }).then(function(j){
     if(!j || !j.generated_at || !j.items){ cb(null); return; }
-    // 値ベースの非空判定。空なら鮮度に関わらず GAS 直近日フォールバックへ。
     if(!_zaikoItemsHaveValues(j.items)){ cb(null); return; }
-    // extras キーが無いスナップショットは「臨時品目に未対応の古い生成元」が
-    // 書いたもの。採用すると臨時の残在庫/販売数が空のまま固定されてしまうので、
-    // 鮮度に関わらず GAS 直取得へ倒す（生成元が更新されれば自動で解消する）。
+    // extras キーが無いスナップショットは「臨時品目に未対応の古い生成元」が書いたもの。使わない。
     if(!j.extras || typeof j.extras !== 'object'){ cb(null); return; }
     // date が今日と一致することを厳密確認（日付が変わったら snapshotが古い）
     if(j.date && j.date !== todayStr){ cb(null); return; }
@@ -2307,30 +2222,28 @@ function _fetchZaikoSnapshot(cb){
   }).catch(function(){ cb(null); });
 }
 
-// GAS再検証のタイムアウト。日報送信と同値の 7.5 秒。
-// これを超えたらスナップショット/キャッシュの値を出したまま「（更新失敗）」にする。
-var ZAIKO_GAS_TIMEOUT_MS = 7500;
-
-// GAS直取得（＝再検証。getYaokoZaiko は L1/L2 キャッシュからのみ計算し、
-// getAllData のフル計算は誘発しない。ミス時は _pending を即返す設計）。
-function _fetchZaikoGas(attempt){
-  jsonp(API_URL+'?action=getYaokoZaiko&date='+encodeURIComponent(todayStr),
+// GAS getYaokoZaiko（L1/L2 キャッシュからのみ計算し、getAllData のフル計算は誘発しない。
+// ミス時は _pending を即返す設計）。_pending だけだったときは 4 秒後に1回だけ取り直す（従来どおり）。
+function _fetchZaikoGas(attempt, gen){
+  var sawPending = false;
+  _hedgedJsonp(API_URL+'?action=getYaokoZaiko&date='+encodeURIComponent(todayStr),
     attempt>0 ? 'cb_zaiko_retry' : 'cb_zaiko',
     function(res){
-      if(res && res.success && res.items && !res._pending){
-        _applyZaiko(res.items, res.actualDate || res.date || todayStr, res.extras || {}, 'gas');
-        return;
-      }
-      // _pending: L2キャッシュミス。1回だけ4秒後に再取得（既存挙動を維持）。
-      if(attempt===0 && res && res._pending){
-        setTimeout(function(){ _fetchZaikoGas(1); }, 4000);
+      if(res && res._pending) sawPending = true;
+      return !!(res && res.success && res.items && !res._pending);
+    },
+    function(res){
+      if(gen !== _zaikoGen) return;
+      _applyZaiko(res.items, res.actualDate || res.date || todayStr, res.extras || {}, 'gas');
+    },
+    function(){
+      if(gen !== _zaikoGen) return;
+      if(attempt === 0 && sawPending){
+        setTimeout(function(){ if(gen === _zaikoGen) _fetchZaikoGas(1, gen); }, 4000);
         return;
       }
       _zaikoFailed();
-    },
-    function(){ _zaikoFailed(); },
-    ZAIKO_GAS_TIMEOUT_MS
-  );
+    });
 }
 
 renderRouteTabs();

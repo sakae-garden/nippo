@@ -359,19 +359,17 @@ var LABEL_SNAPSHOT_URL = 'https://storage.googleapis.com/sakae-garden-snapshots/
 var IS_TEST_ENV = String(LABEL_SNAPSHOT_URL).indexOf('/test/') > -1;
 function lsKey(base){ return base + (IS_TEST_ENV ? '_test' : ''); }
 var LS_CONFIG           = lsKey('nippo_config');
-var LS_HAITATSU_LATEST  = lsKey('haitatsu_latest');
-// 【2026-09-21 追加 → 2026-09-24 廃止】「いつ取得したセットか」を持つ旧キー。
-// 取得日で判定すると、その日はじめて取得が成功するまで必ず false になるため、
-// 1店舗目だけ自動入力されなくなっていた。判定には使わない（記録のみ残す）。
-var LS_HAITATSU_FETCHED = lsKey('haitatsu_fetched_day_v1');
-// 【2026-09-24 追加】そのセットが「何日の配達に向けた指示か」＝対象日。
-// 判定はこちらで行う。値は 'YYYY-MM-DD'。
-var LS_HAITATSU_TARGET  = lsKey('haitatsu_target_day_v1');
+// 【2026-10-04 廃止】納品指示を端末に残していたキー（haitatsu_latest・取得日・対象日・受け取り時刻）。
+// 前回の数字を画面に出す手段は設けない（杉さん決定 2026-10-04）ので、端末にも残さない。
+// 起動時に、以前の版が残した値を消す（haitatsu.html も同じキーを消す）。
+['haitatsu_latest','haitatsu_fetched_day_v1','haitatsu_target_day_v1','haitatsu_fetched_at_v1'].forEach(function(k){
+  try{ localStorage.removeItem(lsKey(k)); }catch(e){}
+});
 var LS_SANCHI_ISSUED    = lsKey('sanchi_issued_today_v1');
 // 【2026-09-29】保存と送信の記録（GAS の「保存送信ログ」シート）に付ける端末IDと画面の版。
 // 端末IDはこの端末で一度だけ作るランダムな値（haitatsu.html と同じキーを共有＝同じ端末は同じID）。
 // 氏名・電話番号などは入れない。localStorage が使えない端末では画面を開くたびに変わる。
-var PAGE_BUILD = 'irai-board-20261003';   // 画面を変えて出すときに更新する（記録の「画面の版」）
+var PAGE_BUILD = 'latest-only-20261004';   // 画面を変えて出すときに更新する（記録の「画面の版」）
 var LS_DEVICE_ID = lsKey('device_id_v1');
 var _deviceIdMemo = '';
 function _deviceId(){
@@ -579,22 +577,27 @@ function _saveSanchiIssuedToday(n){
 // 現時点在庫 ＝ ライブの累計発行数（GAS getLabelIssuedTotal）− 前夜計算の累計消費
 //              （スナップショット sanchi.delivered）。
 // ＝「発行は最新・消費は前夜時点」。消費(−側)は朝4:45の再計算まで反映されない目安値。
-// 取得失敗時は前夜計算の stock をそのまま表示（非破壊）。
+// 【2026-10-04】ライブの累計発行数が届くまでは数字を出さない（従来は前夜計算の stock を先に出し、
+// 届いたら差し替えていた）。取得できなければ「取得できませんでした」＋再取得。
+var _labelIssuedState = 'loading';   // 'loading' / 'ok' / 'error'
 function fetchLabelIssuedTotal(){
+  _labelIssuedState = 'loading';
   jsonp(API_URL+'?action=getLabelIssuedTotal','cb_issued_total',function(res){
     if(res&&res.success&&typeof res.sanchi==='number'){
       state.labelIssuedTotal=res.sanchi;
-      if(state.screen==='home') renderHome();
-    }
-  },function(){ /* 失敗時は前夜計算の在庫にフォールバック */ });
+      _labelIssuedState = 'ok';
+    } else _labelIssuedState = 'error';
+    if(state.screen==='home') renderHome();
+  },function(){ _labelIssuedState = 'error'; if(state.screen==='home') renderHome(); });
 }
-// 表示用の「現時点在庫」。スナップショット未取得なら null（'—' 表示）。
+function retryLabelIssuedTotal(){ fetchLabelIssuedTotal(); if(state.screen==='home') renderHome(); }
+// 表示用の「現時点在庫」。ライブの発行数と前夜計算の消費の両方がそろったときだけ数字を返す。
 function currentSanchiStock(){
   var la=state.labelAlert;
   if(!la||!la.sanchi) return null;
   var s=la.sanchi;
-  if(state.labelIssuedTotal!=null && typeof s.delivered==='number') return state.labelIssuedTotal-s.delivered;
-  return (typeof s.stock==='number')?s.stock:null;
+  if(_labelIssuedState==='ok' && state.labelIssuedTotal!=null && typeof s.delivered==='number') return state.labelIssuedTotal-s.delivered;
+  return null;
 }
 function renderManualIssue(){
   var stock=currentSanchiStock();
@@ -602,7 +605,11 @@ function renderManualIssue(){
   var h='<div class="lbl-manual"><div class="lbl-manual-hdr">';
   h+='<button class="lbl-manual-btn" onclick="toggleManualIssue()">'
     +'<span class="lbl-manual-caret" id="lblManualCaret">'+(open?'−':'＋')+'</span>ラベルを発行する</button>';
-  h+='<span class="lbl-manual-stock">現時点在庫：<b>'+(stock==null?'—':stock)+'</b>枚</span>';
+  var stockTxt = (stock!=null) ? '<b>'+stock+'</b>枚'
+    : (_labelIssuedState==='error')
+      ? '取得できませんでした <a href="javascript:void(0)" onclick="retryLabelIssuedTotal()">再取得</a>'
+      : (_labelIssuedState==='loading' ? '取得中…' : '<b>—</b>枚');
+  h+='<span class="lbl-manual-stock">現時点在庫：'+stockTxt+'</span>';
   h+='</div>';
   h+='<div class="lbl-manual-body" id="lblManualBody"'+(open?'':' style="display:none"')+'>';
   h+='<div class="lbl-issue-wrap"><div class="lbl-issue-row">';
@@ -748,7 +755,7 @@ function _postIssue(baseUrl,key,n){
     jsonp(API_URL+'?action=getLabelIssuedTotal&reqId='+encodeURIComponent(reqId)+'&_cb='+Date.now(),
       'cb_issue_confirm',function(res){
         if(res&&res.success&&res.found){
-          if(typeof res.sanchi==='number') state.labelIssuedTotal=res.sanchi;
+          if(typeof res.sanchi==='number'){ state.labelIssuedTotal=res.sanchi; _labelIssuedState='ok'; }
           done();
           _countIssued(key,n);
           renderHome();
@@ -903,18 +910,23 @@ function _haitatsuTargetDay(lastUpdated){
   if(parseInt(m[4],10) >= HAITATSU_EVENING_CUTOFF_H) d.setDate(d.getDate()+1);
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
-function _haitatsuCacheTargetDay(){
-  try { return localStorage.getItem(LS_HAITATSU_TARGET) || ''; } catch(e){ return ''; }
-}
-// キャッシュが「当日の配達に向けた指示」か。前日以前の指示では false。
-function _haitatsuCacheIsToday(){ return _haitatsuCacheTargetDay() === todayStr; }
+// 【2026-10-04 最新だけを使う】従来は端末に残した値（haitatsu_latest）の対象日が当日なら、起動直後の
+// 取得が届く前から 'ok' にしてその数で自動入力していた。端末に残した後に配達商品情報が直されていると、
+// 古い数が入り、届いた最新は「空欄だけ埋める」ので古い数のまま残る。
+// 自動入力は、この画面で受け取った最新（haitatsuLatest）だけを使う。届くまでは 'loading'（自動入力しない）。
+// 復帰時、最新の受け取りから HAITATSU_RESUME_STALE_MS 以上たっていれば取り直す（届くまで自動入力しない）。
+// 取得できなかったときは「取得できませんでした」＋再取得だけ。前回の数字を見せる手段は設けない（2026-10-04 追補）。
+var LATEST_ONLY_BUILD = 'latest-only-20261004';   // 本番反映の確認用マーカー
+var HAITATSU_RESUME_STALE_MS = 60000;
 
 // 通知バーの状態: 'ok' 取得済みで当日分 / 'loading' 取得中 /
 //                 'stale' 当日分が無い / 'error' 取得できなかった
-var haitatsuStatus = _haitatsuCacheIsToday() ? 'ok' : 'loading';
+var haitatsuStatus = 'loading';
 var haitatsuInfo   = { target:'', lastUpdated:'' };
+var haitatsuLatest = null;     // この画面で受け取った最新の納品指示（getHaitatsu の items）
+var haitatsuFreshAt = 0;       // それを受け取った時刻(ms)
 
-// localStorage から当日の配達商品情報を読んで state.formData['納品_'+price] にセット
+// この画面で受け取った最新の配達商品情報から、当日分を state.formData['納品_'+price] にセット
 // 同期処理。失敗は黙殺（起動を絶対に止めない）。
 // opts.onlyEmpty : 既に値が入っている欄は触らない（人の手入力を絶対に上書きしない）
 // 戻り値: 実際に値を入れたキーの配列
@@ -933,11 +945,9 @@ function applyHaitatsuDefault(id, opts) {
   try {
     var def = STORE_DEFS[id];
     if(!def) return filled;
-    // 対象日が当日の指示でなければ入れない（前日以前の値を混入させない）
-    if(!_haitatsuCacheIsToday()) return filled;
-    var raw = localStorage.getItem(LS_HAITATSU_LATEST);
-    if(!raw) return filled;
-    var all = JSON.parse(raw);
+    // 最新を受け取っていて、その対象日が当日のときだけ入れる（前日以前の値を混入させない）
+    if(haitatsuStatus !== 'ok' || !haitatsuLatest) return filled;
+    var all = haitatsuLatest;
     var entry = all && all[def.name];
     if(!entry) return filled;
     if(entry.prices){
@@ -1014,11 +1024,8 @@ function fetchHaitatsuBackground(attempt) {
       if(res.irai){ state.irai = res.irai; _updateIraiNotice(); }
       var target = _haitatsuTargetDay(res.lastUpdated);
       haitatsuInfo = { target: target, lastUpdated: String(res.lastUpdated||'') };
-      try {
-        localStorage.setItem(LS_HAITATSU_LATEST, JSON.stringify(res.items));
-        localStorage.setItem(LS_HAITATSU_TARGET, target);       // 指示の対象日（判定用）
-        localStorage.setItem(LS_HAITATSU_FETCHED, todayStr);    // 取得日（記録のみ・判定には使わない）
-      } catch(e){}
+      haitatsuLatest = res.items;
+      haitatsuFreshAt = Date.now();
       haitatsuStatus = (target === todayStr) ? 'ok' : 'stale';
       if(haitatsuStatus === 'ok') _applyHaitatsuToOpenForm();
       _updateHaitatsuNotice();
@@ -1039,8 +1046,22 @@ function retryHaitatsu(){ fetchHaitatsuBackground(1); }
 // アプリが前面に戻ったとき、当日分がまだ取れていなければ取り直す。
 // 背面の間はタイマーが止まり、取得中の要求は宙に浮いたままになるので、
 // 始めてから HAITATSU_HEDGE_MS 以上たった要求は見切って（世代を進めて応答を捨てる）出し直す。
+// 【2026-10-04】取得済み（ok・stale）でも、受け取りから HAITATSU_RESUME_STALE_MS 以上たっていれば
+// 未確認に戻して取り直す（届くまで、これから開く店舗は自動入力しない）。日付が変わっていれば開き直す。
+// 入力中の店舗の欄には触らない（届いた最新は空欄だけに入る＝従来どおり）。
 function _haitatsuOnForeground(){
-  if(haitatsuStatus === 'ok') return;
+  var n = new Date();
+  var ymd = n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');
+  if(ymd !== todayStr){ if(!hasUnsavedInput()) location.reload(); return; }
+  if(haitatsuStatus === 'ok' || haitatsuStatus === 'stale'){
+    if(Date.now() - haitatsuFreshAt < HAITATSU_RESUME_STALE_MS) return;
+    haitatsuStatus = 'loading';
+    haitatsuLatest = null;
+    _haitatsuGen++;
+    _haitatsuBgInflight = false;
+    fetchHaitatsuBackground(0);
+    return;
+  }
   if(_haitatsuBgInflight){
     if(Date.now() - _haitatsuStartedAt < HAITATSU_HEDGE_MS) return;
     _haitatsuGen++;
