@@ -369,7 +369,7 @@ var LS_SANCHI_ISSUED    = lsKey('sanchi_issued_today_v1');
 // 【2026-09-29】保存と送信の記録（GAS の「保存送信ログ」シート）に付ける端末IDと画面の版。
 // 端末IDはこの端末で一度だけ作るランダムな値（haitatsu.html と同じキーを共有＝同じ端末は同じID）。
 // 氏名・電話番号などは入れない。localStorage が使えない端末では画面を開くたびに変わる。
-var PAGE_BUILD = 'latest-only-20261004';   // 画面を変えて出すときに更新する（記録の「画面の版」）
+var PAGE_BUILD = 'nippo-nofb-20261006';   // 画面を変えて出すときに更新する（記録の「画面の版」）
 var LS_DEVICE_ID = lsKey('device_id_v1');
 var _deviceIdMemo = '';
 function _deviceId(){
@@ -785,6 +785,7 @@ function _postIssue(baseUrl,key,n){
 
 function openStore(id) {
   state.store=STORE_DEFS[id]; state.storeId=id; state.formData={}; state.staff=''; state.extraPrices=[]; state.screen='form';
+  _loadReset();   // 前に開いた店舗の読み込みが遅れて届いても使わない
   // 配達商品情報（haitatsu）の当日分があれば納品数のデフォルト値として反映（localStorage 即読み・0ms）
   applyHaitatsuDefault(id);
   // 同一日・同一経路で先に送信した担当者があれば自動選択（誤タップ抑止のため送信成功時のみ記憶）
@@ -995,9 +996,10 @@ function fetchHaitatsuBackground(attempt) {
   _haitatsuBgInflight = true;
   _haitatsuStartedAt = Date.now();
   var gen = ++_haitatsuGen;
-  var settled = false, inflight = 0, hedgeT = null;
+  var settled = false, inflight = 0, fired = 0, hedgeT = null;
   function current(){ return !settled && gen === _haitatsuGen; }
   function fire(){
+    fired++;
     inflight++;
     // 日付キー廃止：常に最新1セットを取得
     jsonp(API_URL+'?action=getHaitatsu&_cb='+Date.now(),'cb_hai',function(res){
@@ -1008,6 +1010,9 @@ function fetchHaitatsuBackground(attempt) {
     },function(){ inflight--; if(current()) onFail(); }, HAITATSU_TIMEOUT);
   }
   function onFail(){
+    // 【2026-10-04 失敗画面を減らす】1本目がすぐエラー（404・5xx・通信エラー・形の違う応答）で返ったら、
+    // 失敗を確定せずに4秒を待たずに2本目を出す（1回の試行で最大2本）
+    if(fired < 2){ if(hedgeT){ clearTimeout(hedgeT); hedgeT = null; } fire(); return; }
     if(inflight > 0) return;   // もう1本がまだ返っていない
     if(hedgeT){ clearTimeout(hedgeT); hedgeT = null; }
     settled = true;
@@ -1016,7 +1021,7 @@ function fetchHaitatsuBackground(attempt) {
   }
   if(haitatsuStatus !== 'ok') { haitatsuStatus = 'loading'; _updateHaitatsuNotice(); }
   fire();
-  hedgeT = setTimeout(function(){ hedgeT = null; if(current()) fire(); }, HAITATSU_HEDGE_MS);
+  hedgeT = setTimeout(function(){ hedgeT = null; if(current() && fired < 2) fire(); }, HAITATSU_HEDGE_MS);
   function onOk(res){
     _haitatsuBgInflight = false;
     if(res && res.success && res.items){
@@ -1175,7 +1180,7 @@ function renderForm() {
   }
 
   // ③ 保存データを読み込む
-  html+='<button class="load-btn" id="loadBtn" onclick="loadSavedData()">📥 保存済みデータを読み込む</button>';
+  html+=_loadBtnHtml();
 
   // ④ 商品追加（ヤオコー・直売所）
   if(s.type==='yaoko' || s.type==='choku') html+=bExtraMgr();
@@ -1300,7 +1305,7 @@ function addExtraPrice() {
     var label='¥'+n;
     if(state.extraPrices.indexOf(label)>-1){alert(label+'は既に追加されています');return;}
     if((state.store.prices||[]).indexOf(label)>-1){alert('既存価格('+label+')と同じです。追加できません。');return;}
-    state.extraPrices.push(label);
+    state.extraPrices.push(label); _formEdits++;
     state.extraPrices.sort(function(a,b){return parseInt(a.replace('¥',''),10)-parseInt(b.replace('¥',''),10);});
     renderForm();
   });
@@ -1329,20 +1334,21 @@ function rmExtraPrice(idx) {
   Object.keys(state.formData).forEach(function(k){
     if(k.indexOf('_臨#'+p)>-1) delete state.formData[k];
   });
-  state.extraPrices.splice(idx,1);
+  state.extraPrices.splice(idx,1); _formEdits++;
   renderForm();
 }
 function esc(s){return String(s).replace(/[^a-zA-Z0-9]/g,'_');}
 function eA(s){return String(s||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 function eH(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-function selStaff(n){state.staff=n;document.querySelectorAll('.sbtn').forEach(function(b){b.classList.toggle('sel',b.textContent===n);});}
+function selStaff(n){state.staff=n;_formEdits++;document.querySelectorAll('.sbtn').forEach(function(b){b.classList.toggle('sel',b.textContent===n);});}
 // 【新】直接入力方式のため updateChin は no-op（互換用に残す）
-function upd(k,v){state.formData[k]=v;}
+function upd(k,v){state.formData[k]=v;_formEdits++;}
 function updateChin() { /* 陳列数は直接入力になったため自動計算なし */ }
 // 【互換】cY: 陳列数の直接入力値を返す（旧: S+A+B+C 合計）
 function cY(p){return parseInt(state.formData['陳列数_'+p])||0;}
 // 【新】納品数を陳列数にコピー
 function applyToChin() {
+  _formEdits++;
   state.store.prices.forEach(function(p){state.formData['陳列数_'+p]=state.formData['納品_'+p]||'0';});
   if(state.store.type==='yaoko'){
     state.extraPrices.forEach(function(p){state.formData['陳列数_臨#'+p]=state.formData['納品_臨#'+p]||'0';});
@@ -1351,38 +1357,174 @@ function applyToChin() {
 }
 // 旧関数名も互換のため残す
 function applyToS(){ applyToChin(); }
-function loadSavedData() {
-  var btn = document.getElementById('loadBtn');
-  if (btn) { btn.disabled = true; btn.textContent = '📥 読み込み中...'; }
-  tryLoadDate(todayStr, false);
+// ===== 保存済みデータの読み込み（2026-10-06 修正） =====
+// ・日報が未送信の店舗に販売数の取り込みで今日の行ができると、販売数だけの応答が success:true で返り、
+//   入力欄を全部消して空欄を描いていた。入力欄の値が1件も無い応答は「保存データなし」として扱い、
+//   入力欄を消さずに「本日の保存データはまだありません」と出す（GAS 側でも no_input を返す。どちらか片方でも正しく動く）。
+// ・前日の値は読み込まない（ずれるため。杉さん決定 2026-10-06）。読むのは今日だけ。
+//   販売数・売上金額は今日の分でも入力に持ち込まない（取り込みが書く列。読んだ値を送り返すと新しい取り込みを古い値で上書きする）。
+// ・「読み込み中」のまま終わらないことがあった（GAS の一時的な詰まり・スリープや背面で JSONP が宙に浮く）。
+//   4秒で2本目・1本目がすぐエラーなら2本目・遅れた応答も受け取る。10秒で「時間がかかっています」、
+//   30秒で失敗の表示（どちらも入力欄は消さない）。前面に戻ったとき・online で、進行中の読み込みは捨てて出し直す。
+// ・待っている間に手で入力していたら、届いたデータで置き換える前に確かめる。
+var LOAD_HEDGE_MS = 4000;     // 応答が無ければ2本目
+var LOAD_SLOW_MS = 10000;     // 「時間がかかっています」
+var LOAD_FAIL_MS = 30000;     // 失敗の表示
+var LOAD_LATE_MS = 90000;     // 失敗の表示の後も、遅れて届いた応答を受け取る
+var LOAD_RETRY_WAIT = 3000;   // 2本ともすぐ失敗したとき、次の2本までの間（失敗の表示までの間だけ）
+var _load = null;             // {gen, store, date, step, status, startedAt, stepAt, edits, timers, doneLabel}
+var _loadGen = 0;
+var _formEdits = 0;           // 手で入力した回数（読み込みの間に入力があったかの判定用）
+function _isImportedKey(k){ k = String(k||''); return k.indexOf('販売数') === 0 || k.indexOf('売上金額') === 0; }
+// 入力欄の値が1件でもあるか（販売数・売上金額など取り込み由来の列と req_id は数えない）
+function _hasFormInputItems(items){
+  if(!items || typeof items !== 'object') return false;
+  return Object.keys(items).some(function(k){
+    if(_isImportedKey(k) || k === 'req_id') return false;
+    var v = items[k];
+    return v !== '' && v !== null && v !== undefined;
+  });
+}
+function _loadLive(L, step){
+  return _load === L && L.step === step && (L.status === 'loading' || L.status === 'slow' || L.status === 'failed');
+}
+function _loadClearTimers(L){ if(!L) return; (L.timers||[]).forEach(function(t){ clearTimeout(t); }); L.timers = []; }
+function _loadReset(){ _loadGen++; _loadClearTimers(_load); _load = null; }
+function _loadBtnHtml(){
+  var L = _load, label = '📥 保存済みデータを読み込む', dis = false;
+  if(L && (L.status === 'loading' || L.status === 'slow')){ label = '📥 読み込み中...'; dis = true; }
+  else if(L && L.status === 'done'){ label = L.doneLabel; dis = true; }
+  return '<button class="load-btn" id="loadBtn" onclick="loadSavedData()"'+(dis?' disabled':'')+'>'+eH(label)+'</button>'
+    + '<div id="load_note">'+_loadNoteHtml()+'</div>';
+}
+function _loadNoteHtml(){
+  var L = _load;
+  if(L && L.status === 'empty'){
+    return '<div id="load_empty" style="background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;border-radius:8px;padding:8px 10px;margin:-4px 0 10px;font-size:12px;font-weight:600;line-height:1.7;text-align:center">'
+      + 'ℹ️ 本日の保存データはまだありません。入力した値はそのままです。</div>';
+  }
+  if(!L || (L.status !== 'slow' && L.status !== 'failed')) return '';
+  var msg = (L.status === 'slow')
+    ? '⏳ 時間がかかっています。入力した値はそのままです。'
+    : '⚠️ 保存済みデータを読み込めませんでした。入力した値はそのままです。電波の良い場所で再試行してください。';
+  return '<div style="background:#fff8e1;color:#8a6100;border:1px solid #ffd54f;border-radius:8px;padding:8px 10px;margin:-4px 0 10px;font-size:12px;font-weight:600;line-height:1.7;text-align:center">'
+    + msg + '<div><button onclick="retryLoad()" style="margin-top:6px;background:#8a6100;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">再試行</button></div></div>';
+}
+function _loadUpdateUi(){
+  var btn = document.getElementById('loadBtn'), L = _load;
+  if(btn){
+    if(L && (L.status === 'loading' || L.status === 'slow')){ btn.disabled = true; btn.textContent = '📥 読み込み中...'; }
+    else if(L && L.status === 'done'){ btn.disabled = true; btn.textContent = L.doneLabel; }
+    else { btn.disabled = false; btn.textContent = '📥 保存済みデータを読み込む'; }
+  }
+  var note = document.getElementById('load_note');
+  if(note) note.innerHTML = _loadNoteHtml();
+}
+function loadSavedData() { _startLoad(); }
+function retryLoad() { _startLoad(); }
+// 読み込みを最初（今日）から始める。進行中のものがあれば捨てる（遅れて届いても使わない）。
+function _startLoad(){
+  if(!state.store) return;
+  _loadClearTimers(_load);
+  _load = { gen: ++_loadGen, store: state.store.name, step: 0, status: 'loading',
+            startedAt: Date.now(), stepAt: Date.now(), edits: _formEdits, timers: [], doneLabel: '' };
+  _loadUpdateUi();
+  tryLoadDate(todayStr);
+}
+// 前面に戻ったとき・online になったとき：進行中の読み込みは宙に浮いている可能性があるので捨てて出し直す。
+// 始めて4秒未満なら待つ。失敗の表示中でも、その後に手で入力していなければ出し直す。
+function _loadOnForeground(){
+  var L = _load;
+  if(!L || state.screen !== 'form' || !state.store || state.store.name !== L.store) return;
+  if(L.status === 'loading' || L.status === 'slow'){
+    if(Date.now() - L.stepAt < LOAD_HEDGE_MS) return;
+    _startLoad();
+  } else if(L.status === 'failed' && _formEdits === L.edits){
+    _startLoad();
+  }
 }
 
-function shiftDate(ds, days) {
-  var d = new Date(ds+'T00:00:00');
-  d.setDate(d.getDate()+days);
-  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+function tryLoadDate(date) {
+  var L = _load;
+  if (!L) return;
+  _loadClearTimers(L);
+  var step = ++L.step;
+  L.date = date; L.stepAt = Date.now(); L.status = 'loading';
+  _loadUpdateUi();
+  // 10秒で「時間がかかっています」、30秒で失敗の表示（日付ごとに数える）
+  L.timers.push(setTimeout(function(){
+    if (_loadLive(L, step) && L.status === 'loading') { L.status = 'slow'; _loadUpdateUi(); }
+  }, LOAD_SLOW_MS));
+  L.timers.push(setTimeout(function(){
+    if (_loadLive(L, step) && L.status !== 'failed') { L.status = 'failed'; _loadUpdateUi(); }
+  }, LOAD_FAIL_MS));
+  _loadAttempt(L, step, date);
 }
 
-function tryLoadDate(date, isFallback) {
-  var btn = document.getElementById('loadBtn');
-  var url = API_URL
-    + '?action=getStoreData'
-    + '&store=' + encodeURIComponent(state.store.name)
-    + '&date=' + date;
+// 1回の試行：1本目を出し、4秒応答が無いか、1本目がすぐエラーで返ったら2本目を出す（最大2本）。
+// 先に返ったほうを使う。2本ともエラーなら、失敗の表示までの間は3秒おいて次の試行。
+// 見切った後も LOAD_LATE_MS の間は遅れて届いた応答を受け取る（同じ読み込み・同じ日付のときだけ）。
+function _loadAttempt(L, step, date) {
+  var fired = 0, inflight = 0, over = false, hedgeT = null;
+  function fire(){
+    fired++; inflight++;
+    var url = API_URL
+      + '?action=getStoreData'
+      + '&store=' + encodeURIComponent(L.store)
+      + '&date=' + date
+      + '&_cb=' + Date.now();
+    jsonp(url, 'cb_load', function(res){ inflight--; onRes(res); },
+      function(){ inflight--; onErr(); }, LOAD_FAIL_MS,
+      { onLate: function(res){ onRes(res); }, lateGraceMs: LOAD_LATE_MS });
+  }
+  function onRes(res){
+    if (!_loadLive(L, step)) return;
+    if (!res || typeof res !== 'object' || typeof res.success !== 'boolean') { onErr(); return; }   // 形の違う応答
+    over = true;
+    if (hedgeT) { clearTimeout(hedgeT); hedgeT = null; }
+    _loadReceived(L, step, date, res);
+  }
+  function onErr(){
+    if (over || !_loadLive(L, step)) return;
+    if (fired < 2) { if (hedgeT) { clearTimeout(hedgeT); hedgeT = null; } fire(); return; }
+    if (inflight > 0) return;   // もう1本がまだ返っていない
+    over = true;
+    if (L.status === 'failed') return;   // 失敗の表示の後は自動では出さない（再試行ボタン・前面復帰で出し直す）
+    L.timers.push(setTimeout(function(){
+      if (_loadLive(L, step) && L.status !== 'failed') _loadAttempt(L, step, date);
+    }, LOAD_RETRY_WAIT));
+  }
+  fire();
+  hedgeT = setTimeout(function(){ hedgeT = null; if (!over && fired < 2 && _loadLive(L, step)) fire(); }, LOAD_HEDGE_MS);
+}
 
-  jsonp(url, 'cb_load', function(res) {
-    if (!res.success) {
-      if (!isFallback) {
-        // 今日のデータが無ければ前日を試す（前日値引き継ぎ）
-        tryLoadDate(shiftDate(todayStr, -1), true);
-        return;
-      }
-      alert('本日・前日の保存データはありません。');
-      if (btn) { btn.disabled = false; btn.textContent = '📥 保存済みデータを読み込む'; }
-      return;
-    }
-    // 担当者は今日のデータからのみ反映（前日fallback時は触らない）
-    if (res.staff && !isFallback) state.staff = res.staff;
+function _loadFinish(L, status, label) {
+  _loadClearTimers(L);
+  L.status = status; L.doneLabel = label || '';
+  _loadUpdateUi();
+}
+
+function _loadReceived(L, step, date, res) {
+  // 入力欄の値が1件も無い応答（GAS の no_input、今日の行が無い、または GAS が未反映で販売数だけの行が返ったもの）は
+  // 保存データなしとして扱う。入力欄は一切触らない（配達商品情報から入った納品数も残す）。前日は読まない。
+  if (!res.success || !_hasFormInputItems(res.items)) {
+    _loadFinish(L, 'empty');
+    return;
+  }
+  if (state.screen !== 'form' || !state.store || state.store.name !== L.store) { _loadFinish(L, 'idle'); return; }
+  // 待っている間に手で入力していたら、置き換える前に確かめる
+  if (_formEdits !== L.edits && !confirm('保存済みデータが届きました。\n入力中の値を、届いたデータで置き換えますか？')) {
+    _loadFinish(L, 'idle');
+    return;
+  }
+  _loadClearTimers(L);
+  L.status = 'done';
+  L.doneLabel = '✅ 読み込み完了';
+  _applyLoadedData(res);
+}
+
+function _applyLoadedData(res) {
+    if (res.staff) state.staff = res.staff;
 
     // formData / extraPrices をリセット
     state.formData = {};
@@ -1391,6 +1533,8 @@ function tryLoadDate(date, isFallback) {
     // GASのキー形式（例: "S品_¥99（個）"）→ アプリのキー形式（"S品_¥99"）に変換
     if (res.items) {
       Object.keys(res.items).forEach(function(key) {
+        // 販売数・売上金額は持ち込まない（入力欄が無いまま送信され、後から取り込まれた値を読んだ時点の値で上書きするため）
+        if (_isImportedKey(key)) return;
         var cleanKey = key.replace('（個）', '').replace('（kg）', '');
         state.formData[cleanKey] = res.items[key];
         // 元のキーそのままも保持（互換性）
@@ -1429,23 +1573,8 @@ function tryLoadDate(date, isFallback) {
       });
     });
 
-    // フォームを再描画
+    // フォームを再描画（読み込みボタンは _loadBtnHtml が完了の表示で描く）
     renderForm();
-    // 読み込み完了メッセージ
-    var newBtn = document.getElementById('loadBtn');
-    if (newBtn) {
-      if (isFallback) {
-        newBtn.textContent = '📥 '+date.slice(5).replace('-','/')+'(前日)を読込';
-      } else {
-        newBtn.textContent = '✅ 読み込み完了';
-      }
-      newBtn.disabled = true;
-    }
-  }, function() {
-    alert('データの取得に失敗しました。');
-    var newBtn = document.getElementById('loadBtn');
-    if (newBtn) { newBtn.disabled = false; newBtn.textContent = '📥 保存済みデータを読み込む'; }
-  });
 }
 
 
@@ -1899,6 +2028,12 @@ document.addEventListener('visibilitychange', function(){
   if(document.visibilityState !== 'visible') return;
   try{ _kickSubmitPendingChecks(true); _updateSubmitPendingBanner(); }catch(e){}
   try{ _haitatsuOnForeground(); }catch(e){}
+  try{ _loadOnForeground(); }catch(e){}   // 保存済みデータの読み込み（2026-10-06）
+});
+// 回線が戻ったとき（Wi-Fi⇔モバイルの切替を含む）：宙に浮いた取得を捨てて出し直す（2026-10-04）
+window.addEventListener('online', function(){
+  try{ _haitatsuOnForeground(); }catch(e){}
+  try{ _loadOnForeground(); }catch(e){}
 });
 // reqId を渡すと、その送信の確認状態を表示する枠を出す（楽観的UI）。
 // 渡さない場合（従来の再送成功時など）は枠を出さない。

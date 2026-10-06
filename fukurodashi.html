@@ -378,6 +378,66 @@ function jsonp(url,base,onOk,onErr,timeoutMs,opts){
   document.body.appendChild(s);
 }
 
+// ============ 最新の取得（haitatsu.html・irai.html と同じもの。2026-10-04 失敗画面を減らす）============
+// GAS は一時的に詰まる（2026-10-04 17:31〜17:33 に10〜80秒）・404 を返す（Cloud Run の記録で月約71回）ことがある。
+// 電波があれば失敗の画面をほぼ出さないために、1回の試行を次のようにする。
+//   ・1本目を出し、4秒応答が無いか、1本目がすぐエラー（404・5xx・通信エラー・形の違う応答）で返ったら2本目を出す。
+//     1回の試行で出すのは最大2本。2本とも失敗・見切り（10秒）で、その試行は失敗
+//   ・見切った後も90秒の間は遅れて届いた応答を受け取る（同じ世代の最初の成功だけを使う）
+//   ・失敗したら 5秒後・15秒後、以後60秒ごとに自動で取り直す（成功するまで。GAS の実行は失敗中でも1分に最大2〜6回）
+//   ・load()：それまでの応答を捨てて取り直す（起動・月の切り替え・復帰で数字を消したとき）
+//     retry()：手動の再取得（取得中なら何もしない）
+//     kick()：復帰・回線切替のとき。始めてから4秒以上たった試行は捨てて出し直す（日報の納品指示と同じ）
+// o.send(onOk, onErr, onLate, timeoutMs, lateMs) で1本出す。o.isOk(res) が真の応答を成功とする。
+// o.onData(res) は成功のとき、o.onFail() は試行が失敗したとき（自動の取り直しは続く）。
+// o.keepRetrying() が偽のときは自動の取り直しを止める（省略時は続ける）。
+function makeLatestFetcher(o){
+  var T = { timeout:10000, hedge:4000, late:90000, delays:[5000, 15000], every:60000 };
+  var gen = 0, won = -1, busy = false, startedAt = 0, fails = 0, retryT = null;
+  function attempt(){
+    clearTimeout(retryT); retryT = null;
+    var g = gen, done = false, inflight = 0, fired = 0, hedgeT = null;
+    busy = true; startedAt = Date.now();
+    function take(res){
+      if(g !== gen || won === g) return true;   // 捨てた世代・もう受け取った
+      if(!o.isOk(res)) return false;
+      won = g; fails = 0; busy = false;
+      done = true; clearTimeout(hedgeT); clearTimeout(retryT); retryT = null;
+      o.onData(res);
+      return true;
+    }
+    function failOne(){
+      if(done || g !== gen || won === g) return;   // 前の試行の遅れた応答ですでに成功していれば何もしない
+      if(fired < 2){ clearTimeout(hedgeT); hedgeT = null; fire(); return; }   // すぐエラーなら4秒を待たずに2本目
+      if(inflight > 0) return;   // もう1本がまだ返っていない
+      done = true; busy = false; fails++;
+      if(!o.keepRetrying || o.keepRetrying()){
+        retryT = setTimeout(function(){ retryT = null; if(g === gen && won !== g && (!o.keepRetrying || o.keepRetrying())) attempt(); },
+          fails <= T.delays.length ? T.delays[fails-1] : T.every);
+      }
+      o.onFail();
+    }
+    function fire(){
+      fired++; inflight++;
+      o.send(function(res){ inflight--; if(!take(res)) failOne(); },
+             function(){ inflight--; failOne(); },
+             function(res){ take(res); }, T.timeout, T.late);
+    }
+    fire();
+    hedgeT = setTimeout(function(){ hedgeT = null; if(!done && g === gen && won !== g && fired < 2) fire(); }, T.hedge);
+  }
+  return {
+    load: function(){ gen++; fails = 0; attempt(); },
+    retry: function(){ if(busy || won === gen) return; attempt(); },
+    kick: function(){
+      if(busy && Date.now() - startedAt < T.hedge) return;
+      gen++; attempt();
+    },
+    stop: function(){ gen++; busy = false; clearTimeout(retryT); retryT = null; },
+    busy: function(){ return busy; }
+  };
+}
+
 // ============ 未送信の入力の退避（localStorage） ============
 function _readPending(){
   try{ var p=JSON.parse(localStorage.getItem(LS_FUKURODASHI_PENDING)||'null');
@@ -438,8 +498,8 @@ function renderAll(){
   if(state.view==='failed'){
     // 前回の数字を見る手段は設けない（2026-10-04 追補）。再取得だけ
     app.innerHTML=renderPendingBanner()
-      +'<div class="err-box">最新を取得できませんでした。<br>通信状態を確認してください。'
-      +'<br><button onclick="fetchMonth(state.ym)">再取得</button>'
+      +'<div class="err-box">最新を取得できませんでした。<br><small>自動で再取得を続けています</small>'
+      +'<br><button id="retryBtn" onclick="retryMonth()">再取得</button>'
       +'</div>';
     return;
   }
@@ -548,48 +608,60 @@ var _lastFetchStamp='';
 // 【2026-10-04 最新だけを表示する】従来は端末に残した値（fukurodashi_cache_v2）を先に描いてから取得していた。
 // 月を開く・切り替える・復帰（受け取りから60秒以上）のたびに、その月の数字を消して「最新を取得中…」にし、
 // GAS の応答で確定してから描く。取得できなければ数字なしで再取得だけ（前回の数字を見る手段は設けない）。
-var FETCH_TIMEOUT = 15000;
+// 【2026-10-04 失敗画面を減らす】取得は makeLatestFetcher（4秒・すぐエラーで2本目、遅れた応答の受け取り、
+// 失敗後は 5秒後・15秒後・以後60秒ごとに自動で取り直す）。旧：1本だけ・15秒で見切り・遅れた応答は捨て・自動の取り直しなし。
 var RESUME_STALE_MS = 60000;
-var _fetchGen = 0;
+var _fetchYm = '';   // 取得中の月（月を切り替えたら load で前の応答を捨てる）
+var _monthFetch = makeLatestFetcher({
+  send: function(ok, err, late, t, l){
+    jsonp(API_URL+'?action=getFukurodashi&month='+encodeURIComponent(_fetchYm)+'&_cb='+Date.now(),
+      'cb_get', ok, err, t, { lateGraceMs:l, onLate:late });
+  },
+  isOk: function(res){ return !!(res && res.success && res.items); },
+  onData: function(res){
+    var ym=_fetchYm;
+    if(state.ym!==ym) return;
+    state.loading=false;
+    state.items=_mergeItems(state.items, res.items, ym);
+    state.loaded=true; state.error=false;
+    state.view='fresh'; state.freshAt=Date.now();
+    var nd=new Date();
+    _lastFetchStamp=pad2(nd.getHours())+':'+pad2(nd.getMinutes());
+    if(state.bulk.open && state.bulk.previewAfterFetch===ym){ state.bulk.previewAfterFetch=''; doBulkPreview(); return; }
+    renderAll();
+  },
+  onFail: function(){
+    state.loading=false; state.error=true; state.view='failed';
+    renderAll();
+  }
+});
 function fetchMonth(ym){
-  var gen=++_fetchGen;
   state.ym=ym;
   state.items=_mergeItems(state.items, {}, ym);   // この月の古い値は持たない（描かない）
   state.view='loading'; state.loading=true; state.error=false;
   renderAll();
-  jsonp(API_URL+'?action=getFukurodashi&month='+encodeURIComponent(ym)+'&_cb='+Date.now(),
-    'cb_get',
-    function(res){
-      if(gen!==_fetchGen || state.ym!==ym) return;   // 取得中に月を切り替えた・取り直した
-      state.loading=false;
-      if(res && res.success && res.items){
-        state.items=_mergeItems(state.items, res.items, ym);
-        state.loaded=true; state.error=false;
-        state.view='fresh'; state.freshAt=Date.now();
-        var nd=new Date();
-        _lastFetchStamp=pad2(nd.getHours())+':'+pad2(nd.getMinutes());
-        if(state.bulk.open && state.bulk.previewAfterFetch===ym){ state.bulk.previewAfterFetch=''; doBulkPreview(); return; }
-      } else {
-        state.error=true; state.view='failed';
-      }
-      renderAll();
-    },
-    function(){
-      if(gen!==_fetchGen || state.ym!==ym) return;
-      state.loading=false; state.error=true; state.view='failed';
-      renderAll();
-    }, FETCH_TIMEOUT);
+  _fetchYm=ym;
+  _monthFetch.load();
 }
-// 復帰時：日付が変わっていれば開き直す。最新の受け取りから60秒以上なら取り直す（入力中・送信中は触らない）
+// 失敗の画面の「再取得」：失敗の画面のまま取りに行き、届いたら描く（自動の取り直しと同じ経路）
+function retryMonth(){
+  if(_monthFetch.busy()) return;
+  _monthFetch.retry();
+  var b=document.getElementById('retryBtn');
+  if(b){ b.disabled=true; b.textContent='取得中…'; }
+}
+// 復帰時・回線が戻ったとき：日付が変わっていれば開き直す。最新の受け取りから60秒以上なら取り直す（入力中・送信中は触らない）。
+// 取得中・失敗の表示中は、始めてから4秒以上たった取得を捨てて出し直す（スリープ中に宙に浮いた要求を待ち続けない）。
 function _onForeground(){
+  if(state.view!=='fresh' && ymd(new Date())===todayStr){ _monthFetch.kick(); return; }   // 数字を出していないので入力中は無い
   if(state.openDate || state.saving || state.bulk.open) return;
   if(ymd(new Date())!==todayStr){ location.reload(); return; }
-  if(state.view==='loading') return;
-  if(state.view==='fresh' && Date.now()-state.freshAt < RESUME_STALE_MS) return;
+  if(Date.now()-state.freshAt < RESUME_STALE_MS) return;
   fetchMonth(state.ym);
 }
 document.addEventListener('visibilitychange', function(){ if(document.visibilityState==='visible') _onForeground(); });
 window.addEventListener('pageshow', function(e){ if(e.persisted) _onForeground(); });
+window.addEventListener('online', function(){ _onForeground(); });
 // 対象月のぶんだけ置き換える（他の月のキャッシュ表示は残す）
 function _mergeItems(cur, fresh, ym){
   var out={}, pre=ym+'-';

@@ -423,6 +423,66 @@ function jsonp(url,base,onOk,onErr,timeoutMs,opts){
   document.body.appendChild(s);
 }
 
+// ============ 最新の取得（fukurodashi.html・irai.html と同じもの。2026-10-04 失敗画面を減らす）============
+// GAS は一時的に詰まる（2026-10-04 17:31〜17:33 に10〜80秒）・404 を返す（Cloud Run の記録で月約71回）ことがある。
+// 電波があれば失敗の画面をほぼ出さないために、1回の試行を次のようにする。
+//   ・1本目を出し、4秒応答が無いか、1本目がすぐエラー（404・5xx・通信エラー・形の違う応答）で返ったら2本目を出す。
+//     1回の試行で出すのは最大2本。2本とも失敗・見切り（10秒）で、その試行は失敗
+//   ・見切った後も90秒の間は遅れて届いた応答を受け取る（同じ世代の最初の成功だけを使う）
+//   ・失敗したら 5秒後・15秒後、以後60秒ごとに自動で取り直す（成功するまで。GAS の実行は失敗中でも1分に最大2〜6回）
+//   ・load()：それまでの応答を捨てて取り直す（起動・月の切り替え・復帰で数字を消したとき）
+//     retry()：手動の再取得（取得中なら何もしない）
+//     kick()：復帰・回線切替のとき。始めてから4秒以上たった試行は捨てて出し直す（日報の納品指示と同じ）
+// o.send(onOk, onErr, onLate, timeoutMs, lateMs) で1本出す。o.isOk(res) が真の応答を成功とする。
+// o.onData(res) は成功のとき、o.onFail() は試行が失敗したとき（自動の取り直しは続く）。
+// o.keepRetrying() が偽のときは自動の取り直しを止める（省略時は続ける）。
+function makeLatestFetcher(o){
+  var T = { timeout:10000, hedge:4000, late:90000, delays:[5000, 15000], every:60000 };
+  var gen = 0, won = -1, busy = false, startedAt = 0, fails = 0, retryT = null;
+  function attempt(){
+    clearTimeout(retryT); retryT = null;
+    var g = gen, done = false, inflight = 0, fired = 0, hedgeT = null;
+    busy = true; startedAt = Date.now();
+    function take(res){
+      if(g !== gen || won === g) return true;   // 捨てた世代・もう受け取った
+      if(!o.isOk(res)) return false;
+      won = g; fails = 0; busy = false;
+      done = true; clearTimeout(hedgeT); clearTimeout(retryT); retryT = null;
+      o.onData(res);
+      return true;
+    }
+    function failOne(){
+      if(done || g !== gen || won === g) return;   // 前の試行の遅れた応答ですでに成功していれば何もしない
+      if(fired < 2){ clearTimeout(hedgeT); hedgeT = null; fire(); return; }   // すぐエラーなら4秒を待たずに2本目
+      if(inflight > 0) return;   // もう1本がまだ返っていない
+      done = true; busy = false; fails++;
+      if(!o.keepRetrying || o.keepRetrying()){
+        retryT = setTimeout(function(){ retryT = null; if(g === gen && won !== g && (!o.keepRetrying || o.keepRetrying())) attempt(); },
+          fails <= T.delays.length ? T.delays[fails-1] : T.every);
+      }
+      o.onFail();
+    }
+    function fire(){
+      fired++; inflight++;
+      o.send(function(res){ inflight--; if(!take(res)) failOne(); },
+             function(){ inflight--; failOne(); },
+             function(res){ take(res); }, T.timeout, T.late);
+    }
+    fire();
+    hedgeT = setTimeout(function(){ hedgeT = null; if(!done && g === gen && won !== g && fired < 2) fire(); }, T.hedge);
+  }
+  return {
+    load: function(){ gen++; fails = 0; attempt(); },
+    retry: function(){ if(busy || won === gen) return; attempt(); },
+    kick: function(){
+      if(busy && Date.now() - startedAt < T.hedge) return;
+      gen++; attempt();
+    },
+    stop: function(){ gen++; busy = false; clearTimeout(retryT); retryT = null; },
+    busy: function(){ return busy; }
+  };
+}
+
 // ============ utility ============
 function eH(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function eA(s){return String(s||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
@@ -916,7 +976,7 @@ function zaikoStatusLabel(){
   var zv = state.zaikoView;
   if(zv === 'loading') return { cls:'loading', html: eH('残・売 最新を取得中…') };
   if(zv === 'failed'){
-    return { cls:'err', html: eH('残・売 最新を取得できませんでした')
+    return { cls:'err', html: eH('残・売 最新を取得できませんでした（自動で再取得を続けています）')
       + '<button onclick="retryZaiko()">再取得</button>' };
   }
   if(zv !== 'fresh') return null;
@@ -1077,7 +1137,7 @@ function _renderRouteUnsafe(){
     // 【2026-10-04 追補】前回の数字を見る手段は設けない。再取得だけ
     document.getElementById('app').innerHTML =
       '<div class="err-box">⚠️ 最新を取得できませんでした<br>'
-      +'<span style="font-size:12px;color:#888">'+(state.retrying ? '再取得しています…' : '電波の良い場所で再取得してください')+'</span>'
+      +'<span style="font-size:12px;color:#888">'+(state.retrying ? '再取得しています…' : '自動で再取得を続けています')+'</span>'
       +'<div class="fail-btns"><button class="retry-btn" onclick="retryLatest()"'+(state.retrying?' disabled':'')+'>🔄 再取得</button>'
       +'</div></div>';
     return;
@@ -1803,16 +1863,13 @@ function discardDraft(){
 //     GAS getHaitatsu の応答で確定してから描く
 //   ・スナップショット（haitatsu.json）は使わない。getHaitatsu はシートを直接読む（保存でキャッシュも消える）ので、
 //     スナップショットが GAS の応答より新しいことは無い
-//   ・取得できなければ数字なしで「最新を取得できませんでした」＋再取得（LATEST_RETRY_WAIT 後に1回だけ自動でも再取得）。
+//   ・取得できなければ数字なしで「最新を取得できませんでした」＋再取得。裏で自動の再取得を続ける。
 //     前回の数字を見る手段は設けない（杉さん決定 2026-10-04 09:54）。納品数・残在庫/販売数は端末にも残さない
 //   ・最新が確定するまで編集モードに入れない（toggleMode・restoreDraft・resendPending）
-// 取得は日報の納品指示（件2）と同じ：1本 FETCH_TIMEOUT_MS で見切り、FETCH_HEDGE_MS 応答が無ければ
-// 同じ要求をもう1本並べて先に返ったほうを使う。見切った後に届いた応答も FETCH_LATE_MS の間は拾う。
+// 【2026-10-04 失敗画面を減らす】取得は makeLatestFetcher（4秒・すぐエラーで2本目、遅れた応答は90秒まで受け取る、
+// 失敗後は 5秒後・15秒後・以後60秒ごとに自動で取り直す）。旧：すぐエラーなら2本目を出さずに失敗・遅れは25秒まで・
+// 自動の取り直しは8秒後に1回だけ（残在庫・販売数は手動だけ）。
 var LATEST_ONLY_BUILD = 'latest-only-20261004';   // 本番反映の確認用マーカー
-var FETCH_TIMEOUT_MS  = 10000;
-var FETCH_HEDGE_MS    = 4000;
-var FETCH_LATE_MS     = 25000;
-var LATEST_RETRY_WAIT = 8000;
 var RESUME_STALE_MS   = 60000;
 function forceReload(){ location.reload(); }
 
@@ -1828,61 +1885,30 @@ function _applyHaitatsuData(items, lastUpdated){
   renderRoute();
 }
 
-// 4秒で応答が無ければ同じ要求をもう1本出し、先に返った成功を使う（日報の納品指示〔件2〕と同じ）。
-// isOk(res) が真の応答を成功とする。全部が失敗・見切りになったら onFail。
-// 見切った後（onFail の後も含む）に届いた成功は onOk で渡すので、呼び出し側は世代で新旧を確かめること。
-function _hedgedJsonp(url, base, isOk, onOk, onFail){
-  var won = false, done = false, inflight = 0, hedgeT = null;
-  function take(res){
-    if(won) return true;
-    if(!isOk(res)) return false;
-    won = true; done = true; clearTimeout(hedgeT);
-    onOk(res);
-    return true;
-  }
-  function failOne(){
-    if(done || inflight > 0) return;   // もう1本がまだ返っていない
-    done = true; clearTimeout(hedgeT);
-    onFail();
-  }
-  function fire(){
-    inflight++;
-    jsonp(url+'&_cb='+Date.now()+'_'+Math.random().toString(36).slice(2,6), base,
-      function(res){ inflight--; if(!take(res)) failOne(); },
-      function(){ inflight--; failOne(); },
-      FETCH_TIMEOUT_MS,
-      { lateGraceMs: FETCH_LATE_MS, onLate: function(res){ take(res); } });
-  }
-  fire();
-  hedgeT = setTimeout(function(){ hedgeT = null; if(!done) fire(); }, FETCH_HEDGE_MS);
+// 1本出す（makeLatestFetcher の send）。_cb は途中の HTTP キャッシュに古い応答を返させないため
+function _sendJsonp(url, base){
+  return function(ok, err, late, t, l){
+    jsonp(url+'&_cb='+Date.now()+'_'+Math.random().toString(36).slice(2,6), base, ok, err, t,
+      { lateGraceMs: l, onLate: late });
+  };
 }
 
-var _latestGen = 0;          // 取得の世代。取り直したら前の世代の応答は使わない
-var _latestRetryT = null;
-var _latestAutoRetried = false;
+var _latestFetch = makeLatestFetcher({
+  send: _sendJsonp(API_URL+'?action=getHaitatsu', 'cb_get'),
+  isOk: function(res){ _applyIrai(res); return !!(res && res.success && res.items); },
+  onData: function(res){ _applyLatest(res.items, res.lastUpdated || ''); },
+  onFail: function(){ _latestFailed(); }
+});
 // 数字を消して「最新を取得中…」にし、取りに行く（起動時・復帰時）
 function _beginLatestLoad(){
-  ++_latestGen;
-  clearTimeout(_latestRetryT);
-  _latestAutoRetried = false;
   state.view = 'loading';
   state.loaded = false;
   state.retrying = false;
   _updateUnsavedBar();
   renderRoute();
-  _startLatestFetch();
-}
-function _startLatestFetch(){
-  var gen = ++_latestGen;
-  clearTimeout(_latestRetryT);
-  state.retrying = (state.view === 'failed');
-  _hedgedJsonp(API_URL+'?action=getHaitatsu', 'cb_get',
-    function(res){ _applyIrai(res); return !!(res && res.success && res.items); },
-    function(res){ if(gen === _latestGen) _applyLatest(res.items, res.lastUpdated || ''); },
-    function(){ if(gen === _latestGen) _latestFailed(gen); });
+  _latestFetch.load();
 }
 function _applyLatest(items, lastUpdated){
-  clearTimeout(_latestRetryT);
   state.retrying = false;
   state.view = 'fresh';
   state.freshAt = Date.now();
@@ -1890,20 +1916,16 @@ function _applyLatest(items, lastUpdated){
   if(state.dirty || state.saveState === 'saving'){ renderRoute(); return; }
   _applyHaitatsuData(items, lastUpdated);
 }
-function _latestFailed(gen){
+function _latestFailed(){
   state.retrying = false;
   if(state.view === 'loading') state.view = 'failed';
   renderRoute();
-  if(!_latestAutoRetried){
-    _latestAutoRetried = true;
-    _latestRetryT = setTimeout(function(){
-      if(gen === _latestGen && state.view !== 'fresh'){ _startLatestFetch(); renderRoute(); }
-    }, LATEST_RETRY_WAIT);
-  }
 }
+// 失敗の画面の「再取得」：失敗の画面のまま取りに行き、届いたら描く（自動の取り直しと同じ経路）
 function retryLatest(){
-  if(state.retrying) return;
-  _startLatestFetch();
+  if(state.view === 'fresh' || state.retrying || _latestFetch.busy()) return;
+  state.retrying = true;
+  _latestFetch.retry();
   renderRoute();
 }
 
@@ -1918,8 +1940,10 @@ function _localYmd(){
 function _onForegroundLatest(){
   var busy = state.dirty || !!state.saveState;
   if(_localYmd() !== todayStr){ if(!busy){ _leaving = true; location.reload(); } return; }
-  if(state.view === 'loading') return;
-  if(state.view === 'failed'){ if(!state.retrying) retryLatest(); return; }
+  // 取得中・失敗の表示中：始めてから4秒以上たった取得を捨てて出し直す（スリープ中に宙に浮いた要求を待ち続けない）
+  if(state.view !== 'fresh'){ _latestFetch.kick(); return; }
+  // 編集モードで残在庫/販売数が取得中・失敗なら、同じく出し直す
+  if(state.mode === 'edit' && (state.zaikoView !== 'fresh' || state.zaikoRecheckFailed || state.zaikoRevalidating)) _kickZaiko();
   if(Date.now() - state.freshAt < RESUME_STALE_MS) return;
   if(state.mode === 'edit' && busy){
     if(_prepareZaiko()){ renderRoute(); _fetchZaiko(0); }
@@ -1931,6 +1955,7 @@ function _onForegroundLatest(){
 document.addEventListener('visibilitychange', function(){
   if(document.visibilityState === 'visible'){ try{ _onForegroundLatest(); }catch(e){} }
 });
+window.addEventListener('online', function(){ try{ _onForegroundLatest(); }catch(e){} });
 window.addEventListener('pageshow', function(e){ if(e.persisted){ try{ _onForegroundLatest(); }catch(err){} } });
 
 // ============ 店舗依頼ボードのアラート（2026-10-03）============
@@ -2223,27 +2248,39 @@ function _fetchZaikoSnapshot(cb){
 }
 
 // GAS getYaokoZaiko（L1/L2 キャッシュからのみ計算し、getAllData のフル計算は誘発しない。
-// ミス時は _pending を即返す設計）。_pending だけだったときは 4 秒後に1回だけ取り直す（従来どおり）。
+// ミス時は _pending を即返す設計）。
+// 【2026-10-04 失敗画面を減らす】取得は makeLatestFetcher（納品指示と同じ。失敗後も 5秒後・15秒後・以後60秒ごとに
+// 自動で取り直す。ただし編集モードの間だけ＝閲覧モードでは残在庫/販売数を出さないので取りに行かない）。
+// 最初の試行が _pending だけで終わったときは「取得中」のまま次の試行（5秒後）を待つ（旧：4秒後に1回だけ取り直し）。
+var _zaikoSawPending = false, _zaikoFirstTry = false;
+var _zaikoFetch = makeLatestFetcher({
+  send: function(ok, err, late, t, l){
+    _sendJsonp(API_URL+'?action=getYaokoZaiko&date='+encodeURIComponent(todayStr), 'cb_zaiko')(ok, err, late, t, l);
+  },
+  isOk: function(res){
+    if(res && res._pending) _zaikoSawPending = true;
+    return !!(res && res.success && res.items && !res._pending);
+  },
+  onData: function(res){
+    _zaikoFirstTry = false;
+    _applyZaiko(res.items, res.actualDate || res.date || todayStr, res.extras || {}, 'gas');
+  },
+  onFail: function(){
+    var keepLoading = _zaikoFirstTry && _zaikoSawPending && state.zaikoView === 'loading';
+    _zaikoFirstTry = false;
+    if(keepLoading) return;   // GAS が計算を始めたところ。「取得中」のまま次の試行を待つ
+    _zaikoFailed();
+  },
+  keepRetrying: function(){ return state.mode === 'edit'; }
+});
 function _fetchZaikoGas(attempt, gen){
-  var sawPending = false;
-  _hedgedJsonp(API_URL+'?action=getYaokoZaiko&date='+encodeURIComponent(todayStr),
-    attempt>0 ? 'cb_zaiko_retry' : 'cb_zaiko',
-    function(res){
-      if(res && res._pending) sawPending = true;
-      return !!(res && res.success && res.items && !res._pending);
-    },
-    function(res){
-      if(gen !== _zaikoGen) return;
-      _applyZaiko(res.items, res.actualDate || res.date || todayStr, res.extras || {}, 'gas');
-    },
-    function(){
-      if(gen !== _zaikoGen) return;
-      if(attempt === 0 && sawPending){
-        setTimeout(function(){ if(gen === _zaikoGen) _fetchZaikoGas(1, gen); }, 4000);
-        return;
-      }
-      _zaikoFailed();
-    });
+  if(attempt === 0){ _zaikoSawPending = false; _zaikoFirstTry = true; _zaikoFetch.load(); }
+  else _zaikoFetch.retry();
+}
+// 復帰・回線切替のとき（編集モードで残在庫/販売数が取得中・失敗・再確認中）
+function _kickZaiko(){
+  if(state.zaikoView === 'failed' || state.zaikoRecheckFailed) state.zaikoRevalidating = true;
+  _zaikoFetch.kick();
 }
 
 renderRouteTabs();

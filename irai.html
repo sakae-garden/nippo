@@ -255,6 +255,66 @@ function jsonp(url,base,onOk,onErr,timeoutMs,opts){
   document.body.appendChild(s);
 }
 
+// ============ 最新の取得（fukurodashi.html・haitatsu.html と同じもの。2026-10-04 失敗画面を減らす）============
+// GAS は一時的に詰まる（2026-10-04 17:31〜17:33 に10〜80秒）・404 を返す（Cloud Run の記録で月約71回）ことがある。
+// 電波があれば失敗の画面をほぼ出さないために、1回の試行を次のようにする。
+//   ・1本目を出し、4秒応答が無いか、1本目がすぐエラー（404・5xx・通信エラー・形の違う応答）で返ったら2本目を出す。
+//     1回の試行で出すのは最大2本。2本とも失敗・見切り（10秒）で、その試行は失敗
+//   ・見切った後も90秒の間は遅れて届いた応答を受け取る（同じ世代の最初の成功だけを使う）
+//   ・失敗したら 5秒後・15秒後、以後60秒ごとに自動で取り直す（成功するまで。GAS の実行は失敗中でも1分に最大2〜6回）
+//   ・load()：それまでの応答を捨てて取り直す（起動・月の切り替え・復帰で数字を消したとき）
+//     retry()：手動の再取得（取得中なら何もしない）
+//     kick()：復帰・回線切替のとき。始めてから4秒以上たった試行は捨てて出し直す（日報の納品指示と同じ）
+// o.send(onOk, onErr, onLate, timeoutMs, lateMs) で1本出す。o.isOk(res) が真の応答を成功とする。
+// o.onData(res) は成功のとき、o.onFail() は試行が失敗したとき（自動の取り直しは続く）。
+// o.keepRetrying() が偽のときは自動の取り直しを止める（省略時は続ける）。
+function makeLatestFetcher(o){
+  var T = { timeout:10000, hedge:4000, late:90000, delays:[5000, 15000], every:60000 };
+  var gen = 0, won = -1, busy = false, startedAt = 0, fails = 0, retryT = null;
+  function attempt(){
+    clearTimeout(retryT); retryT = null;
+    var g = gen, done = false, inflight = 0, fired = 0, hedgeT = null;
+    busy = true; startedAt = Date.now();
+    function take(res){
+      if(g !== gen || won === g) return true;   // 捨てた世代・もう受け取った
+      if(!o.isOk(res)) return false;
+      won = g; fails = 0; busy = false;
+      done = true; clearTimeout(hedgeT); clearTimeout(retryT); retryT = null;
+      o.onData(res);
+      return true;
+    }
+    function failOne(){
+      if(done || g !== gen || won === g) return;   // 前の試行の遅れた応答ですでに成功していれば何もしない
+      if(fired < 2){ clearTimeout(hedgeT); hedgeT = null; fire(); return; }   // すぐエラーなら4秒を待たずに2本目
+      if(inflight > 0) return;   // もう1本がまだ返っていない
+      done = true; busy = false; fails++;
+      if(!o.keepRetrying || o.keepRetrying()){
+        retryT = setTimeout(function(){ retryT = null; if(g === gen && won !== g && (!o.keepRetrying || o.keepRetrying())) attempt(); },
+          fails <= T.delays.length ? T.delays[fails-1] : T.every);
+      }
+      o.onFail();
+    }
+    function fire(){
+      fired++; inflight++;
+      o.send(function(res){ inflight--; if(!take(res)) failOne(); },
+             function(){ inflight--; failOne(); },
+             function(res){ take(res); }, T.timeout, T.late);
+    }
+    fire();
+    hedgeT = setTimeout(function(){ hedgeT = null; if(!done && g === gen && won !== g && fired < 2) fire(); }, T.hedge);
+  }
+  return {
+    load: function(){ gen++; fails = 0; attempt(); },
+    retry: function(){ if(busy || won === gen) return; attempt(); },
+    kick: function(){
+      if(busy && Date.now() - startedAt < T.hedge) return;
+      gen++; attempt();
+    },
+    stop: function(){ gen++; busy = false; clearTimeout(retryT); retryT = null; },
+    busy: function(){ return busy; }
+  };
+}
+
 // ============ 店舗・担当者 ============
 // ヤオコーだけを経路の順に（shared-stores.js の ROUTES）。たまや・直売所は出さない。「その他」はフォームで別の見出しに置く。
 function yaokoStoreIds(){
@@ -294,20 +354,39 @@ function _listMap(res){
 // 【2026-10-04 最新だけを表示する】起動時・復帰時（前回の取得から REFETCH_MS 以上）・再読み込みでは、
 // 一覧を消して「最新を取得中…」にし、届いてから描く（従来は端末に残した一覧を先に描いていた）。
 // 取得できなければ一覧は出さず、再取得だけ（前回の一覧を見る手段は設けない）。
+// 【2026-10-04 失敗画面を減らす】取得は makeLatestFetcher（4秒・すぐエラーで2本目、遅れた応答の受け取り、
+// 失敗後は 5秒後・15秒後・以後60秒ごとに自動で取り直す）。旧：1本だけ・15秒で見切り・遅れた応答は捨て・自動の取り直しなし。
+var _listFetch = makeLatestFetcher({
+  send: function(ok, err, late, t, l){
+    jsonp(API_URL+'?action=getIrai&deleted=1&_cb='+Date.now(), 'cb_list', ok, err, t, { lateGraceMs:l, onLate:late });
+  },
+  isOk: function(res){ return !!(res && res.success); },
+  onData: function(res){ S.loading = false; applyServerList(res); render(); },
+  onFail: function(){ S.loading = false; _listFailed(); render(); }
+});
 function fetchList(){
-  if(S.loading) return;
+  if(_listFetch.busy()) return;
   if(S.view === 'fresh' || S.view === 'failed') S.view = 'loading';
   S.loading = true; render();
-  jsonp(API_URL+'?action=getIrai&deleted=1&_cb='+Date.now(), 'cb_list', function(res){
-    S.loading = false;
-    if(res && res.success){ applyServerList(res); }
-    else _listFailed();
-    render();
-  }, function(){ S.loading = false; _listFailed(); render(); }, 15000);
+  _listFetch.load();
+}
+// 失敗の画面の「再取得」：失敗の画面のまま取りに行き、届いたら描く（自動の取り直しと同じ経路）
+function retryList(){
+  if(_listFetch.busy()) return;
+  _listFetch.retry();
+  var b = document.getElementById('retryBtn');
+  if(b){ b.disabled = true; b.textContent = '取得中…'; }
 }
 function _listFailed(){
   S.fetchErr = true;
   if(S.view === 'loading') S.view = 'failed';
+}
+// 復帰時・回線が戻ったとき：取得中・失敗の表示中は、始めてから4秒以上たった取得を捨てて出し直す。
+// 最新を出しているときは、前回の取得から REFETCH_MS 以上なら一覧を消して取り直す
+// （詳細・入力の小窓を開いている間は取り直さない＝開いている依頼の土台を消さない）。
+function _listOnForeground(){
+  if(S.view !== 'fresh'){ _listFetch.kick(); return; }
+  if(!S.form && !S.detailId && Date.now() - S.fetchAt > REFETCH_MS) fetchList();
 }
 
 // ============ 送信の待ち行列 ============
@@ -527,8 +606,8 @@ function render(){
     return;
   }
   if(S.view === 'failed'){
-    app.innerHTML = h + '<div class="fail-box">⚠ 一覧の最新を取得できませんでした'
-      + '<button onclick="fetchList()">🔄 再取得</button>'
+    app.innerHTML = h + '<div class="fail-box">⚠ 一覧の最新を取得できませんでした<br><small>自動で再取得を続けています</small>'
+      + '<button id="retryBtn" onclick="retryList()">🔄 再取得</button>'
       + '</div>';
     return;
   }
@@ -740,12 +819,10 @@ function saveForm(){
     if(document.visibilityState !== 'visible') return;
     // 日付が変わっていれば開き直す（残り日数の表示は開いた日の日付で持っている）。入力中は触らない
     if(IraiNotice.ymd(new Date()) !== todayStr && !S.form){ location.reload(); return; }
-    // 前回の取得から REFETCH_MS 以上なら、一覧を消して取り直す。失敗の表示中も取り直す。
-    // 詳細・入力の小窓を開いている間は取り直さない（開いている依頼の土台を消さない）
-    if(!S.form && !S.detailId && (S.view !== 'fresh' || Date.now() - S.fetchAt > REFETCH_MS)) fetchList();
+    _listOnForeground();
     if(S.queue.some(function(q){ return q.failed && q.failed !== 'rejected'; })) resendAll(true);
   });
-  window.addEventListener('online', function(){ resendAll(true); });
+  window.addEventListener('online', function(){ _listOnForeground(); resendAll(true); });
   window.addEventListener('hashchange', function(){ S.hashId = readHash(); S.hashDone = false; render(); });
 })();
 </script>

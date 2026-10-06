@@ -443,6 +443,7 @@ function _beginLoad(){
   CACHED = null; SHOWN = { at:0, src:'' };
   _gasHold = null; clearTimeout(_gasHoldT);
   appliedSeq = reqSeq + 1;   // 取り直しの前に投げた要求の応答は使わない（背面に回る前の内容のため）
+  fetchGen++; _stopAutoRetry();   // 前の取得の失敗・自動の取り直しも出さない
   var rp = document.getElementById('report'); rp.innerHTML = ''; rp.style.display = 'none';
   document.getElementById('error').style.display = 'none';
   var ld = document.getElementById('loading');
@@ -488,21 +489,27 @@ function _commitGas(data){
 // attempt: 0=初回。RETRY_DELAYS.length に達したら打ち切り（=60秒ごとの自動再取得へ移行）。
 // silent=true: 自動／手動の再取得（表示中の失敗の画面はそのまま）。
 // 【2026-10-04】4秒で応答が無ければ同じ要求をもう1本出し、先に返ったほうを使う。両方だめなら失敗。
+// 【2026-10-04 失敗画面を減らす】1本目がすぐエラー（404・5xx・通信エラー・形の違う応答）で返ったら、
+// 失敗を確定せずに4秒を待たずに2本目を出す（1回の試行で最大2本）。復帰・回線切替で捨てた試行（gen が古い）は失敗を出さない。
+var fetchGen = 0;
 function _fetchAllDataFromGas(attempt, silent){
-  var seq = ++reqSeq;
+  var seq = ++reqSeq, gen = fetchGen;
   lastAttemptAt = Date.now();
-  var won = false, done = false, inflight = 0, hedgeT = null;
+  var won = false, done = false, inflight = 0, fired = 0, hedgeT = null;
   function take(d){
     if(won) return true;
     if(applyFromGas(d, seq)){ won = true; done = true; clearTimeout(hedgeT); return true; }
     return false;
   }
   function failOne(){
-    if(done || inflight > 0) return;   // もう1本がまだ返っていない
+    if(done || gen !== fetchGen) return;
+    if(fired < 2){ clearTimeout(hedgeT); hedgeT = null; fire(); return; }   // すぐエラーなら2本目
+    if(inflight > 0) return;   // もう1本がまだ返っていない
     done = true; clearTimeout(hedgeT); hedgeT = null;
     onFail();
   }
   function fire(){
+    fired++;
     inflight++;
     jsonp(API_URL+'?action=getAllData',
       function(d){ inflight--; if(!take(d)) failOne(); },
@@ -516,7 +523,7 @@ function _fetchAllDataFromGas(attempt, silent){
     if(attempt < RETRY_DELAYS.length){
       var at = Date.now();
       setTimeout(function(){
-        if(lastGasOkAt > at) return;   // 待っている間に遅れて届いた応答で成功済み
+        if(lastGasOkAt > at || gen !== fetchGen) return;   // 待っている間に遅れて届いた応答で成功済み・復帰で取り直し済み
         _fetchAllDataFromGas(attempt+1, true);
       }, RETRY_DELAYS[attempt]);
       return;
@@ -524,7 +531,7 @@ function _fetchAllDataFromGas(attempt, silent){
     _startAutoRetry();
   }
   fire();
-  hedgeT = setTimeout(function(){ hedgeT = null; if(!done) fire(); }, GAS_HEDGE_MS);
+  hedgeT = setTimeout(function(){ hedgeT = null; if(!done && gen === fetchGen && fired < 2) fire(); }, GAS_HEDGE_MS);
 }
 
 // 取得失敗の表示。数字は出さず、再取得だけを置く（前回の数字を見る手段は設けない）。
@@ -568,23 +575,28 @@ function _loadSnapshot(){
 // 【2026-09-27】従来は onload の1回だけで、開いたまま裏に回したサマリーに戻ると取り直さなかった。
 // 【2026-10-04】前回の取得から60秒以上たっていれば、数字を消して取り直す（古い表示のまま待たせない）。
 var REVALIDATE_MIN_MS = 60000;   // 直近60秒以内に取得成功していれば取り直さない
+// 【2026-10-04 失敗画面を減らす】取得中・失敗の表示中は、始めてから4秒以上たった取得を捨てて出し直す
+// （スリープ中・回線切替で宙に浮いた要求を待ち続けない。日報の納品指示と同じ）。回線が戻ったとき（online）も同じ。
 function _revalidate(){
   var now = Date.now();
-  if(VIEW === 'loading') return;
   if(VIEW === 'fresh'){
     if(now - lastGasOkAt < REVALIDATE_MIN_MS) return;
     _beginLoad();
     return;
   }
-  // 失敗の表示中：そのまま裏で取り直す（届けば最新を描く）
-  if(lastAttemptAt > lastGasOkAt && now - lastAttemptAt < GAS_TIMEOUT_MS) return;   // 取得中
-  jsonp(API_URL+'?action=getEsmarcheStatus',handleEsmarcheStatus,function(){});
-  _fetchAllDataFromGas(RETRY_DELAYS.length, true);
+  // 取得中・失敗の表示中：始めて4秒未満の取得はそのまま待つ。それ以外は捨てて出し直す（届けば最新を描く）
+  if(lastAttemptAt > lastGasOkAt && now - lastAttemptAt < GAS_HEDGE_MS) return;
+  fetchGen++;
+  appliedSeq = reqSeq + 1;   // それまでに投げた要求の応答は使わない（背面に回る前の内容のため）
+  _stopAutoRetry();
+  if(VIEW === 'failed') jsonp(API_URL+'?action=getEsmarcheStatus',handleEsmarcheStatus,function(){});
+  _fetchAllDataFromGas(0, VIEW === 'failed');
 }
 document.addEventListener('visibilitychange', function(){
   if(document.visibilityState === 'visible') _revalidate();
 });
 window.addEventListener('pageshow', function(e){ if(e.persisted) _revalidate(); });
+window.addEventListener('online', function(){ _revalidate(); });
 
 window.onload=function(){
   // 端末に残した値もスナップショットも先に描かない。GAS(getAllData)の応答で確定してから描く（上の方針）。
