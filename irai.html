@@ -130,6 +130,7 @@ details.fold .fold-body{margin-top:8px}
 <footer class="footer"><a href="https://sakae-garden.github.io/">🏠 ホームに戻る</a></footer>
 <script src="shared-stores.js"></script>
 <script src="irai-notice.js"></script>
+<script src="fetch-log.js"></script>
 <script>
 // ============================================================
 // 店舗依頼ボード（2026-10-03 杉さん決定）
@@ -159,7 +160,7 @@ var LS_DEVICE_ID  = lsKey('device_id_v1');     // 日報・配達商品情報と
 try{ localStorage.removeItem(lsKey('irai_cache_v1')); }catch(e){}
 var LS_IRAI_QUEUE = lsKey('irai_queue_v1');    // まだサーバで確認できていない操作
 var LS_IRAI_STAFF = lsKey('irai_staff_v1');    // 前回選んだ入力者
-var PAGE_BUILD = 'latest-only-20261004';       // 配信確認マーカー・保存送信ログの「画面の版」
+var PAGE_BUILD = 'fetch-log-20261006';       // 配信確認マーカー・保存送信ログの「画面の版」
 var OTHER_ID = 'other', OTHER_NAME = 'その他';
 var DEFAULT_STAFF = ['八島', '青柳', '杉', 'その他'];
 
@@ -224,10 +225,16 @@ function _auditQuery(extra){
 }
 function newId(){ return 'I' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8); }
 
+// 【2026-10-06】取得の記録（fetch-log.js。失敗・遅れを GAS の「取得記録」シートへ送る）。読み込めなかった端末では何もしない
+if(window.FetchLog) FetchLog.init({ screen:'irai', api:API_URL, test:IS_TEST_ENV, ver:PAGE_BUILD });
+function _flAttempt(action){ return window.FetchLog ? FetchLog.attempt(action) : { req:function(){ return null; }, bad:function(){}, ok:function(){}, fail:function(){}, abandon:function(){} }; }
+
 // JSONP（配達商品情報と同じ。onload でコールバック未呼出を検知、見切った後の遅延到着を opts.onLate で拾う）
+// opts.flog: 取得の記録（fetch-log.js の A.req()）。打ち切り・エラー・到着を伝えるだけで、動きは変えない。
 var cbIdx=0;
 function jsonp(url,base,onOk,onErr,timeoutMs,opts){
   opts = opts || {};
+  var fl = opts.flog || null;
   var n=base+'_'+(cbIdx++), s=document.createElement('script');
   var settled=false, disposed=false, t=null, lt=null;
   function dispose(){
@@ -238,19 +245,21 @@ function jsonp(url,base,onOk,onErr,timeoutMs,opts){
   }
   window[n]=function(d){
     clearTimeout(t);
+    if(fl) fl.arrive(settled);
     if(!settled){ settled=true; dispose(); onOk(d); return; }
     dispose();
     if(opts.onLate){ try{ opts.onLate(d); }catch(e){} }
   };
-  function failNow(){
+  function failNow(kind){
     if(settled) return;
     settled=true;
+    if(fl) fl.fail(kind);
     if(opts.onLate && opts.lateGraceMs>0){ lt=setTimeout(dispose, opts.lateGraceMs); } else { dispose(); }
     if(onErr) onErr();
   }
-  t=setTimeout(failNow, timeoutMs||30000);
-  s.onload=function(){ if(settled) return; setTimeout(function(){ if(!settled) failNow(); },200); };
-  s.onerror=function(){ failNow(); };
+  t=setTimeout(function(){ failNow('timeout'); }, timeoutMs||30000);
+  s.onload=function(){ if(settled) return; setTimeout(function(){ if(!settled) failNow('html'); },200); };
+  s.onerror=function(){ failNow('error'); };
   s.src=url+(url.indexOf('?')>-1?'&':'?')+'callback='+n;
   document.body.appendChild(s);
 }
@@ -268,18 +277,21 @@ function jsonp(url,base,onOk,onErr,timeoutMs,opts){
 // o.send(onOk, onErr, onLate, timeoutMs, lateMs) で1本出す。o.isOk(res) が真の応答を成功とする。
 // o.onData(res) は成功のとき、o.onFail() は試行が失敗したとき（自動の取り直しは続く）。
 // o.keepRetrying() が偽のときは自動の取り直しを止める（省略時は続ける）。
+// o.action は取得の記録（fetch-log.js）に書く API 名。send の6番目の引数を jsonp の opts.flog に渡す。
 function makeLatestFetcher(o){
   var T = { timeout:10000, hedge:4000, late:90000, delays:[5000, 15000], every:60000 };
-  var gen = 0, won = -1, busy = false, startedAt = 0, fails = 0, retryT = null;
+  var gen = 0, won = -1, busy = false, startedAt = 0, fails = 0, retryT = null, curA = null;
   function attempt(){
     clearTimeout(retryT); retryT = null;
     var g = gen, done = false, inflight = 0, fired = 0, hedgeT = null;
+    var A = curA = _flAttempt(o.action);
     busy = true; startedAt = Date.now();
     function take(res){
       if(g !== gen || won === g) return true;   // 捨てた世代・もう受け取った
-      if(!o.isOk(res)) return false;
+      if(!o.isOk(res)){ A.bad(res); return false; }
       won = g; fails = 0; busy = false;
       done = true; clearTimeout(hedgeT); clearTimeout(retryT); retryT = null;
+      A.ok();
       o.onData(res);
       return true;
     }
@@ -292,22 +304,24 @@ function makeLatestFetcher(o){
         retryT = setTimeout(function(){ retryT = null; if(g === gen && won !== g && (!o.keepRetrying || o.keepRetrying())) attempt(); },
           fails <= T.delays.length ? T.delays[fails-1] : T.every);
       }
+      A.fail();
       o.onFail();
     }
     function fire(){
       fired++; inflight++;
       o.send(function(res){ inflight--; if(!take(res)) failOne(); },
              function(){ inflight--; failOne(); },
-             function(res){ take(res); }, T.timeout, T.late);
+             function(res){ take(res); }, T.timeout, T.late, A.req());
     }
     fire();
     hedgeT = setTimeout(function(){ hedgeT = null; if(!done && g === gen && won !== g && fired < 2) fire(); }, T.hedge);
   }
   return {
-    load: function(){ gen++; fails = 0; attempt(); },
+    load: function(){ if(curA) curA.abandon(); gen++; fails = 0; attempt(); },
     retry: function(){ if(busy || won === gen) return; attempt(); },
     kick: function(){
       if(busy && Date.now() - startedAt < T.hedge) return;
+      if(curA) curA.abandon();
       gen++; attempt();
     },
     stop: function(){ gen++; busy = false; clearTimeout(retryT); retryT = null; },
@@ -357,8 +371,9 @@ function _listMap(res){
 // 【2026-10-04 失敗画面を減らす】取得は makeLatestFetcher（4秒・すぐエラーで2本目、遅れた応答の受け取り、
 // 失敗後は 5秒後・15秒後・以後60秒ごとに自動で取り直す）。旧：1本だけ・15秒で見切り・遅れた応答は捨て・自動の取り直しなし。
 var _listFetch = makeLatestFetcher({
-  send: function(ok, err, late, t, l){
-    jsonp(API_URL+'?action=getIrai&deleted=1&_cb='+Date.now(), 'cb_list', ok, err, t, { lateGraceMs:l, onLate:late });
+  action: 'getIrai',
+  send: function(ok, err, late, t, l, fl){
+    jsonp(API_URL+'?action=getIrai&deleted=1&_cb='+Date.now(), 'cb_list', ok, err, t, { lateGraceMs:l, onLate:late, flog:fl });
   },
   isOk: function(res){ return !!(res && res.success); },
   onData: function(res){ S.loading = false; applyServerList(res); render(); },

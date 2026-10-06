@@ -344,6 +344,7 @@ td.itbl-cell.ctl-brown{background:#fff}
 <div id="app"></div>
 <script src="shared-stores.js"></script>
 <script src="irai-notice.js"></script>
+<script src="fetch-log.js"></script>
 <script>
 var API_URL = 'https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkVvYc7V77OJrh7h_PZCqtuV4aUL7NYz83VsNc5lY6sXONw/exec';
 // ラベル在庫アラート スナップショット（夜の再計算結果。日中は固定表示）。
@@ -369,7 +370,7 @@ var LS_SANCHI_ISSUED    = lsKey('sanchi_issued_today_v1');
 // 【2026-09-29】保存と送信の記録（GAS の「保存送信ログ」シート）に付ける端末IDと画面の版。
 // 端末IDはこの端末で一度だけ作るランダムな値（haitatsu.html と同じキーを共有＝同じ端末は同じID）。
 // 氏名・電話番号などは入れない。localStorage が使えない端末では画面を開くたびに変わる。
-var PAGE_BUILD = 'nippo-nofb-20261006';   // 画面を変えて出すときに更新する（記録の「画面の版」）
+var PAGE_BUILD = 'fetch-log-20261006';   // 画面を変えて出すときに更新する（記録の「画面の版」）
 var LS_DEVICE_ID = lsKey('device_id_v1');
 var _deviceIdMemo = '';
 function _deviceId(){
@@ -387,6 +388,9 @@ function _auditQuery(extra){
   Object.keys(extra||{}).forEach(function(k){ q+='&'+k+'='+encodeURIComponent(String(extra[k])); });
   return q;
 }
+// 【2026-10-06】取得の記録（fetch-log.js。失敗・遅れを GAS の「取得記録」シートへ送る）。読み込めなかった端末では何もしない
+if(window.FetchLog) FetchLog.init({ screen:'nippo', api:API_URL, test:IS_TEST_ENV, ver:PAGE_BUILD });
+function _flAttempt(action){ return window.FetchLog ? FetchLog.attempt(action) : { req:function(){ return null; }, bad:function(){}, ok:function(){}, fail:function(){}, abandon:function(){} }; }
 
 var state = { screen:'home', route:0, store:null, formData:{}, staff:'', config:null, extraPrices:[], labelAlert:null, labelIssued:{}, labelIssuedTotal:null, manualIssueOpen:false, sanchiIssuedToday:0 };
 var today = new Date();
@@ -431,9 +435,11 @@ function getDefaultConfig() {
 // コールバックを残して拾う。短いタイムアウトで素早く確認導線に入りつつ、実際には
 // 成立していた送信を捨てずに済む。
 // settled ラッチで onOk/onErr の二重呼び出しを防ぐ。timeoutMs は呼び出し側で指定可（既定30秒）。
+// opts.flog: 取得の記録（fetch-log.js の A.req()）。打ち切り・エラー・到着を伝えるだけで、動きは変えない。
 var cbIdx=0;
 function jsonp(url,base,onOk,onErr,timeoutMs,opts) {
   opts = opts || {};
+  var fl = opts.flog || null;
   var n=base+'_'+(cbIdx++), s=document.createElement('script');
   var settled=false, disposed=false, t=null, lt=null;
   function dispose(){
@@ -444,24 +450,26 @@ function jsonp(url,base,onOk,onErr,timeoutMs,opts) {
   }
   window[n]=function(d){
     clearTimeout(t);
+    if(fl) fl.arrive(settled);
     if(!settled){ settled=true; dispose(); onOk(d); return; }
     dispose();
     if(opts.onLate){ try{ opts.onLate(d); }catch(e){} }
   };
-  function failNow(){
+  function failNow(kind){
     if(settled) return;
     settled=true;
+    if(fl) fl.fail(kind);
     if(opts.onLate && opts.lateGraceMs>0){ lt=setTimeout(dispose, opts.lateGraceMs); }
     else { dispose(); }
     if(onErr) onErr();
   }
-  t=setTimeout(failNow, timeoutMs||30000);
+  t=setTimeout(function(){ failNow('timeout'); }, timeoutMs||30000);
   s.onload=function(){
     // script は実行完了したが window[n] が呼ばれていなければ失敗扱い（HTML中間ページ等）
     if(settled) return;
-    setTimeout(function(){ if(!settled) failNow(); },200);
+    setTimeout(function(){ if(!settled) failNow('html'); },200);
   };
-  s.onerror=function(){ failNow(); };
+  s.onerror=function(){ failNow('error'); };
   s.src=url+(url.indexOf('?')>-1?'&':'?')+'callback='+n;
   document.body.appendChild(s);
 }
@@ -986,6 +994,7 @@ function applyHaitatsuDefault(id, opts) {
 var _haitatsuBgInflight = false;
 var _haitatsuGen = 0;          // 取得の世代。前面復帰で取り直したとき、古い世代の応答は捨てる
 var _haitatsuStartedAt = 0;
+var _haitatsuFlog = null;      // 取得の記録（fetch-log.js）。進行中の試行
 // 起動時に1回だけ取得する（1-5）。失敗したときだけ、少し置いて1回再試行する（1-4）。
 // 成功後は店舗を開くたびに叩き直さない。
 // 【2026-09-29】4秒で応答が無ければ同じ要求をもう1本出し、先に返ったほうを使う
@@ -997,6 +1006,7 @@ function fetchHaitatsuBackground(attempt) {
   _haitatsuStartedAt = Date.now();
   var gen = ++_haitatsuGen;
   var settled = false, inflight = 0, fired = 0, hedgeT = null;
+  var A = _haitatsuFlog = _flAttempt('getHaitatsu');
   function current(){ return !settled && gen === _haitatsuGen; }
   function fire(){
     fired++;
@@ -1005,9 +1015,10 @@ function fetchHaitatsuBackground(attempt) {
     jsonp(API_URL+'?action=getHaitatsu&_cb='+Date.now(),'cb_hai',function(res){
       inflight--;
       if(!current()) return;
-      if(res && res.success && res.items){ settled = true; clearTimeout(hedgeT); onOk(res); return; }
+      if(res && res.success && res.items){ settled = true; clearTimeout(hedgeT); A.ok(); onOk(res); return; }
+      A.bad(res);
       onFail();
-    },function(){ inflight--; if(current()) onFail(); }, HAITATSU_TIMEOUT);
+    },function(){ inflight--; if(current()) onFail(); }, HAITATSU_TIMEOUT, { flog: A.req() });
   }
   function onFail(){
     // 【2026-10-04 失敗画面を減らす】1本目がすぐエラー（404・5xx・通信エラー・形の違う応答）で返ったら、
@@ -1017,6 +1028,7 @@ function fetchHaitatsuBackground(attempt) {
     if(hedgeT){ clearTimeout(hedgeT); hedgeT = null; }
     settled = true;
     _haitatsuBgInflight = false;
+    A.fail();
     _haitatsuFetchFailed(attempt);
   }
   if(haitatsuStatus !== 'ok') { haitatsuStatus = 'loading'; _updateHaitatsuNotice(); }
@@ -1069,6 +1081,7 @@ function _haitatsuOnForeground(){
   }
   if(_haitatsuBgInflight){
     if(Date.now() - _haitatsuStartedAt < HAITATSU_HEDGE_MS) return;
+    if(_haitatsuFlog) _haitatsuFlog.abandon();
     _haitatsuGen++;
     _haitatsuBgInflight = false;
   }
@@ -1426,6 +1439,7 @@ function retryLoad() { _startLoad(); }
 function _startLoad(){
   if(!state.store) return;
   _loadClearTimers(_load);
+  if(_load && _load.flog) _load.flog.abandon();   // 取得の記録：結果を待たずに出し直した（終わっていれば何もしない）
   _load = { gen: ++_loadGen, store: state.store.name, step: 0, status: 'loading',
             startedAt: Date.now(), stepAt: Date.now(), edits: _formEdits, timers: [], doneLabel: '' };
   _loadUpdateUi();
@@ -1466,6 +1480,7 @@ function tryLoadDate(date) {
 // 見切った後も LOAD_LATE_MS の間は遅れて届いた応答を受け取る（同じ読み込み・同じ日付のときだけ）。
 function _loadAttempt(L, step, date) {
   var fired = 0, inflight = 0, over = false, hedgeT = null;
+  var A = L.flog = _flAttempt('getStoreData');
   function fire(){
     fired++; inflight++;
     var url = API_URL
@@ -1475,13 +1490,14 @@ function _loadAttempt(L, step, date) {
       + '&_cb=' + Date.now();
     jsonp(url, 'cb_load', function(res){ inflight--; onRes(res); },
       function(){ inflight--; onErr(); }, LOAD_FAIL_MS,
-      { onLate: function(res){ onRes(res); }, lateGraceMs: LOAD_LATE_MS });
+      { onLate: function(res){ onRes(res); }, lateGraceMs: LOAD_LATE_MS, flog: A.req() });
   }
   function onRes(res){
     if (!_loadLive(L, step)) return;
-    if (!res || typeof res !== 'object' || typeof res.success !== 'boolean') { onErr(); return; }   // 形の違う応答
+    if (!res || typeof res !== 'object' || typeof res.success !== 'boolean') { A.bad(res); onErr(); return; }   // 形の違う応答
     over = true;
     if (hedgeT) { clearTimeout(hedgeT); hedgeT = null; }
+    A.ok();
     _loadReceived(L, step, date, res);
   }
   function onErr(){
@@ -1489,6 +1505,7 @@ function _loadAttempt(L, step, date) {
     if (fired < 2) { if (hedgeT) { clearTimeout(hedgeT); hedgeT = null; } fire(); return; }
     if (inflight > 0) return;   // もう1本がまだ返っていない
     over = true;
+    A.fail();
     if (L.status === 'failed') return;   // 失敗の表示の後は自動では出さない（再試行ボタン・前面復帰で出し直す）
     L.timers.push(setTimeout(function(){
       if (_loadLive(L, step) && L.status !== 'failed') _loadAttempt(L, step, date);

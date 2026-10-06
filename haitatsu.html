@@ -185,6 +185,14 @@ body.has-unsaved .toast{bottom:130px}
 .zan-mini.none{background:#f2f2f2;color:#aaa}
 
 /* 全ルート総合計（編集モード最上段） */
+/* 売上（単価×数量）。編集モードの最上段。最新かどうかをぱっと見で確かめる用 */
+.uriage{background:#fff;border:1px solid var(--border);border-left:4px solid var(--green);border-radius:10px;padding:10px 14px;margin-bottom:14px;box-shadow:var(--shadow)}
+.uriage-main{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.uriage-ttl{font-size:13px;font-weight:700;color:var(--green);letter-spacing:.04em}
+.uriage-v{font-size:28px;font-weight:700;color:var(--ink);font-family:'Inter','Noto Sans JP',sans-serif;line-height:1.1}
+.uriage-sub{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:13px;color:var(--sub);margin-top:4px}
+.uriage-sub b{font-size:16px;color:var(--ink);font-family:'Inter','Noto Sans JP',sans-serif}
+.uriage-note{font-size:11px;color:#b26a00;margin-top:4px}
 .all-total{background:#fff;border:1px solid var(--border);border-left:4px solid var(--green);border-radius:10px;padding:12px 14px;margin-bottom:14px;box-shadow:var(--shadow)}
 .all-total-ttl{font-size:11px;font-weight:700;color:var(--green);letter-spacing:.08em;margin-bottom:8px}
 .all-total-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
@@ -250,6 +258,7 @@ body.has-unsaved .toast{bottom:130px}
 <footer class="footer"><a href="https://sakae-garden.github.io/">🏠 ホームに戻る</a></footer>
 <script src="shared-stores.js"></script>
 <script src="irai-notice.js"></script>
+<script src="fetch-log.js"></script>
 <script>
 var API_URL = 'https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkVvYc7V77OJrh7h_PZCqtuV4aUL7NYz83VsNc5lY6sXONw/exec';
 // スナップショット配信URL（GCS）。【2026-10-04】納品指示の表示には使わない（getHaitatsu はシートを直接読むので、
@@ -284,7 +293,7 @@ function lsKey(base){ return base + (IS_TEST_ENV ? '_test' : ''); }
 // 【2026-09-29】保存と送信の記録（GAS の「保存送信ログ」シート）に付ける端末IDと画面の版。
 // 端末IDはこの端末で一度だけ作るランダムな値（index.html と同じキーを共有＝同じ端末は同じID）。
 // 氏名・電話番号などは入れない。localStorage が使えない端末では画面を開くたびに変わる。
-var PAGE_BUILD = 'latest-only-20261004';   // 画面を変えて出すときに更新する（記録の「画面の版」）
+var PAGE_BUILD = 'fetch-log-20261006';   // 画面を変えて出すときに更新する（記録の「画面の版」）
 var LS_DEVICE_ID = lsKey('device_id_v1');
 var _deviceIdMemo = '';
 function _deviceId(){
@@ -302,6 +311,9 @@ function _auditQuery(extra){
   Object.keys(extra||{}).forEach(function(k){ q+='&'+k+'='+encodeURIComponent(String(extra[k])); });
   return q;
 }
+// 【2026-10-06】取得の記録（fetch-log.js。失敗・遅れを GAS の「取得記録」シートへ送る）。読み込めなかった端末では何もしない
+if(window.FetchLog) FetchLog.init({ screen:'haitatsu', api:API_URL, test:IS_TEST_ENV, ver:PAGE_BUILD });
+function _flAttempt(action){ return window.FetchLog ? FetchLog.attempt(action) : { req:function(){ return null; }, bad:function(){}, ok:function(){}, fail:function(){}, abandon:function(){} }; }
 
 var state = { mode:'view', route:0, data:{}, zaiko:{}, zaikoExtras:{}, zaikoDataDate:'', lastUpdated:'', dirty:false, loaded:false,
               // saveState: '' | 'saving' | 'failed' | 'unknown'（件C / 固定バーの表示に使う）
@@ -381,9 +393,11 @@ document.getElementById('hDate').textContent = today.getFullYear()+'年'+(today.
 //           成立していた保存を捨てずに済む（無駄な再送を止められる）。
 // 実測(2026-08-05, テストGAS): submit/saveHaitatsu とも p50≈3〜5秒・
 // p90≈9〜13秒。まれに 20〜70秒の外れ値と 404/HTML中間ページが出る。
+// opts.flog: 取得の記録（fetch-log.js の A.req()）。打ち切り・エラー・到着を伝えるだけで、動きは変えない。
 var cbIdx=0;
 function jsonp(url,base,onOk,onErr,timeoutMs,opts){
   opts = opts || {};
+  var fl = opts.flog || null;
   var n=base+'_'+(cbIdx++), s=document.createElement('script');
   var settled=false;   // onOk/onErr のいずれかを呼び終えた
   var disposed=false;  // 後片付け済み
@@ -396,14 +410,16 @@ function jsonp(url,base,onOk,onErr,timeoutMs,opts){
   }
   window[n]=function(d){
     clearTimeout(t);
+    if(fl) fl.arrive(settled);
     if(!settled){ settled=true; dispose(); onOk(d); return; }
     // タイムアウト後に遅れて届いた応答
     dispose();
     if(opts.onLate){ try{ opts.onLate(d); }catch(e){} }
   };
-  function failNow(){
+  function failNow(kind){
     if(settled) return;
     settled=true;
+    if(fl) fl.fail(kind);
     if(opts.onLate && opts.lateGraceMs>0){
       // script タグとコールバックは猶予時間だけ残し、遅延到着を拾えるようにする
       lt=setTimeout(dispose, opts.lateGraceMs);
@@ -412,13 +428,13 @@ function jsonp(url,base,onOk,onErr,timeoutMs,opts){
     }
     if(onErr) onErr();
   }
-  t=setTimeout(failNow, timeoutMs||45000);
+  t=setTimeout(function(){ failNow('timeout'); }, timeoutMs||45000);
   s.onload=function(){
     // script は実行完了したが window[n] が呼ばれていなければ失敗扱い
     if(settled) return;
-    setTimeout(function(){ if(!settled) failNow(); },200);
+    setTimeout(function(){ if(!settled) failNow('html'); },200);
   };
-  s.onerror=function(){ failNow(); };
+  s.onerror=function(){ failNow('error'); };
   s.src=url+(url.indexOf('?')>-1?'&':'?')+'callback='+n;
   document.body.appendChild(s);
 }
@@ -436,18 +452,21 @@ function jsonp(url,base,onOk,onErr,timeoutMs,opts){
 // o.send(onOk, onErr, onLate, timeoutMs, lateMs) で1本出す。o.isOk(res) が真の応答を成功とする。
 // o.onData(res) は成功のとき、o.onFail() は試行が失敗したとき（自動の取り直しは続く）。
 // o.keepRetrying() が偽のときは自動の取り直しを止める（省略時は続ける）。
+// o.action は取得の記録（fetch-log.js）に書く API 名。send の6番目の引数を jsonp の opts.flog に渡す。
 function makeLatestFetcher(o){
   var T = { timeout:10000, hedge:4000, late:90000, delays:[5000, 15000], every:60000 };
-  var gen = 0, won = -1, busy = false, startedAt = 0, fails = 0, retryT = null;
+  var gen = 0, won = -1, busy = false, startedAt = 0, fails = 0, retryT = null, curA = null;
   function attempt(){
     clearTimeout(retryT); retryT = null;
     var g = gen, done = false, inflight = 0, fired = 0, hedgeT = null;
+    var A = curA = _flAttempt(o.action);
     busy = true; startedAt = Date.now();
     function take(res){
       if(g !== gen || won === g) return true;   // 捨てた世代・もう受け取った
-      if(!o.isOk(res)) return false;
+      if(!o.isOk(res)){ A.bad(res); return false; }
       won = g; fails = 0; busy = false;
       done = true; clearTimeout(hedgeT); clearTimeout(retryT); retryT = null;
+      A.ok();
       o.onData(res);
       return true;
     }
@@ -460,22 +479,24 @@ function makeLatestFetcher(o){
         retryT = setTimeout(function(){ retryT = null; if(g === gen && won !== g && (!o.keepRetrying || o.keepRetrying())) attempt(); },
           fails <= T.delays.length ? T.delays[fails-1] : T.every);
       }
+      A.fail();
       o.onFail();
     }
     function fire(){
       fired++; inflight++;
       o.send(function(res){ inflight--; if(!take(res)) failOne(); },
              function(){ inflight--; failOne(); },
-             function(res){ take(res); }, T.timeout, T.late);
+             function(res){ take(res); }, T.timeout, T.late, A.req());
     }
     fire();
     hedgeT = setTimeout(function(){ hedgeT = null; if(!done && g === gen && won !== g && fired < 2) fire(); }, T.hedge);
   }
   return {
-    load: function(){ gen++; fails = 0; attempt(); },
+    load: function(){ if(curA) curA.abandon(); gen++; fails = 0; attempt(); },
     retry: function(){ if(busy || won === gen) return; attempt(); },
     kick: function(){
       if(busy && Date.now() - startedAt < T.hedge) return;
+      if(curA) curA.abandon();
       gen++; attempt();
     },
     stop: function(){ gen++; busy = false; clearTimeout(retryT); retryT = null; },
@@ -870,6 +891,47 @@ function updateRouteTotal(){
     if(el) el.textContent = e.total;
   });
 }
+// ---- 売上（単価×数量）。編集モードの最上段に出す（2026-10-06 杉さん要望）----
+// 画面の単価（¥99・¥198・¥398・¥598・臨時品目の価格）×納品数をそのまま足す。税・手数料は調整しない。
+// 対象はヤオコー店舗のみ（総合計と同じ ids）。臨時品目は納品指示（extrasOf）の数だけを数える。
+function uriageFor(ids){
+  var t = 0;
+  ids.forEach(function(id){
+    var def = STORE_DEFS[id];
+    if(!def || def.type !== 'yaoko') return;
+    var e = state.data[def.name];
+    if(e && e.prices){
+      YAOKO_PRICES.forEach(function(p){ t += _priceNum(p) * (parseInt(e.prices[p], 10) || 0); });
+    }
+    var ex = extrasOf(def.name);
+    Object.keys(ex).forEach(function(p){
+      if(YAOKO_PRICES.indexOf(p) > -1) return;
+      t += _priceNum(p) * (parseInt(ex[p], 10) || 0);
+    });
+  });
+  return t;
+}
+function uriageAllRoutes(){ return uriageFor(allYaokoIds()); }
+function uriageForRoute(r){ return uriageFor(routeYaokoIds(r)); }
+function fmtYen(n){ return '¥' + String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+function _uriageHtml(){
+  var _rlabel = (typeof ROUTES!=='undefined' && ROUTES[state.route] && ROUTES[state.route].label) || 'この経路';
+  return '<div class="uriage">'
+    + '<div class="uriage-main"><span class="uriage-ttl">💴 全ルート 売上</span><span class="uriage-v" id="uriageAll">'+fmtYen(uriageAllRoutes())+'</span></div>'
+    + '<div class="uriage-sub"><span>このルート（'+eH(_rlabel)+'）</span><b id="uriageRoute">'+fmtYen(uriageForRoute(state.route))+'</b></div>'
+    + '<div class="uriage-note" id="uriageNote"'+(state.dirty?'':' hidden')+'>（未保存の入力を含む）</div>'
+    + '</div>';
+}
+// 入力ごと・保存の前後に呼ぶ（DOM が無い＝閲覧モード等では何もしない）
+function updateUriage(){
+  var a = document.getElementById('uriageAll');
+  if(!a) return;
+  a.textContent = fmtYen(uriageAllRoutes());
+  var r = document.getElementById('uriageRoute');
+  if(r) r.textContent = fmtYen(uriageForRoute(state.route));
+  var n = document.getElementById('uriageNote');
+  if(n) n.hidden = !state.dirty;
+}
 function updateStoreSubtotal(storeName){
   var el = document.getElementById('st_'+esc(storeName));
   if(el) el.textContent = '合計 '+storeSubtotal(storeName)+'個';
@@ -1157,6 +1219,8 @@ function _renderRouteUnsafe(){
 
   // 編集モード：最上段に「全ルート総合計」＋直下に「この経路合計」（入力ミス検算用・案B上下2段）
   if(state.mode==='edit'){
+    // 売上（単価×数量）を最上段に。最新が届く前（loading/failed）はここまで来ない。
+    html += _uriageHtml();
     html += '<div class="all-total"><div class="all-total-ttl">📦 全ルート ヤオコー納品数 総合計</div><div class="all-total-grid">';
     YAOKO_PRICES.forEach(function(p){
       var v = priceTotalAllRoutes(p);
@@ -1677,6 +1741,7 @@ function _setDirty(v){
   state.dirty = !!v;
   if(state.dirty) _saveDraftSoon(); else _clearDraft();
   _updateUnsavedBar();
+  updateUriage();   // 入力はすべてここを通る（state.data を書いた後に呼ばれる）
 }
 // 固定バーの状態（件C / 2026-09-21）。
 //   ''        … 変更なし。バーを出さない
@@ -1887,13 +1952,14 @@ function _applyHaitatsuData(items, lastUpdated){
 
 // 1本出す（makeLatestFetcher の send）。_cb は途中の HTTP キャッシュに古い応答を返させないため
 function _sendJsonp(url, base){
-  return function(ok, err, late, t, l){
+  return function(ok, err, late, t, l, fl){
     jsonp(url+'&_cb='+Date.now()+'_'+Math.random().toString(36).slice(2,6), base, ok, err, t,
-      { lateGraceMs: l, onLate: late });
+      { lateGraceMs: l, onLate: late, flog: fl });
   };
 }
 
 var _latestFetch = makeLatestFetcher({
+  action: 'getHaitatsu',
   send: _sendJsonp(API_URL+'?action=getHaitatsu', 'cb_get'),
   isOk: function(res){ _applyIrai(res); return !!(res && res.success && res.items); },
   onData: function(res){ _applyLatest(res.items, res.lastUpdated || ''); },
@@ -2254,8 +2320,9 @@ function _fetchZaikoSnapshot(cb){
 // 最初の試行が _pending だけで終わったときは「取得中」のまま次の試行（5秒後）を待つ（旧：4秒後に1回だけ取り直し）。
 var _zaikoSawPending = false, _zaikoFirstTry = false;
 var _zaikoFetch = makeLatestFetcher({
-  send: function(ok, err, late, t, l){
-    _sendJsonp(API_URL+'?action=getYaokoZaiko&date='+encodeURIComponent(todayStr), 'cb_zaiko')(ok, err, late, t, l);
+  action: 'getYaokoZaiko',
+  send: function(ok, err, late, t, l, fl){
+    _sendJsonp(API_URL+'?action=getYaokoZaiko&date='+encodeURIComponent(todayStr), 'cb_zaiko')(ok, err, late, t, l, fl);
   },
   isOk: function(res){
     if(res && res._pending) _zaikoSawPending = true;

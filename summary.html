@@ -110,6 +110,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:#e8e0d0;min-height:100vh;p
 <div class="footer">栄ガーデン 配達日報システム</div>
 
 <script src="shared-stores.js"></script>
+<script src="fetch-log.js"></script>
 <script>
 var API_URL='https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkVvYc7V77OJrh7h_PZCqtuV4aUL7NYz83VsNc5lY6sXONw/exec';
 // スナップショット配信URL（GCS+CORS+publicRead）。
@@ -126,6 +127,10 @@ function lsKey(base){ return base + (IS_TEST_ENV ? '_test' : ''); }
 // 【2026-10-04 廃止】サマリーの数字を端末に残していたキー（summary_cache_v1）。
 // 前回の数字を画面に出す手段は設けない（杉さん決定 2026-10-04）ので、端末にも残さない。以前の版が残した値を消す。
 try{ localStorage.removeItem(lsKey('summary_cache_v1')); }catch(e){}
+// 【2026-10-06】取得の記録（fetch-log.js。失敗・遅れを GAS の「取得記録」シートへ送る）。読み込めなかった端末では何もしない
+var PAGE_BUILD = 'fetch-log-20261006';   // 取得の記録の「画面の版」
+if(window.FetchLog) FetchLog.init({ screen:'summary', api:API_URL, test:IS_TEST_ENV, ver:PAGE_BUILD });
+function _flAttempt(action){ return window.FetchLog ? FetchLog.attempt(action) : { req:function(){ return null; }, bad:function(){}, ok:function(){}, fail:function(){}, abandon:function(){} }; }
 var CACHED=null, currentRoute=0, userPickedDate=false;
 // 表示中のデータが「いつ時点」か。src: 'gas'（今回取得）。at: 受信時刻(ms)
 var SHOWN = { at:0, src:'' };
@@ -202,17 +207,23 @@ var cbIdx=0;
 //   従来は 45 秒で見切るとコールバックを消していたので、51 秒目に届いた最新データを捨て、
 //   端末の古いキャッシュを出したまま再試行を繰り返していた。JSONP は取り消せないので、
 //   見切った後の到着も拾う（haitatsu/index の onLate と同じ考え方）。
+// opts.flog: 取得の記録（fetch-log.js の A.req()）。打ち切り・エラー・到着を伝えるだけで、動きは変えない。
+//   この jsonp は「応答は来たがコールバックが呼ばれない（HTML 等）」で早く失敗にしないので、そのときも
+//   見切りまで待つ（従来どおり）。記録の失敗の種類だけ、見切りでなく html にする。
 function jsonp(url,ok,err,opts){
   opts=opts||{};
+  var fl=opts.flog||null, loadedNoCb=false;
   var cb='c'+(cbIdx++),s=document.createElement('script'),timedOut=false,lateT=null;
   var t=setTimeout(function(){
     timedOut=true;
+    if(fl) fl.fail(loadedNoCb?'html':'timeout');
     if(opts.lateMs&&opts.onLate) lateT=setTimeout(cl,opts.lateMs); else cl();
     if(err)err();
   },opts.timeoutMs||45000);
   function cl(){clearTimeout(t);clearTimeout(lateT);delete window[cb];if(s.parentNode)s.parentNode.removeChild(s);}
-  window[cb]=function(d){var late=timedOut;cl();if(late){if(opts.onLate)opts.onLate(d);}else ok(d);};
-  s.onerror=function(){var late=timedOut;cl();if(!late&&err)err();};
+  window[cb]=function(d){var late=timedOut;cl();if(fl)fl.arrive(late);if(late){if(opts.onLate)opts.onLate(d);}else ok(d);};
+  s.onerror=function(){var late=timedOut;cl();if(!late&&fl)fl.fail('error');if(!late&&err)err();};
+  if(fl) s.onload=function(){ setTimeout(function(){ if(!timedOut&&window[cb]) loadedNoCb=true; },200); };
   // _= は途中の HTTP キャッシュに古い応答を返させないため（GAS は未知の引数を無視する）
   s.src=url+(url.indexOf('?')>-1?'&':'?')+'callback='+cb+'&_='+Date.now();
   document.body.appendChild(s);
@@ -353,6 +364,13 @@ function handleEsmarcheStatus(d){
   if(d && !d.error) esmStatus = d;
   renderEsmStat();
 }
+// getEsmarcheStatus を1本出す（取得の記録つき。動きは従来の jsonp(…handleEsmarcheStatus, 何もしない) と同じ）
+function _fetchEsmarcheStatus(){
+  var A = _flAttempt('getEsmarcheStatus');
+  jsonp(API_URL+'?action=getEsmarcheStatus',
+    function(d){ if(d && !d.error) A.ok(); else { A.bad(d); A.fail(); } handleEsmarcheStatus(d); },
+    function(){ A.fail(); }, { flog: A.req() });
+}
 // 上段の2行：①エスマルシェの反映状況 ②この画面のデータがいつ時点か。
 // 【2026-09-27】従来は getEsmarcheStatus だけで「◯時 売上反映済み」（緑）を出していた。
 // getAllData が詰まって端末の古いキャッシュを出している間も緑のままで、
@@ -443,6 +461,7 @@ function _beginLoad(){
   CACHED = null; SHOWN = { at:0, src:'' };
   _gasHold = null; clearTimeout(_gasHoldT);
   appliedSeq = reqSeq + 1;   // 取り直しの前に投げた要求の応答は使わない（背面に回る前の内容のため）
+  if(_allFlog) _allFlog.abandon();   // 取得の記録：結果を待たずに出し直した（終わっていれば何もしない）
   fetchGen++; _stopAutoRetry();   // 前の取得の失敗・自動の取り直しも出さない
   var rp = document.getElementById('report'); rp.innerHTML = ''; rp.style.display = 'none';
   document.getElementById('error').style.display = 'none';
@@ -450,7 +469,7 @@ function _beginLoad(){
   ld.innerHTML = '<div class="spinner"></div><br>最新を取得中…'; ld.style.display = 'block';
   sel.innerHTML = '<option value="">最新を取得中…</option>'; sel.disabled = true;
   esmStatus = null; renderEsmStat();
-  jsonp(API_URL+'?action=getEsmarcheStatus',handleEsmarcheStatus,function(){});
+  _fetchEsmarcheStatus();
   _loadSnapshot();
   _fetchAllDataFromGas(0, false);
 }
@@ -492,13 +511,16 @@ function _commitGas(data){
 // 【2026-10-04 失敗画面を減らす】1本目がすぐエラー（404・5xx・通信エラー・形の違う応答）で返ったら、
 // 失敗を確定せずに4秒を待たずに2本目を出す（1回の試行で最大2本）。復帰・回線切替で捨てた試行（gen が古い）は失敗を出さない。
 var fetchGen = 0;
+var _allFlog = null;   // 取得の記録（fetch-log.js）。進行中の getAllData の試行
 function _fetchAllDataFromGas(attempt, silent){
   var seq = ++reqSeq, gen = fetchGen;
   lastAttemptAt = Date.now();
   var won = false, done = false, inflight = 0, fired = 0, hedgeT = null;
+  var A = _allFlog = _flAttempt('getAllData');
   function take(d){
     if(won) return true;
-    if(applyFromGas(d, seq)){ won = true; done = true; clearTimeout(hedgeT); return true; }
+    if(applyFromGas(d, seq)){ won = true; done = true; clearTimeout(hedgeT); A.ok(); return true; }
+    A.bad(d);
     return false;
   }
   function failOne(){
@@ -506,6 +528,7 @@ function _fetchAllDataFromGas(attempt, silent){
     if(fired < 2){ clearTimeout(hedgeT); hedgeT = null; fire(); return; }   // すぐエラーなら2本目
     if(inflight > 0) return;   // もう1本がまだ返っていない
     done = true; clearTimeout(hedgeT); hedgeT = null;
+    A.fail();
     onFail();
   }
   function fire(){
@@ -515,7 +538,7 @@ function _fetchAllDataFromGas(attempt, silent){
       function(d){ inflight--; if(!take(d)) failOne(); },
       function(){ inflight--; failOne(); },
       { timeoutMs: GAS_TIMEOUT_MS, lateMs: GAS_LATE_MS,
-        onLate: function(d){ take(d); } });
+        onLate: function(d){ take(d); }, flog: A.req() });
   }
   function onFail(){
     if(lastGasOkAt > lastAttemptAt) return;   // 別の要求（遅れて届いた分を含む）がすでに成功
@@ -586,10 +609,11 @@ function _revalidate(){
   }
   // 取得中・失敗の表示中：始めて4秒未満の取得はそのまま待つ。それ以外は捨てて出し直す（届けば最新を描く）
   if(lastAttemptAt > lastGasOkAt && now - lastAttemptAt < GAS_HEDGE_MS) return;
+  if(_allFlog) _allFlog.abandon();   // 取得の記録：結果を待たずに出し直した（終わっていれば何もしない）
   fetchGen++;
   appliedSeq = reqSeq + 1;   // それまでに投げた要求の応答は使わない（背面に回る前の内容のため）
   _stopAutoRetry();
-  if(VIEW === 'failed') jsonp(API_URL+'?action=getEsmarcheStatus',handleEsmarcheStatus,function(){});
+  if(VIEW === 'failed') _fetchEsmarcheStatus();
   _fetchAllDataFromGas(0, VIEW === 'failed');
 }
 document.addEventListener('visibilitychange', function(){
@@ -613,9 +637,11 @@ function showReport(date){
   document.getElementById('loading').innerHTML='<div class="spinner"></div><br>'+_dateLabel(date)+' のデータを取得中...';
   document.getElementById('loading').style.display='block';
   function stillShown(){ return document.getElementById('dateSelect').value===date; }
+  var A = _flAttempt('getDayData');
   jsonp(API_URL+'?action=getDayData&date='+encodeURIComponent(date),
     function(d){
       var stores=(d&&!d.error&&d.stores)||null;
+      if(stores) A.ok(); else { A.bad(d); A.fail(); }
       if(stores && CACHED && !CACHED[date]) CACHED[date]=stores;
       if(!stillShown()) return;   // 待っている間に別の日へ切り替えた
       document.getElementById('loading').style.display='none';
@@ -627,11 +653,13 @@ function showReport(date){
       render(date, stores);
     },
     function(){
+      A.fail();
       if(!stillShown()) return;
       document.getElementById('loading').style.display='none';
       document.getElementById('error').innerHTML=_dateLabel(date)+' のデータの取得に失敗しました。';
       document.getElementById('error').style.display='block';
-    }
+    },
+    { flog: A.req() }
   );
 }
 
