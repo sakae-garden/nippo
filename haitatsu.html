@@ -259,6 +259,7 @@ body.has-unsaved .toast{bottom:130px}
 <script src="shared-stores.js"></script>
 <script src="irai-notice.js"></script>
 <script src="fetch-log.js"></script>
+<script src="unsent-notice.js"></script>
 <script>
 var API_URL = 'https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkVvYc7V77OJrh7h_PZCqtuV4aUL7NYz83VsNc5lY6sXONw/exec';
 // スナップショット配信URL（GCS）。【2026-10-04】納品指示の表示には使わない（getHaitatsu はシートを直接読むので、
@@ -286,14 +287,15 @@ function lsKey(base){ return base + (IS_TEST_ENV ? '_test' : ''); }
 // 【2026-10-04 廃止】納品数・残在庫/販売数を端末に残していたキー（haitatsu_cache_v2・haitatsu_latest・
 // zaiko_cache_v1）。前回の数字を画面に出す手段は設けない（杉さん決定 2026-10-04）ので、端末にも残さない。
 // 起動時に、以前の版が残した値を消す（index.html も haitatsu_latest を消す）。
-// 未保存の入力の退避（下書き）は数字の先出しではないので、引き続き端末に残す。
-['haitatsu_cache_v2','haitatsu_latest','zaiko_cache_v1'].forEach(function(k){
+// 【2026-10-06 廃止】保存ボタンを押していない入力の下書き（haitatsu_draft_v1）。アプリを消したら破棄する
+// （杉さん要望 2026-10-06）。以前の版が残した下書きもここで消す。保存ボタンを押した分の退避（haitatsu_pending_v1）は残す。
+['haitatsu_cache_v2','haitatsu_latest','zaiko_cache_v1','haitatsu_draft_v1'].forEach(function(k){
   try{ localStorage.removeItem(lsKey(k)); }catch(e){}
 });
 // 【2026-09-29】保存と送信の記録（GAS の「保存送信ログ」シート）に付ける端末IDと画面の版。
 // 端末IDはこの端末で一度だけ作るランダムな値（index.html と同じキーを共有＝同じ端末は同じID）。
 // 氏名・電話番号などは入れない。localStorage が使えない端末では画面を開くたびに変わる。
-var PAGE_BUILD = 'fetch-log-20261006';   // 画面を変えて出すときに更新する（記録の「画面の版」）
+var PAGE_BUILD = 'no-restore-20261006';   // 画面を変えて出すときに更新する（記録の「画面の版」）
 var LS_DEVICE_ID = lsKey('device_id_v1');
 var _deviceIdMemo = '';
 function _deviceId(){
@@ -316,7 +318,7 @@ if(window.FetchLog) FetchLog.init({ screen:'haitatsu', api:API_URL, test:IS_TEST
 function _flAttempt(action){ return window.FetchLog ? FetchLog.attempt(action) : { req:function(){ return null; }, bad:function(){}, ok:function(){}, fail:function(){}, abandon:function(){} }; }
 
 var state = { mode:'view', route:0, data:{}, zaiko:{}, zaikoExtras:{}, zaikoDataDate:'', lastUpdated:'', dirty:false, loaded:false,
-              // saveState: '' | 'saving' | 'failed' | 'unknown'（件C / 固定バーの表示に使う）
+              // saveState: '' | 'saving'（件C / 固定バーの表示に使う。'failed'・'unknown' は 2026-10-06 に廃止）
               saveState:'',
               zaikoLoaded:false, zaikoLoading:false, zaikoError:false, zaikoFetched:false,
               // 【2026-08-16 追加】スナップショットを「初期表示用」、GAS getYaokoZaiko を
@@ -368,8 +370,6 @@ var yesterdayStr = (function(){
 // entry.extrasUntil（品目ごとの終了日。GAS が保存・読み出しする）は、この画面では常に ''（消すまで）で送る。
 // index.html の自動入力は _extraAliveOn（終了日が入っていれば除外）のままだが、終了日が入らないので全品目が対象。
 // extrasDate（臨時品目のセットを起こした日）は見出しの「追加から◯日」に使う。extrasTouched は旧版の画面のため。
-// _dAlive は下書きの有効期限（当日・前日）だけに使う。
-function _dAlive(d){ return !!d && String(d).slice(0,10) >= yesterdayStr; }
 // 保存の照合用（終了日の読み取り。画面の判定には使わない）
 function _extraUntil(e, price){
   var u = e && e.extrasUntil;
@@ -945,7 +945,6 @@ function switchRoute(i){
     }
   }
   state.route=i;
-  if(state.dirty) _saveDraftSoon();   // 下書きの route も追随させる
   for(var j=0;j<ROUTES.length;j++){ var t=document.getElementById('tab'+j); if(t) t.classList.toggle('active',j===i); }
   renderRoute();
 }
@@ -970,7 +969,7 @@ function toggleMode(){
       return;
     }
     state.data = JSON.parse(JSON.stringify(state.origData||{}));
-    _setDirty(false);   // 変更を捨てたので端末の下書きも破棄する
+    _setDirty(false);   // 変更を捨てた
   }
   var toEdit = (state.mode==='view');
   state.mode = (toEdit?'edit':'view');
@@ -1361,7 +1360,7 @@ var SAVE_LATE_GRACE   = 25000;// 見切った後に遅延到着を拾う猶予(m
 var VERIFY_WAIT       = 700;  // 失敗検知からサーバ確認までの待ち(ms)
 var VERIFY_TIMEOUT    = 8000; // 保存確認(getHaitatsu)のタイムアウト(ms)
 var SAVE_DEADLINE     = 20000;// 新しい試行を始めてよい上限(ms)。超えたらバナーへ
-var SAVE_RECHECK_MS   = [6000, 15000];  // バナー後の自動再確認タイミング(ms)
+var SAVE_RECHECK_MS   = [15000];  // 見切った後、裏での照合・送り直しを始めるまで(ms)。以後3分ごと（BG_EVERY）
 var LS_HAITATSU_PENDING = lsKey('haitatsu_pending_v1');
 
 // 保存セッション。1回の「保存」操作に属する試行・確認・遅延到着をまとめ、
@@ -1394,18 +1393,21 @@ function _elapsed(sess){ return Date.now() - sess.t0; }
 //     層2 下書き（haitatsu_draft_v1）は確認が取れるまで消さない
 //     層3 失敗が確定したら固定バーを「保存できませんでした」＋再送に変える
 //     層4 次回起動時にサーバと照合してから下書きバナーを出す（_verifyLocalStateThenBanner）
+// 【2026-10-06 杉さん要望：再送・復元の表示をやめる】
+//   ・下書き（層2）は廃止。保存ボタンを押していない入力は、アプリを消したら破棄する
+//   ・押した分の退避（層1）は残す。届いたか確かめられなければ、固定バーの「再送する」・赤い帯は出さず、
+//     裏で照合して送り直す（_bg*）。何度送っても届かないときだけ目立たない一行（unsent-notice.js）
+//   ・サーバが受け付けなかった（success:false）ときは、その場で知らせて「未保存」に戻す（再送しても変わらないため）
 function doSave(){
   // 臨時品目には必ず extrasUntil を付けて送る（GAS はこれで「until を知っている画面」と判断する）
   var payload = _normExtras(JSON.parse(JSON.stringify(state.data || {})));
   // 【最優先】送信を始める前に端末へ退避する。この時点以降、通信・タブ閉じ・
-  // 端末再起動のいずれが起きても入力内容は失われない。
-  _writePending(payload);
-  _writeDraftNow();          // 下書きも確定させる（dirty を落とす前に書くこと）
+  // 端末再起動のいずれが起きても、押した内容は裏で送り直される。
   _sessEnd(_saveSess);
   var sess = _newSaveSession(payload);
+  _writePending(payload, sess.id);
   _saveSess = sess;
-  // 応答を待たずに画面を解放する。dirty は落とすが下書きは残す
-  // （_setDirty(false) だと下書きまで消えるので、ここでは使わない）。
+  // 応答を待たずに画面を解放する。
   state.saveState = 'saving';
   state.dirty = false;
   state.origData = JSON.parse(JSON.stringify(payload));
@@ -1470,9 +1472,9 @@ function _saveSucceeded(payload, toastMsg){
   hideLoading();
   _clearPending();
   state.saveState = '';
-  // 保存中に人がまた入力していたら、その下書きは消さない（新しい入力を守る）。
+  // 保存中に人がまた入力していたら、未保存のまま残す（新しい入力を守る）。
   if(state.dirty){ _updateUnsavedBar(); }
-  else           { _setDirty(false); }   // 下書きを破棄し、固定バーを消す
+  else           { _setDirty(false); }   // 固定バーを消す
   state.origData = JSON.parse(JSON.stringify(payload));
   state.lastUpdated = _nowStamp();
   state.freshAt = Date.now();   // サーバが保存を受け付けた＝この内容が最新
@@ -1499,19 +1501,20 @@ function _doSaveAttempt(attempt, payload, sess){
   jsonp(url, 'cb_save', function(res){
     if(!_sessAlive(sess)) return;
     if(res && res.success){
-      _saveSucceeded2(sess, payload, attempt>0 ? ('✅ 保存しました（再送'+attempt+'回で成功）') : '✅ 保存しました（'+res.saved+'件）');
+      _saveSucceeded2(sess, payload, '✅ 保存しました（'+res.saved+'件）');
     } else if(res && res.retryable){
       // GAS 側が ScriptLock を取れなかった（他の処理と競合）。
       // 書き込みは行われていないので確認を挟まず、短い間隔ですぐ再送する。
       _retryOrGiveUp(attempt, payload, 'サーバ混雑', sess);
     } else {
       // GAS が応答した success:false はデータ起因（invalid data 等）で、
-      // 同じ data を再送しても結果は変わらない。行は書かれていないので failed に確定。
+      // 同じ data を再送しても結果は変わらない。行は書かれていないので、その場で知らせて未保存に戻す
+      // （画面の値はそのまま。もう一度「保存する」を押せる。2026-10-06 から再送ボタンは出さない）。
       _sessEnd(sess);
       hideLoading();
-      state.saveState = 'failed';
-      _writePending(payload);
-      _updateUnsavedBar();
+      _clearPending();
+      state.saveState = '';
+      _setDirty(true);
       showToast('⚠ 保存に失敗しました'+((res&&res.error)?('：'+res.error):''));
     }
   }, function(){
@@ -1576,113 +1579,163 @@ function _retryOrGiveUp(attempt, payload, reason, sess, outcome){
     _updateUnsavedBar();
     _sessTimer(sess, function(){ _doSaveAttempt(attempt+1, payload, sess); }, SAVE_RETRY_WAIT);
   } else {
-    _giveUpToBanner(payload, reason, sess, outcome);
+    _giveUpToBackground(sess);
   }
 }
 
-// 見切り。入力は退避済みなので失われない。以降はバックグラウンドで
-// 「実は保存されていた」を拾いにいき、拾えたらバナーを自動で消す。
-// 【件C】alert で操作を止めるのをやめ、固定バーに倒す。
-// outcome: 'notsaved'（サーバの値と一致しないと確定）/ 'unknown'（確認できず）
-function _giveUpToBanner(payload, reason, sess, outcome){
+// 見切り。押した内容は退避済み。【2026-10-06】固定バーの「再送する」・帯・トーストは出さず、
+// 画面は保存できたときと同じ見た目に戻して、照合と送り直しは裏（_bg*）に任せる。
+function _giveUpToBackground(sess){
   _sessEnd(sess);
   hideLoading();
-  _writePending(payload);
-  state.saveState = (outcome === 'notsaved') ? 'failed' : 'unknown';
+  state.saveState = '';
   _updateUnsavedBar();
-  _updatePendingBanner();
-  _scheduleRecheck(payload);
-  showToast(state.saveState === 'failed'
-    ? '⚠ 保存できませんでした（'+reason+'）。下の再送ボタンでやり直せます'
-    : '⚠ 保存を確認できませんでした（'+reason+'）。入力は端末に残しています');
-}
-
-// バナーへ倒した後の自動再確認。GAS の応答が数十秒遅れて成立するケースを
-// ユーザーの操作なしで回収する（配達員・担当者を待たせない）。
-var _recheckTimers = [];
-function _scheduleRecheck(payload, delaysMs){
-  _recheckTimers.forEach(function(h){ clearTimeout(h); });
-  _recheckTimers = (delaysMs || SAVE_RECHECK_MS).map(function(ms){
-    return setTimeout(function(){
-      if(!_readPending()) return;   // 既に解消済み
-      jsonp(API_URL+'?action=getHaitatsu&_cb='+Date.now(), 'cb_recheck', function(res){
-        _applyIrai(res);
-        if(!_readPending()) return;
-        if(!(res && res.success && _payloadMatches(res.items, payload))) return;
-        _clearPending();
-        state.saveState = '';
-        _updateUnsavedBar();
-        // 画面状態の更新は最新を表示しているときだけ（取得中・取得失敗の表示に横入りして
-        // 描画を壊さないようにする）。それ以外はバナー解消のみで十分。
-        if(state.view === 'fresh'){
-          _setDirty(false);
-          state.origData = JSON.parse(JSON.stringify(payload));
-          state.lastUpdated = _nowStamp();
-          state.freshAt = Date.now();
-          renderRoute();
-        }
-        showToast('✅ 保存が確認できました');
-      }, function(){}, VERIFY_TIMEOUT);
-    }, ms);
-  });
+  _bgArm(SAVE_RECHECK_MS[0]);
 }
 
 // セッション付きの成功確定。二重確定を防ぎつつ既存の成功処理へ委譲する。
 function _saveSucceeded2(sess, payload, msg){
   _sessEnd(sess);
-  _recheckTimers.forEach(function(h){ clearTimeout(h); });
-  _recheckTimers = [];
   _saveSucceeded(payload, msg);
 }
 
-// ---- 未送信入力の退避と再送導線 ----
-function _writePending(payload){
-  try {
-    localStorage.setItem(LS_HAITATSU_PENDING, JSON.stringify({ items: payload, at: _nowStamp() }));
-  } catch(e){}
+// ---- 保存ボタンを押した内容の退避 ----
+// { items: 送った内容, at: 押した時刻（'YYYY-MM-DD HH:MM:SS'）, first: 押した時刻(ms), tries: 送った回（その場の保存＝1）,
+//   req: 保存の操作ID（保存送信ログの reqId）, stop: ''／'rejected'（受け付けられなかった） }
+function _writePending(payload, req){
+  _savePendingObj({ items: payload, at: _nowStamp(), first: Date.now(), tries: 1, req: req || '', stop: '' });
+}
+function _savePendingObj(o){
+  try { localStorage.setItem(LS_HAITATSU_PENDING, JSON.stringify(o)); } catch(e){}
 }
 function _clearPending(){
   try { localStorage.removeItem(LS_HAITATSU_PENDING); } catch(e){}
-  var el = document.getElementById('pending_notice');
-  if(el && el.parentNode) el.parentNode.removeChild(el);
 }
 function _readPending(){
   try {
     var raw = localStorage.getItem(LS_HAITATSU_PENDING);
     if(!raw) return null;
     var o = JSON.parse(raw);
-    return (o && o.items) ? o : null;
+    if(!o || !o.items) return null;
+    // 2026-10-06 より前の版の退避（items と at だけ）は、at から押した時刻を補う
+    if(!o.first){ var t = new Date(String(o.at||'').replace(' ', 'T')).getTime(); o.first = isNaN(t) ? Date.now() : t; }
+    if(!o.tries) o.tries = 1;
+    return o;
   } catch(e){ return null; }
 }
-function _updatePendingBanner(){
+
+// ---- 裏での照合と送り直し（2026-10-06）----
+// 画面には何も出さない。サーバの値と一致すれば消す。一致しなければ同じ内容を送り直す。
+// ただし押した後に別の保存（ほかの端末・この端末の後の保存）があれば、上書きしないよう送り直さない
+// （saveHaitatsu は全店舗の最新1セットを上書きするため、古い内容で新しい保存を戻してしまう）。
+// 照合と送り直しは、起動直後の最新の受け取り・見切りの15秒後・以後3分ごと・前面復帰・電波復帰で行う。
+// 【2026-10-06 追補】照合（getHaitatsu）が失敗・応答なしでも「届いていない」とは数えない（次の照合を予約するだけ）。
+// 一行の回数は「照合でサーバの値と違うと確定して送り直した回数」（tries−1）。24時間の条件は、この画面で照合を終えた後だけ（_bgSeen）。
+// 押した後に別の保存があった（superseded）ものは、押した分が届いていた可能性もあり確かめようがないので、黙って消す。
+var BG_EVERY = 180000;
+var _bgTimer = null, _bgBusy = false, _bgStartup = true, _bgSeen = false;
+// unsent-notice.js を読み込めなかった端末：送り直しは続け、一行は出さない
+function _un(){
+  return window.Unsent || { RESEND:true, due:function(){ return false; }, expired:function(){ return false; },
+                            md:function(v){ return String(v||''); }, render:function(){} };
+}
+function _bgArm(ms){
+  clearTimeout(_bgTimer); _bgTimer = null;
   var p = _readPending();
-  var el = document.getElementById('pending_notice');
-  if(!p){ if(el && el.parentNode) el.parentNode.removeChild(el); return; }
-  if(!el){
-    el = document.createElement('div');
-    el.id = 'pending_notice';
-    el.style.cssText = 'background:#fdecea;color:#b71c1c;border:1px solid #ef9a9a;border-radius:8px;padding:8px 10px;margin:0 16px 8px;font-size:12px;text-align:center;font-weight:600';
-    var app = document.getElementById('app');
-    if(app && app.parentNode) app.parentNode.insertBefore(el, app);
+  if(!p || p.stop) return;
+  _bgTimer = setTimeout(_bgRun, ms == null ? BG_EVERY : ms);
+}
+function _bgRun(){
+  _bgTimer = null;
+  var p = _readPending();
+  if(!p || p.stop){ _updateUnsentLine(); return; }
+  if(_bgBusy || _sessAlive(_saveSess)){ _bgArm(); return; }   // その場の保存が進行中なら任せる
+  _bgBusy = true;
+  jsonp(API_URL+'?action=getHaitatsu&_cb='+Date.now(), 'cb_bgchk', function(res){
+    _applyIrai(res);
+    _bgBusy = false; _bgSeen = true;
+    if(res && res.success && res.items) _bgDecide(p, res.items, res.lastUpdated || '', _bgReload);
+    else { _bgArm(); _updateUnsentLine(); }
+  }, function(){ _bgBusy = false; _bgSeen = true; _bgArm(); _updateUnsentLine(); }, VERIFY_TIMEOUT);
+}
+// サーバの値（items・lastUpdated）と退避を突き合わせて決める。done(kind)：'match'／'resent'／'other'
+function _bgDecide(p, items, lastUpdated, done){
+  var cur = _readPending();
+  if(!cur || cur.req !== p.req || cur.stop){ _updateUnsentLine(); return done('other'); }
+  _bgSeen = true;
+  if(_payloadMatches(items, cur.items)){ _bgDelivered(cur.req); return done('match'); }
+  if(lastUpdated && lastUpdated > cur.at){
+    // 後から別の保存があった：送り直すと新しい保存を古い内容で戻してしまう。届いていたかも確かめられないので黙って消す
+    _bgDelivered(cur.req);
+    return done('other');
   }
-  el.innerHTML = '⚠️ 未送信の入力があります（'+eH(p.at||'')+'）'
-    +' <button onclick="resendPending()" style="margin-left:6px;background:#b71c1c;color:#fff;border:none;border-radius:6px;padding:5px 12px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">再送する</button>'
-    +' <button onclick="discardPending()" style="margin-left:4px;background:none;border:1px solid #ef9a9a;border-radius:6px;padding:5px 10px;font-family:inherit;font-size:12px;color:#b71c1c;cursor:pointer">破棄</button>';
+  _bgSend(cur, done);
 }
-function resendPending(){
-  var p = _readPending();
-  if(!p){ _updatePendingBanner(); return; }
-  // 【2026-10-04】最新が確定する前は画面の土台が無い（取得中・取得失敗）。最新が届いてから送り直す
-  if(state.view !== 'fresh'){ showToast('最新の取得が済んでから再送してください'); return; }
-  state.data = _normExtras(JSON.parse(JSON.stringify(p.items)));
-  _setDirty(true);
-  renderRoute();
-  doSave();
+function _bgSend(cur, done){
+  cur.tries = (cur.tries || 1) + 1;
+  _savePendingObj(cur);
+  _updateUnsentLine();
+  _bgBusy = true;
+  var fin = false;
+  function end(kind){
+    if(fin) return; fin = true; _bgBusy = false;
+    if(kind === 'ok') _bgDelivered(cur.req); else { _bgArm(); _updateUnsentLine(); }
+    done(kind === 'ok' ? 'resent' : 'other');
+  }
+  var url = API_URL+'?action=saveHaitatsu&data='+encodeURIComponent(JSON.stringify(cur.items))+'&_cb='+Date.now();
+  try{ url += '&reqId='+encodeURIComponent(cur.req || '') + _auditQuery({ via:'jsonp', why:'auto', n:cur.tries }); }catch(e){}
+  jsonp(url, 'cb_bgsave', function(res){
+    if(res && res.success) return end('ok');
+    if(res && res.success === false && !res.retryable){
+      var o = _readPending();
+      if(o && o.req === cur.req){ o.stop = 'rejected'; o.reason = String(res.error || ''); _savePendingObj(o); _updateUnsentLine(); }
+    }
+    end('fail');
+  }, function(){ end('fail'); }, SAVE_TIMEOUT, {
+    lateGraceMs: SAVE_LATE_GRACE,
+    onLate: function(res){ if(res && res.success) _bgDelivered(cur.req); }
+  });
 }
-function discardPending(){
-  if(!confirm('未送信の入力を破棄します。よろしいですか？')) return;
+function _bgDelivered(req){
+  var cur = _readPending();
+  if(!cur || cur.req !== req) return;
   _clearPending();
-  showToast('未送信の入力を破棄しました');
+  clearTimeout(_bgTimer); _bgTimer = null;
+  _updateUnsentLine();
+}
+// 送り直しが届いたら、画面を黙って最新に直す（入力中・保存中・取得中は触らない）
+function _bgReload(kind){
+  if(kind === 'other') return;
+  if(state.view === 'fresh' && !state.dirty && !state.saveState) _latestFetch.load();
+}
+// 起動直後の最新の受け取り：退避があれば、先に照合・送り直しを済ませてから描く
+// （古い土台のまま編集に入って、押した内容を上書きしないため。待つ間は「最新を取得中…」のまま）。
+// 戻り値 true＝こちらで引き取った
+function _bgHoldLatest(res){
+  if(!_bgStartup) return false;
+  _bgStartup = false;
+  var p = _readPending();
+  if(!p || p.stop || _bgBusy) return false;
+  _bgDecide(p, res.items, res.lastUpdated || '', function(kind){
+    if(kind === 'resent') _latestFetch.load();
+    else _applyLatest(res.items, res.lastUpdated || '');
+  });
+  return true;
+}
+// 起動時：7日を過ぎた退避は消す。設定で「送り直さない」なら残っている分を消す
+function _bgTidy(){
+  var un = _un(), p = _readPending();
+  if(p && (!un.RESEND || un.expired(p.first))) _clearPending();
+}
+// 何度送っても届かないときだけ、目立たない一行（出す条件・出す／出さないは unsent-notice.js）
+function _updateUnsentLine(){
+  var un = _un(), p = _readPending(), lines = [];
+  if(p && un.due(p.first, (p.tries || 1) - 1, p.stop === 'rejected', Date.now(), _bgSeen)){
+    var who = un.md(p.first) + ' ' + String(p.at||'').slice(11, 16) + ' の配達商品情報の保存';
+    lines.push(p.stop === 'rejected' ? who + 'をサーバが受け付けませんでした' + (p.reason ? '（' + p.reason + '）' : '')
+             :                         who + 'がサーバに届いていません');
+  }
+  un.render(lines);
 }
 
 // ============ 未保存の入力を守る（固定バー＋3層）============
@@ -1699,47 +1752,12 @@ function discardPending(){
 // 上書きされる事故が過去にあり、そのときの対処が「保存ボタンを押さないでください」
 // という周知だった。自動送信はその避難路を潰すため入れない。下書きは端末内に
 // 留め、サーバへ書くのは人が保存ボタンを押したときだけ。
-var LS_HAITATSU_DRAFT = lsKey('haitatsu_draft_v1');
+// 【2026-10-06 廃止】層1（下書きの自動退避 haitatsu_draft_v1）と層3（次回起動時の復元バナー）。
+// 保存ボタンを押していない入力は、アプリを消したら破棄する（杉さん要望）。固定バーと離脱警告（層2）は残す。
 
-// ---- 層1: 下書きの自動退避 ----
-var _draftTimer = null;
-function _writeDraftNow(){
-  if(_draftTimer){ clearTimeout(_draftTimer); _draftTimer = null; }
-  if(!state.dirty || state.mode !== 'edit') return;   // 閲覧モードでは一切書かない
-  try {
-    localStorage.setItem(LS_HAITATSU_DRAFT, JSON.stringify({
-      date:  todayStr,          // 復元可否の判定に使う（当日/前日のみ）
-      route: state.route,       // 復元後に開く経路タブ
-      items: state.data || {},  // 入力値（全店舗ぶん。saveHaitatsu へ送るのと同じ形）
-      at:    _nowStamp()        // 退避時刻
-    }));
-  } catch(e){ /* 容量超等は無視。固定バーと離脱警告は残る */ }
-}
-function _saveDraftSoon(){
-  if(_draftTimer) clearTimeout(_draftTimer);
-  _draftTimer = setTimeout(_writeDraftNow, 300);   // 連打入力でのJSON化を間引く
-}
-function _clearDraft(){
-  if(_draftTimer){ clearTimeout(_draftTimer); _draftTimer = null; }
-  try { localStorage.removeItem(LS_HAITATSU_DRAFT); } catch(e){}
-}
-function _readDraft(){
-  try {
-    var raw = localStorage.getItem(LS_HAITATSU_DRAFT);
-    if(!raw) return null;
-    var o = JSON.parse(raw);
-    if(!o || !o.items || typeof o.items !== 'object') return null;
-    // 復元対象は当日または前日の下書きだけ。それより古いものは自動破棄する。
-    // 判定は _dAlive（前夜入力→翌日配達の運用に合わせた規則。臨時品目の判定には 2026-09-29 から使っていない）。
-    if(!_dAlive(o.date)){ _clearDraft(); return null; }
-    return o;
-  } catch(e){ return null; }
-}
-
-// state.dirty の変更は必ずここを通す。固定バー・下書きと状態がずれないようにする。
+// state.dirty の変更は必ずここを通す。固定バーと状態がずれないようにする。
 function _setDirty(v){
   state.dirty = !!v;
-  if(state.dirty) _saveDraftSoon(); else _clearDraft();
   _updateUnsavedBar();
   updateUriage();   // 入力はすべてここを通る（state.data を書いた後に呼ばれる）
 }
@@ -1747,13 +1765,10 @@ function _setDirty(v){
 //   ''        … 変更なし。バーを出さない
 //   'dirty'   … 未保存の変更がある → 保存ボタン
 //   'saving'  … 送信中／確認中。画面は止めない → ボタンなし
-//   'failed'  … サーバに保存されていないと確定 → 再送ボタン
-//   'unknown' … 照合自体ができなかった（保存済みか不明）→ 再送ボタン
-// 「保存できませんでした」と「確認できませんでした」を分けるのは、
-// 通信失敗を『保存されていない』と断定しないため（日報側と同じ方針）。
+// 【2026-10-06】'failed'（保存できませんでした）／'unknown'（確認できませんでした）＋「再送する」は廃止。
+// 届いたか確かめられないものは裏で送り直す（_bg*）。
 function _saveBarState(){
-  var st = state.saveState;
-  return (st === 'saving' || st === 'failed' || st === 'unknown') ? st : '';
+  return state.saveState === 'saving' ? 'saving' : '';
 }
 function _updateUnsavedBar(){
   var bar = document.getElementById('unsavedBar');
@@ -1767,37 +1782,16 @@ function _updateUnsavedBar(){
   var act = document.getElementById('unsavedAct');
   if(!lbl || !act) { if(show) document.body.classList.add('has-unsaved'); else document.body.classList.remove('has-unsaved'); return; }
   if(dirty){
-    // 保存中／失敗中でも、その後に入力があれば「いま画面にある値を保存する」が要る。
-    // 退避した古い payload を再送するボタンに置き換えてはいけない。
-    lbl.textContent = (st === 'saving')  ? '● 未保存（前の保存を送信中…）'
-                    : (st === 'failed')  ? '⚠ 保存できませんでした・未保存'
-                    : (st === 'unknown') ? '⚠ 保存を確認できませんでした・未保存'
-                    :                      '● 未保存';
+    // 保存中でも、その後に入力があれば「いま画面にある値を保存する」が要る。
+    lbl.textContent = (st === 'saving') ? '● 未保存（前の保存を送信中…）' : '● 未保存';
     act.innerHTML = '<button class="save-btn" onclick="doSave()">💾 保存する</button>';
   } else if(st === 'saving'){
     lbl.textContent = '● 保存中…';
     act.innerHTML = '';
-  } else if(st === 'failed'){
-    lbl.textContent = '⚠ 保存できませんでした';
-    act.innerHTML = '<button class="save-btn retry-btn" onclick="retrySave()">🔄 再送する</button>';
-  } else if(st === 'unknown'){
-    lbl.textContent = '⚠ 保存を確認できませんでした';
-    act.innerHTML = '<button class="save-btn retry-btn" onclick="retrySave()">🔄 再送する</button>';
   }
   // 文書末尾が固定バーに隠れないよう本文の下端余白を増やす／戻す
   if(show) document.body.classList.add('has-unsaved');
   else     document.body.classList.remove('has-unsaved');
-}
-// 固定バーからの再送。送る中身は退避した payload そのままで、一切加工しない。
-function retrySave(){
-  var pd = _readPending();
-  var payload = (pd && pd.items) ? pd.items : JSON.parse(JSON.stringify(state.data || {}));
-  _sessEnd(_saveSess);
-  var sess = _newSaveSession(payload);
-  _saveSess = sess;
-  state.saveState = 'saving';
-  _updateUnsavedBar();
-  _doSaveAttempt(0, payload, sess);
 }
 
 // ---- 層2: 離脱時の警告 ----
@@ -1811,25 +1805,21 @@ function retrySave(){
 //       アプリ終了では発火しない。さらに標準ダイアログは文言を差し替えられず、
 //       独自ボタンも置けない仕様（Chrome）。
 // したがって役割を分ける:
-//   下書きの確定書き込み   → visibilitychange(hidden) ＋ pagehide（確実な側）
 //   アプリ内リンクでの離脱 → 自前モーダル（＝その場で保存できるボタンを置ける）
 //   タブを閉じる/戻る/リロード → beforeunload の標準ダイアログ（保険）
 //   常時の警告             → 固定バー .unsaved-bar 自体（保存ボタン付き）
+// 【2026-10-06】アプリを消したとき（visibilitychange hidden）の下書きの書き込みは廃止（アプリを消したら破棄）。
 var _pendingLeaveHref = null;   // 「保存してから移動」の待ち先
 var _leaving = false;           // 自前導線での離脱中。beforeunload を二重に出さない
 
 document.addEventListener('visibilitychange', function(){
-  if(document.visibilityState === 'hidden'){
-    _writeDraftNow();          // ここが最後の確実な機会。間引きを飛ばして即書く
-  } else {
+  if(document.visibilityState !== 'hidden'){
     _updateUnsavedBar();       // 復帰時に未保存なら保存ボタン付きバーを出し直す
   }
 });
-window.addEventListener('pagehide', function(){ _writeDraftNow(); });
 window.addEventListener('beforeunload', function(e){
   if(_leaving) return;                                  // 自前モーダルで合意済み
   if(!(state.dirty && state.mode === 'edit')) return;   // 変更が無ければ警告しない
-  _writeDraftNow();
   e.preventDefault();
   e.returnValue = '';
   return '';
@@ -1851,7 +1841,7 @@ function _showLeaveModal(href){
   var ov = document.createElement('div');
   ov.className = 'price-modal-ov';
   ov.innerHTML = '<div class="price-modal"><div class="price-modal-ttl">未保存の変更があります</div>'
-    + '<div class="leave-modal-msg">保存せずに移動すると、入力した内容はサーバに反映されません。<br>下書きは端末に残るので、次回起動時に復元できます。</div>'
+    + '<div class="leave-modal-msg">保存せずに移動すると、入力した内容は破棄されます。</div>'
     + '<div class="leave-modal-btns">'
     + '<button type="button" class="leave-save">💾 保存してから移動</button>'
     + '<button type="button" class="leave-go">保存せずに移動</button>'
@@ -1860,65 +1850,10 @@ function _showLeaveModal(href){
   document.body.appendChild(ov);
   function close(){ if(ov.parentNode) ov.parentNode.removeChild(ov); }
   ov.querySelector('.leave-save').onclick   = function(){ close(); _pendingLeaveHref = href; doSave(); };
-  ov.querySelector('.leave-go').onclick     = function(){ close(); _writeDraftNow(); _leaving = true; window.location.href = href; };
+  ov.querySelector('.leave-go').onclick     = function(){ close(); _leaving = true; window.location.href = href; };
   ov.querySelector('.leave-cancel').onclick = function(){ close(); };
   ov.addEventListener('click', function(e){ if(e.target === ov) close(); });
 }
-
-// ---- 層3: 次回起動時のバナー ----
-function _draftStamp(d){
-  var m = String((d && d.at) || '').match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/);
-  if(!m) return String((d && d.at) || '');
-  return parseInt(m[2],10) + '/' + parseInt(m[3],10) + ' ' + m[4] + ':' + m[5];
-}
-// unverified=true のときは「サーバと照合できなかった」ことを添える。
-// 保存済みかどうか不明なのに「未保存」と断定しないため（件C-4）。
-function _updateDraftBanner(unverified){
-  var d  = _readDraft();
-  var el = document.getElementById('draft_notice');
-  if(!d){ if(el && el.parentNode) el.parentNode.removeChild(el); return; }
-  if(!el){
-    el = document.createElement('div');
-    el.id = 'draft_notice';
-    el.style.cssText = 'background:#fff8e1;color:#8a6a1c;border:1px solid #ffcc80;border-radius:8px;padding:9px 10px;margin:0 16px 8px;font-size:12px;text-align:center;font-weight:600;line-height:1.9';
-    var app = document.getElementById('app');
-    if(app && app.parentNode) app.parentNode.insertBefore(el, app);
-  }
-  el.innerHTML = '\ud83d\udcdd ' + (unverified ? '下書きが残っています（' : '未保存の下書きがあります（') + eH(_draftStamp(d)) + '）'
-    + (unverified ? '<br><span style="font-weight:500">サーバと照合できませんでした。保存済みの可能性があります。</span>' : '')
-    + '<br><button onclick="restoreDraft()" style="background:#8a6a1c;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">復元する</button>'
-    + ' <button onclick="discardDraft()" style="margin-left:4px;background:none;border:1px solid #e0c97f;border-radius:6px;padding:6px 12px;font-family:inherit;font-size:12px;color:#8a6a1c;cursor:pointer">破棄する</button>';
-}
-// 復元は「入力欄に戻す」までで、サーバへは送らない（＝自動保存にしない）。
-// 復元後は通常どおり保存ボタンを押してもらう。
-function restoreDraft(){
-  var d = _readDraft();
-  if(!d){ _updateDraftBanner(); return; }
-  // 【2026-10-04】復元すると編集モードに入る。編集は最新が確定してから（toggleMode と同じ条件）
-  if(state.view !== 'fresh'){ showToast('最新の取得が済んでから復元してください'); return; }
-  // 臨時品目は保存時・再送時と同じ正規化（_normExtras）を通す。2026-09-29 から失効で落とすことはしない
-  // （臨時品目は消すまで残る）。
-  state.data   = _normExtras(JSON.parse(JSON.stringify(d.items)));
-  if(!state.origData) state.origData = {};
-  if(typeof ROUTES !== 'undefined' && typeof d.route === 'number'
-     && d.route >= 0 && d.route < ROUTES.length){
-    state.route = d.route;
-    renderRouteTabs();
-  }
-  var el = document.getElementById('draft_notice');
-  if(el && el.parentNode) el.parentNode.removeChild(el);
-  if(state.mode !== 'edit') toggleMode();   // 編集モードへ（残在庫の取得も従来どおり）
-  _setDirty(true);                          // 以降サーバ応答で上書きされない(_applyLatest)
-  renderRoute();
-  showToast('下書きを復元しました。保存ボタンを押してください');
-}
-function discardDraft(){
-  if(!confirm('未保存の下書きを破棄します。よろしいですか？')) return;
-  _clearDraft();
-  _updateDraftBanner();
-  showToast('下書きを破棄しました');
-}
-
 
 /// ============ 最新だけを表示する（2026-10-04 杉さん要望）============
 // 従来（SWR）は 端末に残した値（localStorage）→ スナップショット（haitatsu.json）→ GAS の順に描いていたため、
@@ -1930,7 +1865,7 @@ function discardDraft(){
 //     スナップショットが GAS の応答より新しいことは無い
 //   ・取得できなければ数字なしで「最新を取得できませんでした」＋再取得。裏で自動の再取得を続ける。
 //     前回の数字を見る手段は設けない（杉さん決定 2026-10-04 09:54）。納品数・残在庫/販売数は端末にも残さない
-//   ・最新が確定するまで編集モードに入れない（toggleMode・restoreDraft・resendPending）
+//   ・最新が確定するまで編集モードに入れない（toggleMode。restoreDraft・resendPending は 2026-10-06 に廃止）
 // 【2026-10-04 失敗画面を減らす】取得は makeLatestFetcher（4秒・すぐエラーで2本目、遅れた応答は90秒まで受け取る、
 // 失敗後は 5秒後・15秒後・以後60秒ごとに自動で取り直す）。旧：すぐエラーなら2本目を出さずに失敗・遅れは25秒まで・
 // 自動の取り直しは8秒後に1回だけ（残在庫・販売数は手動だけ）。
@@ -1962,7 +1897,7 @@ var _latestFetch = makeLatestFetcher({
   action: 'getHaitatsu',
   send: _sendJsonp(API_URL+'?action=getHaitatsu', 'cb_get'),
   isOk: function(res){ _applyIrai(res); return !!(res && res.success && res.items); },
-  onData: function(res){ _applyLatest(res.items, res.lastUpdated || ''); },
+  onData: function(res){ if(_bgHoldLatest(res)) return; _applyLatest(res.items, res.lastUpdated || ''); },
   onFail: function(){ _latestFailed(); }
 });
 // 数字を消して「最新を取得中…」にし、取りに行く（起動時・復帰時）
@@ -2019,9 +1954,9 @@ function _onForegroundLatest(){
   _beginLatestLoad();
 }
 document.addEventListener('visibilitychange', function(){
-  if(document.visibilityState === 'visible'){ try{ _onForegroundLatest(); }catch(e){} }
+  if(document.visibilityState === 'visible'){ try{ _onForegroundLatest(); }catch(e){} try{ if(!_bgStartup) _bgArm(0); }catch(e){} }
 });
-window.addEventListener('online', function(){ try{ _onForegroundLatest(); }catch(e){} });
+window.addEventListener('online', function(){ try{ _onForegroundLatest(); }catch(e){} try{ if(!_bgStartup) _bgArm(0); }catch(e){} });
 window.addEventListener('pageshow', function(e){ if(e.persisted){ try{ _onForegroundLatest(); }catch(err){} } });
 
 // ============ 店舗依頼ボードのアラート（2026-10-03）============
@@ -2350,76 +2285,15 @@ function _kickZaiko(){
   _zaikoFetch.kick();
 }
 
+// ---- 起動（2026-10-06）----
+// 起動時に「確認中」「未送信の入力があります」「下書きを復元」の帯は出さない。
+// 保存ボタンを押した分の退避が残っていれば、最新の受け取りのときに裏で照合・送り直す（_bgHoldLatest）。
+_bgTidy();
 renderRouteTabs();
 loadInitial();
-// 端末に退避された未送信入力があれば再送導線を出す。
-// ただし退避は「送信を始める前」に書くので、保存中にリロード・タブ復帰した場合は
-// 実際には保存が成立していることがある。まずサーバへ確認し、一致していれば
-// バナーを出さずに黙って解消する（誤った未送信表示で不安にさせない）。
-// ---- 起動時の照合（件C-4 / 2026-09-21）----
-// 退避(haitatsu_pending_v1)は「保存を始める前」に、下書き(haitatsu_draft_v1)は
-// 「入力のたび」に書く。つまり残っていること自体は未保存の証拠にならない。
-// 日報側（件1）で「実は保存済みなのに未送信と警告が出る」を起こしたのと同じ構造なので、
-// 同じ直し方をする: バナーを出す前に必ずサーバの値と照合する。
-//   一致した       → 黙って破棄（バナーを出さない）
-//   一致しない     → 従来どおりバナーを出す
-//   照合できない   → バナーは出すが「保存済みか不明」と添える（未保存と断定しない）
-var _startupCheckEl = null;
-function _showStartupChecking(){
-  if(_startupCheckEl) return;
-  var el = document.createElement('div');
-  el.id = 'startup_check_notice';
-  el.style.cssText = 'background:#f0f4f8;color:#5b7a99;border:1px dashed #b0bec5;border-radius:8px;'
-    + 'padding:9px 10px;margin:0 16px 8px;font-size:12px;text-align:center;font-weight:600';
-  el.textContent = '確認中… 端末に残っている入力がサーバに保存済みか確かめています';
-  var app = document.getElementById('app');
-  if(app && app.parentNode){ app.parentNode.insertBefore(el, app); _startupCheckEl = el; }
-}
-function _hideStartupChecking(){
-  if(_startupCheckEl && _startupCheckEl.parentNode) _startupCheckEl.parentNode.removeChild(_startupCheckEl);
-  _startupCheckEl = null;
-}
-// 下書きはサーバへ送るときと同じ規則（_normExtras。2026-09-29 までは _purgeStaleExtras）を通してから比べる。
-// 比較用のコピーにだけ適用するので、復元して送る中身は一切変えない（件C-6）。
-function _draftMatchesServer(items, draft){
-  try {
-    var cp = _normExtras(JSON.parse(JSON.stringify(draft.items || {})));
-    return _payloadMatches(items, cp);
-  } catch(e){ return false; }
-}
-function _resolveStartupBanners(items, verified){
-  _hideStartupChecking();
-  var pend = _readPending();
-  if(pend && pend.items){
-    if(verified && _payloadMatches(items, pend.items)) _clearPending();   // 保存済み → 黙って消す
-    else {
-      _updatePendingBanner();
-      if(!verified) _scheduleRecheck(pend.items, [6000, 15000]);
-    }
-  }
-  var draft = _readDraft();
-  if(draft){
-    if(verified && _draftMatchesServer(items, draft)) _clearDraft();      // 保存済み → 黙って消す
-    else _updateDraftBanner(!verified);
-  }
-}
-function _verifyLocalStateThenBanner(){
-  var pend = _readPending(), draft = _readDraft();
-  if(!pend && !draft) return;              // 何も残っていなければ照合もしない
-  _showStartupChecking();
-  jsonp(API_URL+'?action=getHaitatsu&_cb='+Date.now(), 'cb_startup_verify', function(res){
-    _applyIrai(res);
-    var ok = !!(res && res.success && res.items);
-    _resolveStartupBanners(ok ? res.items : null, ok);
-  }, function(){
-    _resolveStartupBanners(null, false);   // 照合できず → 断定しない
-  }, VERIFY_TIMEOUT);
-}
-
-// 未保存の下書き（保存ボタンを押さずに閉じた分）の復元導線とアプリ内離脱ガード
+_updateUnsentLine();
+// アプリ内離脱ガード（未保存のまま移動しようとしたら確かめる）
 _bindLeaveGuards();
-// 退避・下書きのバナーは、サーバと照合してから出す（件C-4）。
-_verifyLocalStateThenBanner();
 </script>
 </body>
 </html>

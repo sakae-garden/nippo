@@ -29,11 +29,6 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .sync{font-size:11px;color:var(--sub);margin:0 2px 10px;display:flex;align-items:center;gap:8px}
 .sync.err{color:var(--red);font-weight:600}
 .sync button{background:none;border:1px solid #ccc;border-radius:6px;padding:4px 10px;font-family:inherit;font-size:11px;color:#555;cursor:pointer}
-.qbar{background:var(--red-bg);color:var(--red);border:1px solid #ef9a9a;border-radius:8px;padding:9px 10px;margin-bottom:10px;font-size:12px;font-weight:600;line-height:1.7}
-.qbar.unknown{background:#fff8e1;color:#8a6100;border-color:#ffd54f}
-.qbar button{margin-top:4px;margin-right:6px;background:var(--red);color:#fff;border:none;border-radius:6px;padding:6px 14px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer}
-.qbar.unknown button{background:#8a6100}
-.qbar button.sub{background:none;color:inherit;border:1px solid currentColor}
 
 .sec-lbl{font-size:12px;color:var(--sub);letter-spacing:.08em;font-weight:700;margin:14px 2px 8px}
 .sec-lbl:first-child{margin-top:2px}
@@ -59,7 +54,6 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .irow-content{font-size:13px;color:#333;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
 .irow-meta{font-size:11px;color:var(--sub)}
 .pend{font-size:11px;font-weight:700;color:#5b7a99;margin-left:4px}
-.pend.ng{color:var(--red)}
 .arr{flex:none;align-self:center;font-size:18px;color:#ccc}
 
 details.fold{margin-top:12px}
@@ -131,6 +125,7 @@ details.fold .fold-body{margin-top:8px}
 <script src="shared-stores.js"></script>
 <script src="irai-notice.js"></script>
 <script src="fetch-log.js"></script>
+<script src="unsent-notice.js"></script>
 <script>
 // ============================================================
 // 店舗依頼ボード（2026-10-03 杉さん決定）
@@ -144,7 +139,9 @@ details.fold .fold-body{margin-top:8px}
 //   押した瞬間に一覧へ反映し、送信は裏の待ち行列（この端末の localStorage）で1件ずつ行う。
 //   応答が無い・遅いときはサーバの一覧と照合してから再送する。ID は画面が振るので、
 //   同じ操作を何度送っても行は1つ（GAS 側で同じIDを編集・同じ状態を duplicate として扱う）。
-//   3回送って確認できなければ赤／黄の帯で知らせ、30秒ごと・画面に戻ったとき・電波が戻ったときに自動で再送する。
+//   3回送って確認できなければ、30秒ごと・画面に戻ったとき・電波が戻ったときに自動で再送する。
+//   【2026-10-06 杉さん要望】赤／黄の帯・「再送する」・行の「⚠ 未送信」は出さない（裏で送り直す）。
+//   「送信中…」はこの画面で押した操作だけ。何度送っても届かないときだけ目立たない一行（unsent-notice.js）。
 // ============================================================
 var API_URL = 'https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkVvYc7V77OJrh7h_PZCqtuV4aUL7NYz83VsNc5lY6sXONw/exec';
 // テスト版（/nippo/test/）は本番と同じオリジンで localStorage を共有するので、キーを分ける。
@@ -160,7 +157,13 @@ var LS_DEVICE_ID  = lsKey('device_id_v1');     // 日報・配達商品情報と
 try{ localStorage.removeItem(lsKey('irai_cache_v1')); }catch(e){}
 var LS_IRAI_QUEUE = lsKey('irai_queue_v1');    // まだサーバで確認できていない操作
 var LS_IRAI_STAFF = lsKey('irai_staff_v1');    // 前回選んだ入力者
-var PAGE_BUILD = 'fetch-log-20261006';       // 配信確認マーカー・保存送信ログの「画面の版」
+var PAGE_BUILD = 'no-restore-20261006';      // 配信確認マーカー・保存送信ログの「画面の版」
+var PAGE_SESSION = 'P' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);   // この画面を開いている間の印
+// unsent-notice.js を読み込めなかった端末：送り直しは続け、一行は出さない
+function _un(){
+  return window.Unsent || { RESEND:true, due:function(){ return false; }, expired:function(){ return false; },
+                            md:function(v){ return String(v||''); }, render:function(){} };
+}
 var OTHER_ID = 'other', OTHER_NAME = 'その他';
 var DEFAULT_STAFF = ['八島', '青柳', '杉', 'その他'];
 
@@ -170,7 +173,8 @@ var VERIFY_WAIT    = 700;
 var VERIFY_TIMEOUT = 8000;
 var MAX_ATTEMPTS   = 3;
 var RETRY_WAIT     = 600;
-var AUTO_RESEND_MS = 30000;
+var AUTO_RESEND_MS = 30000;   // 届いたか確かめられなかった操作を最初に送り直すまで
+var AUTO_RESEND_EVERY = 180000;   // 2回目以降の送り直しの間隔（2026-10-06 追補：開いている間は数分おき）
 var REFETCH_MS     = 60000;  // 画面に戻ったとき、これより古ければ一覧を取り直す
 
 var WD = ['日','月','火','水','木','金','土'];
@@ -183,7 +187,9 @@ var S = {
   fetched: false, fetchAt: 0, loading: false, fetchErr: false,
   // 【2026-10-04】一覧の表示：'loading' 取得中（一覧を出さない）/ 'fresh' 最新 / 'failed' 取得失敗
   view: 'loading',
-  queue: [],         // [{qid, type:'save'|'status', id, data, mode, op, at, n, failed}]
+  queue: [],         // [{qid, type:'save'|'status', id, data, mode, op, at, n, failed, first, misses, rounds, sess}]
+                     //   first：押した時刻(ms)・misses：照合でサーバに無いと確定した回数・rounds：3回送って確認できなかった回数・sess：押した画面の PAGE_SESSION
+  seen: {},          // qid -> この画面を開いてから照合・送信を終えた（24時間の一行の条件）
   sending: null,     // 送信中の qid
   form: null,        // 入力中のフォーム
   detailId: null,
@@ -429,8 +435,8 @@ function viewItems(){
     } else if(m[q.id]){
       applyOp(m[q.id], q.op, q.at);
     } else return;
-    m[q.id]._pending = true;
-    if(q.failed) m[q.id]._failed = q.failed;
+    // 「送信中…」はこの画面で押して、まだ送っている操作だけ（前回の画面の分・見切った分は黙って裏で送る）
+    if(q.sess === PAGE_SESSION && !q.failed) m[q.id]._pending = true;
   });
   return Object.keys(m).map(function(k){ return m[k]; });
 }
@@ -438,12 +444,13 @@ function viewItems(){
 function enqueue(q){
   q.qid = q.qid || ('Q' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
   q.at = nowStamp(); q.n = 0;
+  q.first = Date.now(); q.misses = 0; q.rounds = 0; q.sess = PAGE_SESSION;
   // 同じ依頼の「まだ送っていない保存」は最新の内容に差し替える（同じIDなので送る回数を増やさない）
   if(q.type === 'save'){
     for(var i=S.queue.length-1;i>=0;i--){
       var o = S.queue[i];
       if(o.type === 'save' && o.id === q.id && S.sending !== o.qid && !o.failed){
-        o.data = q.data; o.at = q.at; saveQueue(); return o;
+        o.data = q.data; o.at = q.at; o.sess = PAGE_SESSION; saveQueue(); return o;
       }
       if(o.id === q.id) break;   // 間に状態の操作があれば順番を保つ
     }
@@ -521,6 +528,8 @@ function verifyThenRetry(q, attempt){
       if(res && res.success){
         applyServerList(res);
         if(reflected(q, S.server[q.id])) return finishOk(q, { item: S.server[q.id] });
+        // サーバの一覧に無いと確定した回数（一行を出す条件。照合の失敗・応答なしは数えない）
+        q.misses = (q.misses || 0) + 1; saveQueue();
         return retryOrFail(q, '応答待ち切れ', 'notsaved');
       }
       retryOrFail(q, '応答待ち切れ', 'unknown');
@@ -540,27 +549,52 @@ function retryOrFail(q, reason, outcome){
 }
 var _autoT = null;
 function markFailed(q, outcome, reason){
-  q.failed = outcome; q.reason = reason;
   if(S.sending === q.qid) S.sending = null;
+  if(outcome === 'rejected'){
+    // 【2026-10-06】受け付けられなかった操作（入力の不正・依頼が見つからない等）は送り直しても変わらないので、
+    // その場で知らせて取り消す（一覧はサーバの値に戻る）。以前の「受け付けられなかった操作を取り消す」ボタンの代わり
+    var i = qIndex(q.qid);
+    if(i > -1) S.queue.splice(i, 1);
+    saveQueue(); render();
+    showToast('⚠ サーバが受け付けませんでした（'+reason+'）');
+    pump();
+    return;
+  }
+  // 届いたか確かめられないときは何も出さずに裏で送り直す（照合できなかった 'unknown' も未着とはみなさない）。
+  // 送り直しはアプリを開いている間だけ：最初は30秒後、以後3分ごと（ほかに起動時・前面復帰・電波復帰）
+  q.failed = outcome; q.reason = reason;
+  q.rounds = (q.rounds || 0) + 1;
+  S.seen[q.qid] = true;
   saveQueue(); render();
-  showToast(outcome === 'rejected' ? '⚠ サーバが受け付けませんでした（'+reason+'）'
-          : outcome === 'notsaved' ? '⚠ 送信できませんでした。自動で再送します'
-          : '⚠ 送信を確認できませんでした。自動で再送します');
-  if(outcome !== 'rejected'){ clearTimeout(_autoT); _autoT = setTimeout(function(){ resendAll(true); }, AUTO_RESEND_MS); }
+  clearTimeout(_autoT); _autoT = setTimeout(function(){ resendAll(); }, q.rounds <= 1 ? AUTO_RESEND_MS : AUTO_RESEND_EVERY);
   pump();   // 別の依頼の操作は進める
 }
-// 失敗で止まっている操作をもう一度送る（auto=true なら、断られた操作はそのまま）
-function resendAll(auto){
+// 失敗で止まっている操作をもう一度送る（断られた操作はそのまま）
+function resendAll(){
   var any = false;
-  S.queue.forEach(function(q){ if(q.failed && !(auto && q.failed === 'rejected')){ q.failed = ''; q.reason = ''; q.n = 0; any = true; } });
+  S.queue.forEach(function(q){ if(q.failed && q.failed !== 'rejected'){ q.failed = ''; q.reason = ''; q.n = 0; any = true; } });
   if(any){ saveQueue(); render(); }
   pump();
 }
-function discardFailed(){
-  var n = S.queue.filter(function(q){ return q.failed === 'rejected'; }).length;
-  if(!n || !confirm('サーバが受け付けなかった操作 '+n+' 件を取り消します。よろしいですか？')) return;
-  S.queue = S.queue.filter(function(q){ return q.failed !== 'rejected'; });
-  saveQueue(); render(); pump();
+// 起動時：7日を過ぎた操作は送り直さずに消す。設定で「送り直さない」なら残っている分を消す
+function tidyQueue(){
+  var un = _un();
+  // 以前の版で「受け付けられなかった」まま残った操作も消す
+  var keep = un.RESEND ? S.queue.filter(function(q){ return q.failed !== 'rejected' && !un.expired(q.first || Date.now()); }) : [];
+  if(keep.length !== S.queue.length){ S.queue = keep; saveQueue(); }
+}
+// 何度送っても届かない操作だけ、目立たない一行（出す条件・出す／出さないは unsent-notice.js）
+var OP_LABEL = { done:'完了', undone:'完了の取り消し', 'delete':'削除', undelete:'削除の取り消し' };
+function updateUnsentLine(){
+  var un = _un(), now = Date.now(), lines = [];
+  S.queue.forEach(function(q){
+    if(!un.due(q.first || now, q.misses || 0, false, now, !!S.seen[q.qid])) return;
+    var it = S.server[q.id] || (q.data ? { storeName: storeName(q.data.storeId) } : null);
+    lines.push(un.md(q.first || now) + ' ' + IraiNotice.shortStore(it && it.storeName) + 'の依頼'
+             + (q.type === 'save' ? (q.mode === 'edit' ? 'の編集' : '') : 'の' + (OP_LABEL[q.op] || '操作'))
+             + 'がサーバに届いていません');
+  });
+  un.render(lines);
 }
 
 // ============ 操作 ============
@@ -586,8 +620,7 @@ function dueClass(it){
 function rowHtml(it, kind){
   var due = it.status === '完了' ? '完了' : IraiNotice.dueLabel(it.shukkaDate, todayStr);
   if(it.status !== '完了' && IraiNotice.diff(todayStr, it.shukkaDate) < 0) due = '期限切れ・未完了';
-  var pend = it._failed ? '<span class="pend ng">'+(it._failed === 'rejected' ? '⚠ 受付不可' : '⚠ 未送信')+'</span>'
-           : it._pending ? '<span class="pend">送信中…</span>' : '';
+  var pend = it._pending ? '<span class="pend">送信中…</span>' : '';
   var late = (kind === 'open' && dueClass(it) === 'late');
   return '<div class="irow'+(late?' late':'')+(kind!=='open'?' dim':'')+'" id="row_'+eA(it.id)+'" data-id="'+eA(it.id)+'" onclick="openDetail(this.getAttribute(\'data-id\'))">'
     + '<div class="irow-date"><div class="d">'+eH(IraiNotice.md(it.shukkaDate))+'</div><div class="due '+dueClass(it)+'">'+eH(due)+'</div></div>'
@@ -604,17 +637,8 @@ function render(){
   var done = v.filter(function(it){ return !it.deleted && it.status === '完了'; }).sort(function(a,b){ return -byShukka(a,b); });
   var del = v.filter(function(it){ return it.deleted; }).sort(function(a,b){ return a.updatedAt < b.updatedAt ? 1 : -1; });
   var h = '';
-  // 送信できていない操作（この端末の操作。一覧の新旧とは関係なく出す）
-  var failed = S.queue.filter(function(q){ return q.failed; });
-  if(failed.length){
-    var rej = failed.filter(function(q){ return q.failed === 'rejected'; });
-    var cls = failed.some(function(q){ return q.failed === 'notsaved' || q.failed === 'rejected'; }) ? '' : ' unknown';
-    h += '<div class="qbar'+cls+'">⚠ 送信できていない操作が '+failed.length+' 件あります（この端末に残しています）'
-      + (rej.length ? '<br>サーバが受け付けませんでした：'+eH(rej[0].reason||'') : '')
-      + '<br><button onclick="resendAll(false)">再送する</button>'
-      + (rej.length ? '<button class="sub" onclick="discardFailed()">受け付けられなかった操作を取り消す</button>' : '')
-      + '</div>';
-  }
+  // 【2026-10-06】送信できていない操作の帯（再送する・取り消す）は廃止。何度送っても届かないときだけ一行
+  updateUnsentLine();
   // 【2026-10-04】最新が届くまで一覧（件数を含む）を出さない
   if(S.view === 'loading'){
     app.innerHTML = h + '<div class="empty">最新を取得中…</div>';
@@ -690,7 +714,7 @@ function openDetail(id){
     + '<dt>依頼日</dt><dd>'+eH(IraiNotice.md(it.iraiDate))+'</dd>'
     + '<dt>入力者</dt><dd>'+eH(it.staff || '—')+'</dd>'
     + '<dt>状態</dt><dd>'+(it.deleted ? '削除済み' : it.status === '完了' ? '完了（'+eH(String(it.doneAt||'').slice(5,16).replace('-','/'))+'）' : '未完了')
-    + (it._failed ? ' <span class="pend ng">⚠ 未送信</span>' : it._pending ? ' <span class="pend">送信中…</span>' : '')+'</dd></dl>'
+    + (it._pending ? ' <span class="pend">送信中…</span>' : '')+'</dd></dl>'
     + '<div class="dcontent">'+eH(it.content)+'</div><div class="btns">';
   // ID はボタンの data-id から読む（onclick の文字列に埋め込まない）
   var da = ' data-id="'+eA(id)+'"', me = 'this.getAttribute(\'data-id\')';
@@ -823,8 +847,9 @@ function saveForm(){
 (function init(){
   S.hashId = readHash();
   S.queue = loadQueue();
-  // 前回の送信中で閉じられた操作は、もう一度送り直す（同じIDなので二重にはならない）
-  S.queue.forEach(function(q){ if(q.failed !== 'rejected'){ q.failed = ''; q.n = 0; } });
+  tidyQueue();
+  // 前回の送信中で閉じられた操作は、何も出さずにもう一度送り直す（同じIDなので二重にはならない）
+  S.queue.forEach(function(q){ q.failed = ''; q.n = 0; if(!q.first) q.first = Date.now(); });
   // 端末に残した一覧は先に描かない。最新が届くまで「最新を取得中…」
   render();
   fetchList();
@@ -835,9 +860,9 @@ function saveForm(){
     // 日付が変わっていれば開き直す（残り日数の表示は開いた日の日付で持っている）。入力中は触らない
     if(IraiNotice.ymd(new Date()) !== todayStr && !S.form){ location.reload(); return; }
     _listOnForeground();
-    if(S.queue.some(function(q){ return q.failed && q.failed !== 'rejected'; })) resendAll(true);
+    if(S.queue.some(function(q){ return q.failed; })) resendAll();
   });
-  window.addEventListener('online', function(){ _listOnForeground(); resendAll(true); });
+  window.addEventListener('online', function(){ _listOnForeground(); resendAll(); });
   window.addEventListener('hashchange', function(){ S.hashId = readHash(); S.hashDone = false; render(); });
 })();
 </script>

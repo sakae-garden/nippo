@@ -159,16 +159,11 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .home-btn{background:var(--ink);color:#fff;border:none;border-radius:var(--r-btn);padding:14px 32px;font-family:inherit;font-size:15px;font-weight:600;cursor:pointer}
 /* 完了画面の「記録の確認」状態表示（楽観的UI）。操作はブロックしない。
    ds-pending=確認中 / ds-ok=確認済み
-   ds-ng=未着と確定（警告＋再送導線） / ds-warn=照合できず（断定しない＋再送導線） */
+   【2026-10-06】届いていないときの赤・黄の警告と再送ボタンは廃止（裏で自動で送り直す） */
 .done-status{margin:-16px auto 24px;max-width:420px;border-radius:10px;padding:10px 14px;font-size:12px;font-weight:600;line-height:1.6}
 .done-status.ds-pending{background:#f0f4f8;color:#5b7a99;border:1px dashed #b0bec5}
 .done-status.ds-ok{background:#edf7f1;color:#2d7a4f;border:1px solid #a5d6b8}
-.done-status.ds-ng{background:#fdecea;color:#b71c1c;border:1px solid #ef9a9a;text-align:left}
-.done-status.ds-warn{background:#fff8e1;color:#8a6100;border:1px solid #ffd54f;text-align:left}
-.done-status.ds-warn .ds-retry{background:#8a6100}
 .done-status .ds-msg{font-size:13px}
-.done-status .ds-sub{font-size:11px;font-weight:500;margin-top:4px;opacity:.85}
-.done-status .ds-retry{margin-top:8px;background:#b71c1c;color:#fff;border:none;border-radius:6px;padding:9px 18px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;width:100%}
 
 /* ============ 送信完了 確認テーブル: サマリー風デザイン（値引きは黒に統一） ============ */
 .done-confirm-wrap{margin:8px 0 28px;text-align:left;padding:0 4px}
@@ -345,6 +340,7 @@ td.itbl-cell.ctl-brown{background:#fff}
 <script src="shared-stores.js"></script>
 <script src="irai-notice.js"></script>
 <script src="fetch-log.js"></script>
+<script src="unsent-notice.js"></script>
 <script>
 var API_URL = 'https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkVvYc7V77OJrh7h_PZCqtuV4aUL7NYz83VsNc5lY6sXONw/exec';
 // ラベル在庫アラート スナップショット（夜の再計算結果。日中は固定表示）。
@@ -370,7 +366,7 @@ var LS_SANCHI_ISSUED    = lsKey('sanchi_issued_today_v1');
 // 【2026-09-29】保存と送信の記録（GAS の「保存送信ログ」シート）に付ける端末IDと画面の版。
 // 端末IDはこの端末で一度だけ作るランダムな値（haitatsu.html と同じキーを共有＝同じ端末は同じID）。
 // 氏名・電話番号などは入れない。localStorage が使えない端末では画面を開くたびに変わる。
-var PAGE_BUILD = 'fetch-log-20261006';   // 画面を変えて出すときに更新する（記録の「画面の版」）
+var PAGE_BUILD = 'no-restore-20261006';   // 画面を変えて出すときに更新する（記録の「画面の版」）
 var LS_DEVICE_ID = lsKey('device_id_v1');
 var _deviceIdMemo = '';
 function _deviceId(){
@@ -543,8 +539,8 @@ function renderHome() {
   });
   html+='</div>';
   document.getElementById('app').innerHTML=html;
-  // 未送信の日報が端末に残っていれば、店舗一覧の先頭に再送導線を出す
-  _updateSubmitPendingBanner();
+  // 届いていない日報の一行（何度送っても届かないときだけ。2026-10-06）
+  _updateUnsentLine();
   // 納品指示が取れていない／当日分が無いときの警告バー
   _updateHaitatsuNotice();
   _updateIraiNotice();
@@ -1651,7 +1647,15 @@ function _applyLoadedData(res) {
 //   ・警告を出した後も照合は続け、届いたと分かれば黙って「送信済み」に直す
 //   ・前日以前の退避も捨てず、その日付のまま照合・再送する
 // reqId による重複排除（GAS のロック内照合）はそのまま使う。GAS は変えていない。
-var SUBMIT_BUILD          = 'submit-deliver-20260929';   // 本番反映の確認用マーカー
+// 【2026-10-06 杉さん要望：再送・復元の表示をやめる】
+//   ・店舗一覧の帯（確認中／電波待ち／赤い警告）・「いますぐ再送する」「破棄」・完了画面の赤い警告をやめた。
+//     照合と自動再送は従来どおり裏で続け、届いたら端末から消す
+//   ・自動再送の回数の上限（6回）をやめ、届くまで5分以上の間隔で送り続ける（端末に残すのは7日まで）
+//   ・何度送っても届かない（24時間・または5回。unsent-notice.js の設定）ときだけ、目立たない一行を出す
+// 【2026-10-06 追補】回数は「照合でサーバに無いと確定した回数」（notFound）で数える。照合の失敗・応答なしは数えない。
+//   24時間の条件は、この画面を開いてから照合を1回以上終えたもの（_dlRun の seen）だけに使う。
+//   照合と再送はアプリを開いている間だけ：起動時・前面復帰・電波復帰（online）・開いている間は数分おき
+var SUBMIT_BUILD          = 'no-restore-20261006b';  // 本番反映の確認用マーカー
 var SUBMIT_RETRY_WAIT     = 600;     // retryable（ロック待ち）のときの再送間隔(ms)
 var SUBMIT_RETRYABLE_MAX  = 2;       // retryable の即時再送の上限（1回の送信あたり）
 var SUBMIT_TIMEOUT        = 7500;    // 送信の応答を待つ時間。過ぎたら照合に任せる（送信自体は続く）
@@ -1660,13 +1664,14 @@ var CONFIRM_TIMEOUT       = 8000;    // getSubmitStatus 実測 p90≈3.8秒
 var SUBMIT_PROCESSING_MS  = 90000;   // 最後の送信からこの間の「見つからない」は処理中扱い
 var SUBMIT_CHECK_STEPS    = [5000, 15000, 45000, 120000];   // 最後の送信からの照合の間隔
 var SUBMIT_CHECK_EVERY    = 180000;  // 上の後は3分ごと
-var SUBMIT_ALERT_AFTER_MS = 600000;  // 赤い警告の条件：最初の送信から10分
-var SUBMIT_ALERT_NOTFOUND = 3;       //                  見つからない（処理中を除く）3回以上
-var SUBMIT_AUTO_RESEND    = 2;       //                  自動再送2回済み
-var SUBMIT_AUTO_RESEND_MAX = 6;      // 自動再送の上限（警告の後も続けるが、ここで止める）
-var SUBMIT_AUTO_RESEND_GAP = 300000; // 2回目以降の自動再送の間隔の下限（警告後）
-var SUBMIT_UNREACHABLE_MS = 900000;  // 照合に15分応答が無ければ「電波の良い所で自動で送ります」
+var SUBMIT_AUTO_RESEND    = 2;       // 見つからなければすぐ自動再送する回数
+var SUBMIT_AUTO_RESEND_GAP = 300000; // その後の自動再送の間隔の下限
 var LS_SUBMIT_PENDING     = lsKey('nippo_submit_pending_v1');
+// unsent-notice.js を読み込めなかった端末：送り直しは続け、一行は出さない
+function _un(){
+  return window.Unsent || { RESEND:true, due:function(){ return false; }, expired:function(){ return false; },
+                            md:function(v){ return String(v||''); }, render:function(){} };
+}
 var _submitBusy = false;
 function _setSubmitBtnDisabled(d){
   var b=document.getElementById('submitBtn');
@@ -1734,20 +1739,8 @@ function _listSubmitPending(){
 // ---- 配送（送信・照合・自動再送）----
 // 状態は退避（localStorage）に持つので、画面の再読み込み・日付の変わり目をまたいで続く。
 // ここ（_dlRun）はこの画面の中だけの作業状態（通信中か・次のタイマー）。
-var _dlRun = {};   // reqId -> { sending, checking, timer, checks（次に使う照合の段）, retryable }
-function _dl(reqId){ return _dlRun[reqId] || (_dlRun[reqId]={ sending:false, checking:false, timer:null, checks:0, retryable:0 }); }
-
-// 状態: 'checking'（確認中・処理中。警告しない）／'offline'（照合に長く応答が無い）／
-//       'unsent'（赤い警告の条件がそろった）／'rejected'（サーバが受け付けなかった）
-function _submitState(p, now){
-  now = now || Date.now();
-  if(p.rejected) return 'rejected';
-  var first = p.firstSentAt || now;
-  if(now-first >= SUBMIT_ALERT_AFTER_MS && (p.notFound||0) >= SUBMIT_ALERT_NOTFOUND
-     && (p.autoResends||0) >= SUBMIT_AUTO_RESEND) return 'unsent';
-  if(now-(p.lastReplyAt||first) >= SUBMIT_UNREACHABLE_MS) return 'offline';
-  return 'checking';
-}
+var _dlRun = {};   // reqId -> { sending, checking, timer, checks（次に使う照合の段）, retryable, seen（この画面で照合・送信を終えた） }
+function _dl(reqId){ return _dlRun[reqId] || (_dlRun[reqId]={ sending:false, checking:false, timer:null, checks:0, retryable:0, seen:false }); }
 
 function _submitUrl(p){
   return API_URL+'?action=submit&store='+encodeURIComponent(p.storeName)+'&date='+p.date
@@ -1796,27 +1789,24 @@ function _dlOnLate(reqId, kind, res){
   else if(kind==='rejected') _dlRejected(reqId, res);
 }
 
-// why: 'first'（送信ボタン）／'auto'（自動再送）／'manual'（再送ボタン）
+// why: 'first'（送信ボタン）／'auto'（自動再送）／'retry'（ロック待ちの送り直し）
 function _dlSend(reqId, why){
   var r=_dl(reqId);
   if(r.sending) return;
   var now=Date.now();
   var p=_patchPending(reqId, function(o){
-    if(why==='manual' || !o.firstSentAt){
-      // 再送ボタンは数え直し（ここから改めて10分・自動再送2回を待ってから警告する）
-      o.firstSentAt=now; o.notFound=0; o.autoResends=0; o.rejected='';
-    }
+    if(!o.firstSentAt){ o.firstSentAt=now; o.notFound=0; o.autoResends=0; o.rejected=''; }
     if(why==='auto') o.autoResends=(o.autoResends||0)+1;
     o.sends=(o.sends||0)+1;
     o.lastWhy=why;   // 保存と送信の記録用（初回か再送か）
     o.lastSentAt=now;
-    if(!o.lastReplyAt || why==='manual') o.lastReplyAt=now;
+    if(!o.lastReplyAt) o.lastReplyAt=now;
   });
   if(!p) return;
   r.sending=true; r.checks=0;
   clearTimeout(r.timer); r.timer=null;
   _dlTransmit(p, function(kind,res){
-    r.sending=false;
+    r.sending=false; r.seen=true;
     if(kind==='ok'){ _dlDelivered(reqId); return; }
     if(kind==='rejected'){ _dlRejected(reqId,res); return; }
     if(kind==='retryable' && r.retryable<SUBMIT_RETRYABLE_MAX){
@@ -1861,7 +1851,7 @@ function _dlCheck(reqId){
   jsonp(API_URL+'?action=getSubmitStatus&store='+encodeURIComponent(p.storeName)
     +'&date='+p.date+'&reqId='+encodeURIComponent(p.reqId)+'&_cb='+Date.now(),
     'cb_pend_chk',function(res){
-      r.checking=false;
+      r.checking=false; r.seen=true;
       if(res&&res.success&&res.found){ _dlDelivered(reqId); return; }
       var cur=_findPendingByReq(reqId);
       if(!cur) return;
@@ -1875,7 +1865,8 @@ function _dlCheck(reqId){
       _dlArm(reqId);
       _submitRefreshViews();
     },function(){
-      r.checking=false;
+      // 照合できなかった（GAS の不調・電波）：未着とはみなさず、次の照合を予約するだけ
+      r.checking=false; r.seen=true;
       _dlArm(reqId);
       _submitRefreshViews();
     },CONFIRM_TIMEOUT,{
@@ -1883,10 +1874,10 @@ function _dlCheck(reqId){
       onLate: function(res){ if(res&&res.success&&res.found) _dlDelivered(reqId); }
     });
 }
+// 【2026-10-06】回数の上限は設けない（届くまで、5分以上の間隔で送り続ける。端末に残すのは7日まで）
 function _dlShouldAutoResend(p, now){
   var n=p.autoResends||0;
   if(n < SUBMIT_AUTO_RESEND) return true;
-  if(n >= SUBMIT_AUTO_RESEND_MAX) return false;
   return now-(p.lastSentAt||0) >= SUBMIT_AUTO_RESEND_GAP;
 }
 
@@ -1895,7 +1886,7 @@ function _dlDelivered(reqId){
   if(r){ clearTimeout(r.timer); delete _dlRun[reqId]; }
   _clearPendingByReq(reqId);
   _setDoneStatus(reqId,'ok','送信済み（サーバへの記録を確認しました）');
-  _updateSubmitPendingBanner();
+  _updateUnsentLine();
 }
 function _dlRejected(reqId, res){
   var r=_dlRun[reqId];
@@ -1915,83 +1906,35 @@ function _kickSubmitPendingChecks(now){
   });
 }
 
+// 完了画面は「確認中…」のまま（届けば「送信済み」）。届かないときの警告・再送ボタンは出さない（2026-10-06）
 function _submitRefreshViews(){
-  _updateSubmitPendingBanner();
-  var el=document.getElementById('done_status');
-  var reqId=el && el.getAttribute('data-req');
-  if(!reqId) return;
-  var p=_findPendingByReq(reqId);
-  if(!p) return;
-  var st=_submitState(p);
-  if(st==='unsent' || st==='rejected') _setDoneStatus(reqId,'ng',_submitStateMsg(p,st),reqId);
-  else if(st==='offline') _setDoneStatus(reqId,'warn','電波の良い所で自動で送ります',null);
-  else _setDoneStatus(reqId,'pending','確認中…（届いていなければ自動で送り直します）');
-}
-function _mdOf(date){ var m=/^\d{4}-(\d{2})-(\d{2})$/.exec(date||''); return m ? (parseInt(m[1],10)+'/'+parseInt(m[2],10)) : String(date||''); }
-function _submitStateMsg(p, st){
-  if(st==='rejected') return 'サーバが受け付けませんでした（'+p.rejected+'）';
-  return (p.date!==todayStr ? '前日以前（'+_mdOf(p.date)+'）の日報が' : '')+'まだサーバに届いていません';
+  _updateUnsentLine();
 }
 
-function _updateSubmitPendingBanner(){
+// 起動時：7日を過ぎた退避は送り直さずに消す。設定で「送り直さない」なら残っている分をすべて消す（2026-10-06）
+function _tidySubmitPending(){
+  var un=_un();
+  if(!un.RESEND){ _savePendingMap({}); return; }
+  var m=_readPendingMap(), hit=false;
+  Object.keys(m).forEach(function(k){
+    var o=m[k], first=o.firstSentAt || new Date(o.date+'T00:00:00').getTime();
+    if(un.expired(first)){ delete m[k]; hit=true; }
+  });
+  if(hit) _savePendingMap(m);
+}
+
+// 何度送っても届かない日報だけ、目立たない一行を出す（帯・ボタンは出さない。2026-10-06）。
+// 出す条件と出す／出さないの切り替えは unsent-notice.js。照合と自動再送の予約もここで掛け直す。
+function _updateUnsentLine(){
   _kickSubmitPendingChecks(false);
-  var list=_listSubmitPending();
-  var el=document.getElementById('submit_pending_notice');
-  if(list.length===0){
-    if(el&&el.parentNode) el.parentNode.removeChild(el);
-    return;
-  }
-  var now=Date.now();
-  // 全体の色は最も重い状態に合わせる（未着・受付不可 ＞ 照合できず ＞ 確認中）
-  var anyRed=false, anyOffline=false;
-  list.forEach(function(p){
-    var st=_submitState(p,now);
-    if(st==='unsent'||st==='rejected') anyRed=true; else if(st==='offline') anyOffline=true;
+  var un=_un(), now=Date.now(), lines=[];
+  _listSubmitPending().forEach(function(p){
+    var r=_dlRun[p.reqId];
+    if(!un.due(p.firstSentAt||now, p.notFound||0, !!p.rejected, now, !!(r&&r.seen))) return;
+    var who=un.md(p.date)+' '+String(p.storeName||'').replace(/^ヤオコー/,'')+'の日報';
+    lines.push(p.rejected ? who+'をサーバが受け付けませんでした（'+p.rejected+'）' : who+'がサーバに届いていません');
   });
-  var tone = anyRed     ? {bg:'#fdecea',fg:'#b71c1c',bd:'#ef9a9a',rule:'#f3c4c0',btn:'#b71c1c'}
-           : anyOffline ? {bg:'#fff8e1',fg:'#8a6100',bd:'#ffd54f',rule:'#f0dca8',btn:'#8a6100'}
-           :              {bg:'#f0f4f8',fg:'#5b7a99',bd:'#b0bec5',rule:'#d4dde4',btn:'#5b7a99'};
-  if(!el){
-    el=document.createElement('div');
-    el.id='submit_pending_notice';
-    var app=document.getElementById('app');
-    if(app&&app.parentNode) app.parentNode.insertBefore(el,app);
-  }
-  el.style.cssText='background:'+tone.bg+';color:'+tone.fg+';border:1px solid '+tone.bd
-    +';border-radius:8px;padding:10px;margin:0 16px 8px;font-size:12px;text-align:center;font-weight:600;line-height:1.8';
-  var h = anyRed     ? '⚠️ サーバに届いていない日報があります<br>入力内容はこの端末に残っています。自動で送り直していますが、まだ届いていません。'
-        : anyOffline ? 'サーバに確認できていない日報があります<br>入力内容はこの端末に残っています。電波の良い所で自動で送ります。'
-        :              '送信を確認しています…<br>入力内容はこの端末に残っています。届いていなければ自動で送り直します。';
-  list.forEach(function(p){
-    var st=_submitState(p,now);
-    var lbl = (st==='unsent'||st==='rejected') ? _submitStateMsg(p,st)
-            : (st==='offline') ? '自動で送ります（電波待ち）' : '確認中…';
-    var when = (p.date!==todayStr ? _mdOf(p.date)+' ' : '')+(p.at||'');
-    h+='<div style="margin-top:7px;padding-top:7px;border-top:1px solid '+tone.rule+'">'
-      +eH(p.storeName)+'（'+eH(p.staff)+'・'+eH(when)+'）　'+eH(lbl)+'<br>';
-    if(st==='unsent'||st==='rejected'){
-      var rq=eA(String(p.reqId).replace(/'/g,''));
-      h+='<button onclick="resendSubmitPending(\''+rq+'\')" style="margin-top:5px;background:'+tone.btn+';color:#fff;border:none;border-radius:6px;padding:6px 14px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">いますぐ再送する</button>'
-        +' <button onclick="discardSubmitPending(\''+rq+'\')" style="margin-top:5px;margin-left:4px;background:none;border:1px solid '+tone.bd+';border-radius:6px;padding:6px 10px;font-family:inherit;font-size:12px;color:'+tone.fg+';cursor:pointer">破棄</button>';
-    }
-    h+='</div>';
-  });
-  el.innerHTML=h;
-}
-// 再送ボタン（同じ reqId で送るので二重記録にはならない）
-function resendSubmitPending(reqId){
-  if(!_findPendingByReq(reqId)){ _updateSubmitPendingBanner(); return; }
-  _dlSend(reqId,'manual');
-  _submitRefreshViews();
-}
-function discardSubmitPending(reqId){
-  var p=_findPendingByReq(reqId);
-  if(!p){ _updateSubmitPendingBanner(); return; }
-  if(!confirm(p.storeName+'（'+_mdOf(p.date)+'）の未送信日報を破棄します。よろしいですか？')) return;
-  var r=_dlRun[reqId];
-  if(r){ clearTimeout(r.timer); delete _dlRun[reqId]; }
-  _clearPendingByReq(reqId);
-  _updateSubmitPendingBanner();
+  un.render(lines);
 }
 
 function doSubmit() {
@@ -2014,20 +1957,14 @@ function doSubmit() {
   _runSubmit(pending);
 }
 
-// 完了画面に出す「確認中／送信済み／届いていない」の控えめな表示。
+// 完了画面に出す「確認中／送信済み」の控えめな表示。
 // 操作はブロックしない。表示中の完了画面が別の送信のものなら何もしない
 // （A店の完了画面を見ている最中に、先に出したB店の確認結果で書き換えない）。
-function _setDoneStatus(reqId, kind, msg, resendReqId){
+function _setDoneStatus(reqId, kind, msg){
   var el=document.getElementById('done_status');
   if(!el || el.getAttribute('data-req')!==reqId) return false;
   el.className='done-status ds-'+kind;
-  if(kind==='ng'||kind==='warn'){
-    el.innerHTML='<div class="ds-msg">⚠️ '+eH(msg)+'</div>'
-      +'<div class="ds-sub">入力内容はこの端末に残っています。自動で送り直しています（二重記録にはなりません）。</div>'
-      +(resendReqId ? '<button class="ds-retry" onclick="resendSubmitPending(\''+eA(String(resendReqId).replace(/'/g,''))+'\')">🔄 いますぐ再送する</button>' : '');
-  } else {
-    el.innerHTML='<div class="ds-msg">'+eH(msg)+'</div>';
-  }
+  el.innerHTML='<div class="ds-msg">'+eH(msg)+'</div>';
   return true;
 }
 
@@ -2043,12 +1980,13 @@ function _runSubmit(pending){
 // 前面に戻ったとき：送信の照合と、納品指示の取り直し（件2）
 document.addEventListener('visibilitychange', function(){
   if(document.visibilityState !== 'visible') return;
-  try{ _kickSubmitPendingChecks(true); _updateSubmitPendingBanner(); }catch(e){}
+  try{ _kickSubmitPendingChecks(true); _updateUnsentLine(); }catch(e){}
   try{ _haitatsuOnForeground(); }catch(e){}
   try{ _loadOnForeground(); }catch(e){}   // 保存済みデータの読み込み（2026-10-06）
 });
 // 回線が戻ったとき（Wi-Fi⇔モバイルの切替を含む）：宙に浮いた取得を捨てて出し直す（2026-10-04）
 window.addEventListener('online', function(){
+  try{ _kickSubmitPendingChecks(true); _updateUnsentLine(); }catch(e){}   // 送信の照合・再送（2026-10-06 追補）
   try{ _haitatsuOnForeground(); }catch(e){}
   try{ _loadOnForeground(); }catch(e){}
 });
@@ -2243,9 +2181,11 @@ function saveCfg(){
 // 照合の実体は _kickSubmitPendingChecks（記録済みなら黙って消し、未着と
 // 確定したときだけ警告する）。ここは起動時の入口として残す。
 // 【2026-09-29】起動時は予約を待たずにすぐ照合する（前日以前の退避も対象）。
+// 【2026-10-06】起動時に帯は出さない。7日を過ぎた退避を消してから照合する。
 function _autoResolveSubmitPending(){
+  _tidySubmitPending();
   _kickSubmitPendingChecks(true);
-  _updateSubmitPendingBanner();
+  _updateUnsentLine();
 }
 
 // 当日の任意発行累計を localStorage から復元（リロードでアラートが復活しないように）

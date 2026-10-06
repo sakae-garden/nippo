@@ -157,8 +157,6 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .state-line.err{color:#c62828}
 .err-box{background:#fff;border:1px solid #ffb74d;border-left:4px solid #d32f2f;border-radius:10px;padding:14px 16px;margin:14px 0;text-align:center;color:#b71c1c;font-size:13px;line-height:1.6;box-shadow:var(--shadow)}
 .err-box button{margin-top:10px;background:var(--ink);color:#fff;border:none;border-radius:8px;padding:10px 22px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer}
-.pending-banner{background:#fff3e0;border:1px solid #ffb74d;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:#8a4b00;line-height:1.6;display:flex;align-items:center;gap:10px}
-.pending-banner button{background:var(--orange);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;flex:none}
 
 /* モーダル */
 .modal-back{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center;z-index:400;padding:0}
@@ -241,6 +239,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 <div class="toast"><div class="toast-inner" id="toast"></div></div>
 <footer class="footer"><a href="https://sakae-garden.github.io/">🏠 ホームに戻る</a></footer>
 <script src="fetch-log.js"></script>
+<script src="unsent-notice.js"></script>
 <script>
 var API_URL = 'https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkVvYc7V77OJrh7h_PZCqtuV4aUL7NYz83VsNc5lY6sXONw/exec';
 
@@ -257,10 +256,10 @@ function lsKey(base){ return base + (IS_TEST_ENV ? '_test' : ''); }
 var LS_FUKURODASHI_PENDING = lsKey('fukurodashi_pending_v2');
 // 【2026-10-04 廃止】月ごとの数字を端末に残していたキー（fukurodashi_cache_v2）。前回の数字を画面に出す
 // 手段は設けない（杉さん決定 2026-10-04）ので、端末にも残さない。以前の版が残した値を消す。
-// 未送信の入力の退避（fukurodashi_pending_v2）は引き続き端末に残す。
+// 保存ボタンを押した分の退避（fukurodashi_pending_v2）は引き続き端末に残す（裏で送り直す。2026-10-06）。
 try{ localStorage.removeItem(lsKey('fukurodashi_cache_v2')); }catch(e){}
 // 【2026-10-06】取得の記録（fetch-log.js。失敗・遅れを GAS の「取得記録」シートへ送る）。読み込めなかった端末では何もしない
-var PAGE_BUILD = 'fetch-log-20261006';   // 取得の記録の「画面の版」
+var PAGE_BUILD = 'no-restore-20261006';   // 取得の記録の「画面の版」
 if(window.FetchLog) FetchLog.init({ screen:'fukuro', api:API_URL, test:IS_TEST_ENV, ver:PAGE_BUILD });
 function _flAttempt(action){ return window.FetchLog ? FetchLog.attempt(action) : { req:function(){ return null; }, bad:function(){}, ok:function(){}, fail:function(){}, abandon:function(){} }; }
 
@@ -285,7 +284,7 @@ var state = {
   // 【2026-10-04】表示中の月が 'loading' 取得中 / 'fresh' 最新 / 'failed' 取得失敗 か。
   // freshAt: 最新を受け取った時刻(ms)
   view: 'loading', freshAt: 0,
-  openDate: null, openSite: null, saving: false, saveErr: '', pending: null,
+  openDate: null, openSite: null, saving: false, saveErr: '',
   // 入力中／送信中の値。再描画（バックグラウンド取得の完了・保存失敗の表示）で
   // モーダルを描き直しても入力を失わないための退避先。{date, site, payload}
   draft: null,
@@ -452,16 +451,21 @@ function makeLatestFetcher(o){
   };
 }
 
-// ============ 未送信の入力の退避（localStorage） ============
+// ============ 保存ボタンを押した内容の退避（localStorage） ============
+// { date, site, payload, at: 押した時刻(ms), tries: 送った回（その場の保存＝1）, stop: ''／'rejected' }
 function _readPending(){
   try{ var p=JSON.parse(localStorage.getItem(LS_FUKURODASHI_PENDING)||'null');
-       return (p && p.date && p.site && p.payload) ? p : null; }catch(e){ return null; }
+       if(!(p && p.date && p.site && p.payload)) return null;
+       if(!p.at) p.at=Date.now();
+       if(!p.tries) p.tries=1;
+       return p; }catch(e){ return null; }
 }
 function _writePending(date,site,payload){
-  try{ localStorage.setItem(LS_FUKURODASHI_PENDING,
-        JSON.stringify({date:date,site:site,payload:payload,at:Date.now()})); }catch(e){}
+  _savePendingObj({date:date,site:site,payload:payload,at:Date.now(),tries:1,stop:''});
 }
+function _savePendingObj(o){ try{ localStorage.setItem(LS_FUKURODASHI_PENDING, JSON.stringify(o)); }catch(e){} }
 function _clearPending(){ try{ localStorage.removeItem(LS_FUKURODASHI_PENDING); }catch(e){} }
+function _samePending(a,b){ return !!a && !!b && a.at===b.at && a.date===b.date && a.site===b.site; }
 
 // ============ 集計 ============
 // 値が「入っている」か。未入力は null か undefined（データが無い日は {} が返る）。
@@ -511,14 +515,12 @@ function renderAll(){
   }
   if(state.view==='failed'){
     // 前回の数字を見る手段は設けない（2026-10-04 追補）。再取得だけ
-    app.innerHTML=renderPendingBanner()
-      +'<div class="err-box">最新を取得できませんでした。<br><small>自動で再取得を続けています</small>'
+    app.innerHTML='<div class="err-box">最新を取得できませんでした。<br><small>自動で再取得を続けています</small>'
       +'<br><button id="retryBtn" onclick="retryMonth()">再取得</button>'
       +'</div>';
     return;
   }
   var html='';
-  html+=renderPendingBanner();
   html+=renderSummary();
   html+=renderToolbar();
   html+=renderBulkPanel();
@@ -533,12 +535,6 @@ function setSite(s){
   // 拠点を切り替えたらプレビューは破棄する（別拠点の仮値を混同させない）
   if(state.bulk.preview && state.bulk.preview.site!==s) state.bulk.preview=null;
   renderAll();
-}
-function renderPendingBanner(){
-  var p=state.pending;
-  if(!p) return '';
-  return '<div class="pending-banner"><span>未送信の袋出し記録があります（'+eH(p.date)+'・'+eH(p.site)+'）。端末に保存済みです。</span>'
-    +'<button onclick="resendPending()">再送する</button></div>';
 }
 function renderSummary(){
   var t=monthTotals();
@@ -674,9 +670,9 @@ function _onForeground(){
   if(Date.now()-state.freshAt < RESUME_STALE_MS) return;
   fetchMonth(state.ym);
 }
-document.addEventListener('visibilitychange', function(){ if(document.visibilityState==='visible') _onForeground(); });
+document.addEventListener('visibilitychange', function(){ if(document.visibilityState==='visible'){ _onForeground(); _bgArm(0); } });
 window.addEventListener('pageshow', function(e){ if(e.persisted) _onForeground(); });
-window.addEventListener('online', function(){ _onForeground(); });
+window.addEventListener('online', function(){ _onForeground(); _bgArm(0); });
 // 対象月のぶんだけ置き換える（他の月のキャッシュ表示は残す）
 function _mergeItems(cur, fresh, ym){
   var out={}, pre=ym+'-';
@@ -877,9 +873,8 @@ function openDay(ds){
   if(state.site===SITE_ALL) return;   // 合計タブは閲覧専用
   if(state.view!=='fresh') return;    // 最新が確定するまで入力させない（古い数字を土台に保存しない）
   state.openDate=ds; state.openSite=state.site; state.saveErr='';
-  // 未送信ぶんが残っている日は、その内容を復元して開く（入力のやり直しを防ぐ）
-  var p=state.pending;
-  state.draft=(p && p.date===ds && p.site===state.site) ? { date:ds, site:state.site, payload:p.payload } : null;
+  // 【2026-10-06】端末に残った分を入力欄に戻すのはやめた（最新の値で開く。押した分は裏で送り直す）
+  state.draft=null;
   renderModal();
 }
 function closeModal(){
@@ -959,7 +954,7 @@ var SAVE_LATE_GRACE   = 25000;   // 見切った後に遅延到着を拾う猶�
 var VERIFY_WAIT       = 700;
 var VERIFY_TIMEOUT    = 8000;
 var SAVE_DEADLINE     = 20000;   // これを超えたら新しい試行を始めない
-var SAVE_RECHECK_MS   = [6000, 15000];
+var SAVE_RECHECK_MS   = [15000];   // 見切った後、裏での照合・送り直しを始めるまで(ms)。以後3分ごと（BG_EVERY）
 
 var _saveSess=null;
 function _sessAlive(s){ return !!s && !s.done && _saveSess===s; }
@@ -981,9 +976,8 @@ function doSaveDay(){
       g=document.getElementById('inpG'), c=document.getElementById('inpActual');
   if(!a||!b||!g||!c) return;
   var payload={ planTsuki:nrm(a.value), planSakae:nrm(b.value), planG:nrm(g.value), actual:nrm(c.value) };
-  // 【最優先】送信前に端末へ退避。以降どこで失敗しても入力は消えない。
+  // 【最優先】送信前に端末へ退避。以降どこで失敗しても、押した内容は裏で送り直される。
   _writePending(ds, site, payload);
-  state.pending={date:ds, site:site, payload:payload};
   state.draft={date:ds, site:site, payload:payload};
   _sessEnd(_saveSess);
   var sess={ id:'S'+Date.now()+'_'+Math.random().toString(36).slice(2), date:ds, site:site, payload:payload,
@@ -994,7 +988,7 @@ function doSaveDay(){
 }
 function _saveAttempt(attempt, sess){
   if(!_sessAlive(sess)) return;
-  showLoading(attempt>0 ? ('保存中...（再送 '+attempt+'/'+(SAVE_MAX_ATTEMPTS-1)+'）') : '保存中...');
+  showLoading('保存中...');   // 送り直しの回数は出さない（2026-10-06）
   var url=API_URL+'?action=saveFukurodashi&date='+encodeURIComponent(sess.date)
     +'&site='+encodeURIComponent(sess.site)
     +'&data='+encodeURIComponent(JSON.stringify(sess.payload))
@@ -1002,14 +996,16 @@ function _saveAttempt(attempt, sess){
   jsonp(url,'cb_save',function(res){
     if(!_sessAlive(sess)) return;
     if(res && res.success){
-      _saveSucceeded(sess, attempt>0?'✅ 保存しました（再送'+attempt+'回で成功）':'✅ 保存しました');
+      _saveSucceeded(sess, '✅ 保存しました');
     } else if(res && res.retryable){
       // ScriptLock 競合。書き込みは行われていないので確認を挟まずすぐ再送。
       _retryOrGiveUp(attempt, sess, 'サーバ混雑');
     } else {
       // データ起因の失敗は再送しても変わらないので即エラー表示（サイレントにしない）。
+      // 送り直しても変わらないので、端末の退避は消す（入力欄の値はそのまま。2026-10-06）
       _sessEnd(sess); state.saving=false; hideLoading();
-      state.saveErr='保存に失敗しました：'+((res&&res.error)||'不明なエラー')+'\n入力内容は端末に保存されています。';
+      _clearPending();
+      state.saveErr='保存に失敗しました：'+((res&&res.error)||'不明なエラー');
       renderModal();
     }
   },function(){
@@ -1047,40 +1043,22 @@ function _retryOrGiveUp(attempt, sess, reason){
   if(!_sessAlive(sess)) return;
   var next=attempt+1;
   if(next<SAVE_MAX_ATTEMPTS && _elapsed(sess)<SAVE_DEADLINE){
-    showLoading('保存中...（'+reason+'・再送します）');
+    showLoading('保存中...');
     _sessTimer(sess, function(){ _saveAttempt(next, sess); }, SAVE_RETRY_WAIT);
     return;
   }
-  // 見切り：ここで黙って終わらせない。入力は端末に残し、明示的にエラーを出す。
-  state.saving=false;
-  hideLoading();
-  state.saveErr='保存を確認できませんでした（'+reason+'）。\n入力内容は端末に保存されています。'
-    +'通信状況を確認して「保存する」をもう一度押してください。\n※ すでに反映されていた場合は自動で解消します。';
-  renderModal();
-  // バックグラウンド再確認：実は保存されていたケースを自動で回収する。
-  SAVE_RECHECK_MS.forEach(function(ms){
-    _sessTimer(sess, function(){ _recheck(sess); }, ms);
-  });
-}
-function _recheck(sess){
-  if(!_sessAlive(sess)) return;
-  var ym=sess.date.substring(0,7);
-  jsonp(API_URL+'?action=getFukurodashi&month='+encodeURIComponent(ym)+'&_cb='+Date.now(),
-    'cb_recheck', function(res){
-      if(!_sessAlive(sess)) return;
-      if(res && res.success && res.items && _entryMatches(res.items[sess.date], sess.site, sess.payload)){
-        if(state.ym===ym){ state.items=_mergeItems(state.items,res.items,ym); }
-        _saveSucceeded(sess, '✅ 保存されていました（自動確認）');
-      }
-    }, function(){}, VERIFY_TIMEOUT);
-}
-function _saveSucceeded(sess, msg){
+  // 見切り。【2026-10-06】「保存を確認できませんでした・もう一度押してください」は出さない。
+  // 押した値で画面を閉じ（保存できたときと同じ見た目）、照合と送り直しは裏（_bg*）に任せる。
   _sessEnd(sess);
   state.saving=false;
   hideLoading();
-  _clearPending();
-  state.pending=null;
-  var ds=sess.date, site=sess.site, p=sess.payload;
+  _applySaved(sess.date, sess.site, sess.payload);
+  _closeModalAfterSave();
+  renderAll();
+  _bgArm(SAVE_RECHECK_MS[0]);
+}
+// 保存した値を画面の手元の値に入れる（サーバから取り直さない）
+function _applySaved(ds, site, p){
   var nd=new Date();
   var ts=nd.getFullYear()+'-'+pad2(nd.getMonth()+1)+'-'+pad2(nd.getDate())+' '
         +pad2(nd.getHours())+':'+pad2(nd.getMinutes())+':'+pad2(nd.getSeconds());
@@ -1095,28 +1073,125 @@ function _saveSucceeded(sess, msg){
                             planG:toNum(p.planG), actual:toNum(p.actual),
                             actualBy:(p.actual===''?'':'手入力'), ts:ts };
   }
+}
+function _closeModalAfterSave(){
   state.openDate=null; state.openSite=null; state.saveErr=''; state.draft=null;
   var el=document.getElementById('modalBack'); if(el&&el.parentNode) el.parentNode.removeChild(el);
+}
+function _saveSucceeded(sess, msg){
+  _sessEnd(sess);
+  state.saving=false;
+  hideLoading();
+  var cur=_readPending();
+  if(cur && cur.date===sess.date && cur.site===sess.site) _clearPending();
+  _updateUnsentLine();
+  _applySaved(sess.date, sess.site, sess.payload);
+  _closeModalAfterSave();
   renderAll();
   showToast(msg);
 }
-// 端末に残った未送信ぶんを開き直して再送する
-function resendPending(){
-  var p=state.pending||_readPending();
-  if(!p) return;
-  if(state.view!=='fresh'){ showToast('最新の取得が済んでから再送してください'); return; }
-  state.site=p.site;
-  if(state.ym!==p.date.substring(0,7)){ fetchMonth(p.date.substring(0,7)); }
-  state.openDate=p.date; state.openSite=p.site; state.saveErr='';
-  state.draft={ date:p.date, site:p.site, payload:p.payload };
-  renderModal();
-  doSaveDay();
+
+// ============ 裏での照合と送り直し（2026-10-06）============
+// 画面には何も出さない。サーバの値と一致すれば消す。一致しなければ同じ内容を送り直す（日付×拠点の上書きなので二重にはならない）。
+// ただし押した後にその日・拠点が別に保存された（ほかの端末・夜間の自動転記）なら、上書きしないよう送り直さない。
+// 照合と送り直しは、起動時・見切りの15秒後・以後3分ごと・前面復帰・電波復帰で行う。
+// 【2026-10-06 追補】照合（getFukurodashi）が失敗・応答なしでも「届いていない」とは数えない（次の照合を予約するだけ）。
+// 一行の回数は「照合でサーバの値と違うと確定して送り直した回数」（tries−1）。24時間の条件は、この画面で照合を終えた後だけ（_bgSeen）。
+// 押した後に別の保存があった（superseded）ものは、押した分が届いていた可能性もあり確かめようがないので、黙って消す。
+var BG_EVERY = 180000;
+var _bgTimer = null, _bgBusy = false, _bgSeen = false;
+// unsent-notice.js を読み込めなかった端末：送り直しは続け、一行は出さない
+function _un(){
+  return window.Unsent || { RESEND:true, due:function(){ return false; }, expired:function(){ return false; },
+                            md:function(v){ return String(v||''); }, render:function(){} };
+}
+function _stampOf(ms){
+  var d=new Date(ms);
+  return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate())+' '+pad2(d.getHours())+':'+pad2(d.getMinutes())+':'+pad2(d.getSeconds());
+}
+function _bgArm(ms){
+  clearTimeout(_bgTimer); _bgTimer=null;
+  var p=_readPending();
+  if(!p || p.stop) return;
+  _bgTimer=setTimeout(_bgRun, ms==null ? BG_EVERY : ms);
+}
+function _bgRun(){
+  _bgTimer=null;
+  var p=_readPending();
+  if(!p || p.stop){ _updateUnsentLine(); return; }
+  if(_bgBusy || state.saving){ _bgArm(); return; }   // その場の保存が進行中なら任せる
+  _bgBusy=true;
+  jsonp(API_URL+'?action=getFukurodashi&month='+encodeURIComponent(p.date.substring(0,7))+'&_cb='+Date.now(),
+    'cb_bgchk', function(res){
+      _bgBusy=false; _bgSeen=true;
+      if(!(res && res.success && res.items)){ _bgArm(); _updateUnsentLine(); return; }
+      var cur=_readPending();
+      if(!_samePending(cur, p) || cur.stop){ _updateUnsentLine(); return; }
+      if(_entryMatches(res.items[cur.date], cur.site, cur.payload)){ _bgDelivered(cur); return; }
+      var got=res.items[cur.date] && res.items[cur.date][cur.site];
+      if(got && got.ts && String(got.ts) > _stampOf(cur.at)){
+        // 後から別の保存があった：上書きしないよう送り直さず、確かめようもないので黙って消す（画面の値はサーバのまま）
+        if(_samePending(_readPending(), cur)) _clearPending();
+        clearTimeout(_bgTimer); _bgTimer=null;
+        _updateUnsentLine(); return;
+      }
+      _bgSend(cur);
+    }, function(){ _bgBusy=false; _bgSeen=true; _bgArm(); _updateUnsentLine(); }, VERIFY_TIMEOUT);
+}
+function _bgSend(cur){
+  cur.tries=(cur.tries||1)+1;
+  _savePendingObj(cur);
+  _updateUnsentLine();
+  _bgBusy=true;
+  var fin=false;
+  function end(ok){ if(fin) return; fin=true; _bgBusy=false; if(ok) _bgDelivered(cur); else { _bgArm(); _updateUnsentLine(); } }
+  jsonp(API_URL+'?action=saveFukurodashi&date='+encodeURIComponent(cur.date)
+      +'&site='+encodeURIComponent(cur.site)+'&data='+encodeURIComponent(JSON.stringify(cur.payload))+'&_cb='+Date.now(),
+    'cb_bgsave', function(res){
+      if(res && res.success) return end(true);
+      if(res && res.success===false && !res.retryable){
+        var o=_readPending();
+        if(_samePending(o, cur)){ o.stop='rejected'; o.reason=String(res.error||''); _savePendingObj(o); _updateUnsentLine(); }
+      }
+      end(false);
+    }, function(){ end(false); }, SAVE_TIMEOUT, {
+      lateGraceMs: SAVE_LATE_GRACE,
+      onLate: function(res){ if(res && res.success) _bgDelivered(cur); }
+    });
+}
+// 届いた：端末から消し、画面の手元の値にも入れる（その日を入力中なら触らない）
+function _bgDelivered(p){
+  if(!_samePending(_readPending(), p)) return;
+  _clearPending();
+  clearTimeout(_bgTimer); _bgTimer=null;
+  _updateUnsentLine();
+  if(state.openDate===p.date && state.openSite===p.site) return;
+  _applySaved(p.date, p.site, p.payload);
+  if(state.view==='fresh' && !state.openDate && !state.bulk.open) renderAll();
+}
+// 起動時：7日を過ぎた退避は消す。設定で「送り直さない」なら残っている分を消す
+function _bgTidy(){
+  var un=_un(), p=_readPending();
+  if(p && (!un.RESEND || un.expired(p.at))) _clearPending();
+}
+// 何度送っても届かないときだけ、目立たない一行（出す条件・出す／出さないは unsent-notice.js）
+function _updateUnsentLine(){
+  var un=_un(), p=_readPending(), lines=[];
+  if(p && un.due(p.at, (p.tries||1)-1, p.stop==='rejected', Date.now(), _bgSeen)){
+    var who=un.md(p.at)+' '+p.site+'の袋出し記録（'+un.md(p.date)+'分）';
+    lines.push(p.stop==='rejected' ? who+'をサーバが受け付けませんでした'+(p.reason ? '（'+p.reason+'）' : '')
+             :                       who+'がサーバに届いていません');
+  }
+  un.render(lines);
 }
 
 // ============ 起動 ============
-state.pending=_readPending();
+// 【2026-10-06】起動時の「未送信の袋出し記録があります・再送する」は出さない。押した分は裏で照合・送り直す。
+_bgTidy();
 renderTabs();
 fetchMonth(state.ym);
+_updateUnsentLine();
+_bgArm(0);
 </script>
 </body>
 </html>
