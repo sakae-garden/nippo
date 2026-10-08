@@ -340,6 +340,7 @@ td.itbl-cell.ctl-brown{background:#fff}
 <script src="shared-stores.js"></script>
 <script src="irai-notice.js"></script>
 <script src="fetch-log.js"></script>
+<script src="nippo-api.js"></script>
 <script src="unsent-notice.js"></script>
 <script>
 var API_URL = 'https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkVvYc7V77OJrh7h_PZCqtuV4aUL7NYz83VsNc5lY6sXONw/exec';
@@ -366,7 +367,7 @@ var LS_SANCHI_ISSUED    = lsKey('sanchi_issued_today_v1');
 // 【2026-09-29】保存と送信の記録（GAS の「保存送信ログ」シート）に付ける端末IDと画面の版。
 // 端末IDはこの端末で一度だけ作るランダムな値（haitatsu.html と同じキーを共有＝同じ端末は同じID）。
 // 氏名・電話番号などは入れない。localStorage が使えない端末では画面を開くたびに変わる。
-var PAGE_BUILD = 'no-restore-20261006';   // 画面を変えて出すときに更新する（記録の「画面の版」）
+var PAGE_BUILD = 'nippo-api-run-20261009';   // 画面を変えて出すときに更新する（記録の「画面の版」）
 var LS_DEVICE_ID = lsKey('device_id_v1');
 var _deviceIdMemo = '';
 function _deviceId(){
@@ -433,6 +434,9 @@ function getDefaultConfig() {
 // settled ラッチで onOk/onErr の二重呼び出しを防ぐ。timeoutMs は呼び出し側で指定可（既定30秒）。
 // opts.flog: 取得の記録（fetch-log.js の A.req()）。打ち切り・エラー・到着を伝えるだけで、動きは変えない。
 var cbIdx=0;
+// 読み取りは nippo-api.js の切り替え表で GAS／Cloud Run を選ぶ。
+// nippo-api.js を読み込めなかったときは今の jsonp をそのまま使う
+function apiJsonp(url,base,onOk,onErr,timeoutMs,opts){ if(window.NippoApi) return NippoApi.jsonp(url,base,onOk,onErr,timeoutMs,opts); return jsonp(url,base,onOk,onErr,timeoutMs,opts); }
 function jsonp(url,base,onOk,onErr,timeoutMs,opts) {
   opts = opts || {};
   var fl = opts.flog || null;
@@ -586,7 +590,7 @@ function _saveSanchiIssuedToday(n){
 var _labelIssuedState = 'loading';   // 'loading' / 'ok' / 'error'
 function fetchLabelIssuedTotal(){
   _labelIssuedState = 'loading';
-  jsonp(API_URL+'?action=getLabelIssuedTotal','cb_issued_total',function(res){
+  apiJsonp(API_URL+'?action=getLabelIssuedTotal','cb_issued_total',function(res){
     if(res&&res.success&&typeof res.sanchi==='number'){
       state.labelIssuedTotal=res.sanchi;
       _labelIssuedState = 'ok';
@@ -756,7 +760,7 @@ function _postIssue(baseUrl,key,n){
   // 全試行が通信エラーで終わった時、reqId で記録の有無をサーバに確認する
   function confirmOrFail(){
     hideLoading(); showLoading('記録を確認中...');
-    jsonp(API_URL+'?action=getLabelIssuedTotal&reqId='+encodeURIComponent(reqId)+'&_cb='+Date.now(),
+    apiJsonp(API_URL+'?action=getLabelIssuedTotal&reqId='+encodeURIComponent(reqId)+'&_cb='+Date.now(),
       'cb_issue_confirm',function(res){
         if(res&&res.success&&res.found){
           if(typeof res.sanchi==='number'){ state.labelIssuedTotal=res.sanchi; _labelIssuedState='ok'; }
@@ -1008,7 +1012,7 @@ function fetchHaitatsuBackground(attempt) {
     fired++;
     inflight++;
     // 日付キー廃止：常に最新1セットを取得
-    jsonp(API_URL+'?action=getHaitatsu&_cb='+Date.now(),'cb_hai',function(res){
+    apiJsonp(API_URL+'?action=getHaitatsu&_cb='+Date.now(),'cb_hai',function(res){
       inflight--;
       if(!current()) return;
       if(res && res.success && res.items){ settled = true; clearTimeout(hedgeT); A.ok(); onOk(res); return; }
@@ -1484,7 +1488,7 @@ function _loadAttempt(L, step, date) {
       + '&store=' + encodeURIComponent(L.store)
       + '&date=' + date
       + '&_cb=' + Date.now();
-    jsonp(url, 'cb_load', function(res){ inflight--; onRes(res); },
+    apiJsonp(url, 'cb_load', function(res){ inflight--; onRes(res); },
       function(){ inflight--; onErr(); }, LOAD_FAIL_MS,
       { onLate: function(res){ onRes(res); }, lateGraceMs: LOAD_LATE_MS, flog: A.req() });
   }
@@ -1848,7 +1852,7 @@ function _dlCheck(reqId){
   }
   r.checking=true;
   clearTimeout(r.timer); r.timer=null;
-  jsonp(API_URL+'?action=getSubmitStatus&store='+encodeURIComponent(p.storeName)
+  apiJsonp(API_URL+'?action=getSubmitStatus&store='+encodeURIComponent(p.storeName)
     +'&date='+p.date+'&reqId='+encodeURIComponent(p.reqId)+'&_cb='+Date.now(),
     'cb_pend_chk',function(res){
       r.checking=false; r.seen=true;

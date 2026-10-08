@@ -259,6 +259,7 @@ body.has-unsaved .toast{bottom:130px}
 <script src="shared-stores.js"></script>
 <script src="irai-notice.js"></script>
 <script src="fetch-log.js"></script>
+<script src="nippo-api.js"></script>
 <script src="unsent-notice.js"></script>
 <script>
 var API_URL = 'https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkVvYc7V77OJrh7h_PZCqtuV4aUL7NYz83VsNc5lY6sXONw/exec';
@@ -295,7 +296,7 @@ function lsKey(base){ return base + (IS_TEST_ENV ? '_test' : ''); }
 // 【2026-09-29】保存と送信の記録（GAS の「保存送信ログ」シート）に付ける端末IDと画面の版。
 // 端末IDはこの端末で一度だけ作るランダムな値（index.html と同じキーを共有＝同じ端末は同じID）。
 // 氏名・電話番号などは入れない。localStorage が使えない端末では画面を開くたびに変わる。
-var PAGE_BUILD = 'no-restore-20261006';   // 画面を変えて出すときに更新する（記録の「画面の版」）
+var PAGE_BUILD = 'nippo-api-run-20261009';   // 画面を変えて出すときに更新する（記録の「画面の版」）
 var LS_DEVICE_ID = lsKey('device_id_v1');
 var _deviceIdMemo = '';
 function _deviceId(){
@@ -395,6 +396,9 @@ document.getElementById('hDate').textContent = today.getFullYear()+'年'+(today.
 // p90≈9〜13秒。まれに 20〜70秒の外れ値と 404/HTML中間ページが出る。
 // opts.flog: 取得の記録（fetch-log.js の A.req()）。打ち切り・エラー・到着を伝えるだけで、動きは変えない。
 var cbIdx=0;
+// 読み取りは nippo-api.js の切り替え表で GAS／Cloud Run を選ぶ。
+// nippo-api.js を読み込めなかったときは今の jsonp をそのまま使う
+function apiJsonp(url,base,onOk,onErr,timeoutMs,opts){ if(window.NippoApi) return NippoApi.jsonp(url,base,onOk,onErr,timeoutMs,opts); return jsonp(url,base,onOk,onErr,timeoutMs,opts); }
 function jsonp(url,base,onOk,onErr,timeoutMs,opts){
   opts = opts || {};
   var fl = opts.flog || null;
@@ -1546,7 +1550,7 @@ function _verifyThenRetry(attempt, payload, reason, sess){
   state.saveState = 'saving';
   _updateUnsavedBar();
   _sessTimer(sess, function(){
-    jsonp(API_URL+'?action=getHaitatsu&_cb='+Date.now(), 'cb_verify', function(res){
+    apiJsonp(API_URL+'?action=getHaitatsu&_cb='+Date.now(), 'cb_verify', function(res){
       _applyIrai(res);
       if(!_sessAlive(sess)) return;
       if(res && res.success && _payloadMatches(res.items, payload)){
@@ -1651,7 +1655,7 @@ function _bgRun(){
   if(!p || p.stop){ _updateUnsentLine(); return; }
   if(_bgBusy || _sessAlive(_saveSess)){ _bgArm(); return; }   // その場の保存が進行中なら任せる
   _bgBusy = true;
-  jsonp(API_URL+'?action=getHaitatsu&_cb='+Date.now(), 'cb_bgchk', function(res){
+  apiJsonp(API_URL+'?action=getHaitatsu&_cb='+Date.now(), 'cb_bgchk', function(res){
     _applyIrai(res);
     _bgBusy = false; _bgSeen = true;
     if(res && res.success && res.items) _bgDecide(p, res.items, res.lastUpdated || '', _bgReload);
@@ -1888,7 +1892,7 @@ function _applyHaitatsuData(items, lastUpdated){
 // 1本出す（makeLatestFetcher の send）。_cb は途中の HTTP キャッシュに古い応答を返させないため
 function _sendJsonp(url, base){
   return function(ok, err, late, t, l, fl){
-    jsonp(url+'&_cb='+Date.now()+'_'+Math.random().toString(36).slice(2,6), base, ok, err, t,
+    apiJsonp(url+'&_cb='+Date.now()+'_'+Math.random().toString(36).slice(2,6), base, ok, err, t,
       { lateGraceMs: l, onLate: late, flog: fl });
   };
 }

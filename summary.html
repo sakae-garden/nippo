@@ -111,6 +111,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:#e8e0d0;min-height:100vh;p
 
 <script src="shared-stores.js"></script>
 <script src="fetch-log.js"></script>
+<script src="nippo-api.js"></script>
 <script>
 var API_URL='https://script.google.com/macros/s/AKfycbxGqsjIbO9PDjUpf2EWRD8AkVvYc7V77OJrh7h_PZCqtuV4aUL7NYz83VsNc5lY6sXONw/exec';
 // スナップショット配信URL（GCS+CORS+publicRead）。
@@ -128,7 +129,7 @@ function lsKey(base){ return base + (IS_TEST_ENV ? '_test' : ''); }
 // 前回の数字を画面に出す手段は設けない（杉さん決定 2026-10-04）ので、端末にも残さない。以前の版が残した値を消す。
 try{ localStorage.removeItem(lsKey('summary_cache_v1')); }catch(e){}
 // 【2026-10-06】取得の記録（fetch-log.js。失敗・遅れを GAS の「取得記録」シートへ送る）。読み込めなかった端末では何もしない
-var PAGE_BUILD = 'fetch-log-20261006';   // 取得の記録の「画面の版」
+var PAGE_BUILD = 'nippo-api-run-20261009';   // 取得の記録の「画面の版」
 if(window.FetchLog) FetchLog.init({ screen:'summary', api:API_URL, test:IS_TEST_ENV, ver:PAGE_BUILD });
 function _flAttempt(action){ return window.FetchLog ? FetchLog.attempt(action) : { req:function(){ return null; }, bad:function(){}, ok:function(){}, fail:function(){}, abandon:function(){} }; }
 var CACHED=null, currentRoute=0, userPickedDate=false;
@@ -210,6 +211,9 @@ var cbIdx=0;
 // opts.flog: 取得の記録（fetch-log.js の A.req()）。打ち切り・エラー・到着を伝えるだけで、動きは変えない。
 //   この jsonp は「応答は来たがコールバックが呼ばれない（HTML 等）」で早く失敗にしないので、そのときも
 //   見切りまで待つ（従来どおり）。記録の失敗の種類だけ、見切りでなく html にする。
+// 読み取りは nippo-api.js の切り替え表で GAS／Cloud Run を選ぶ。
+// nippo-api.js を読み込めなかったときは今の jsonp をそのまま使う
+function apiJsonp(url,ok,err,opts){ if(window.NippoApi) return NippoApi.jsonp4(url,ok,err,opts); return jsonp(url,ok,err,opts); }
 function jsonp(url,ok,err,opts){
   opts=opts||{};
   var fl=opts.flog||null, loadedNoCb=false;
@@ -367,7 +371,7 @@ function handleEsmarcheStatus(d){
 // getEsmarcheStatus を1本出す（取得の記録つき。動きは従来の jsonp(…handleEsmarcheStatus, 何もしない) と同じ）
 function _fetchEsmarcheStatus(){
   var A = _flAttempt('getEsmarcheStatus');
-  jsonp(API_URL+'?action=getEsmarcheStatus',
+  apiJsonp(API_URL+'?action=getEsmarcheStatus',
     function(d){ if(d && !d.error) A.ok(); else { A.bad(d); A.fail(); } handleEsmarcheStatus(d); },
     function(){ A.fail(); }, { flog: A.req() });
 }
@@ -534,7 +538,7 @@ function _fetchAllDataFromGas(attempt, silent){
   function fire(){
     fired++;
     inflight++;
-    jsonp(API_URL+'?action=getAllData',
+    apiJsonp(API_URL+'?action=getAllData',
       function(d){ inflight--; if(!take(d)) failOne(); },
       function(){ inflight--; failOne(); },
       { timeoutMs: GAS_TIMEOUT_MS, lateMs: GAS_LATE_MS,
@@ -638,7 +642,7 @@ function showReport(date){
   document.getElementById('loading').style.display='block';
   function stillShown(){ return document.getElementById('dateSelect').value===date; }
   var A = _flAttempt('getDayData');
-  jsonp(API_URL+'?action=getDayData&date='+encodeURIComponent(date),
+  apiJsonp(API_URL+'?action=getDayData&date='+encodeURIComponent(date),
     function(d){
       var stores=(d&&!d.error&&d.stores)||null;
       if(stores) A.ok(); else { A.bad(d); A.fail(); }
