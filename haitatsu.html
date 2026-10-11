@@ -185,7 +185,7 @@ body.has-unsaved .toast{bottom:130px}
 .zan-mini.none{background:#f2f2f2;color:#aaa}
 
 /* 全ルート総合計（編集モード最上段） */
-/* 売上（単価×数量）。編集モードの最上段。最新かどうかをぱっと見で確かめる用 */
+/* 今日の売上（エスマルシェの販売数×単価）。編集モードの最上段。エスマルシェと一致すれば最新 */
 .uriage{background:#fff;border:1px solid var(--border);border-left:4px solid var(--green);border-radius:10px;padding:10px 14px;margin-bottom:14px;box-shadow:var(--shadow)}
 .uriage-main{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
 .uriage-ttl{font-size:13px;font-weight:700;color:var(--green);letter-spacing:.04em}
@@ -895,47 +895,52 @@ function updateRouteTotal(){
     if(el) el.textContent = e.total;
   });
 }
-// ---- 売上（単価×数量）。編集モードの最上段に出す（2026-10-06 杉さん要望）----
-// 画面の単価（¥99・¥198・¥398・¥598・臨時品目の価格）×納品数をそのまま足す。税・手数料は調整しない。
-// 対象はヤオコー店舗のみ（総合計と同じ ids）。臨時品目は納品指示（extrasOf）の数だけを数える。
+// ---- 売上（エスマルシェの販売数×単価）。編集モードの最上段に出す ----
+// 【2026-10-11 作り直し】杉さんの要望は「エスマルシェの画面の売上と同じ金額が出ること」。
+//   一致していれば、画面の販売数がエスマルシェの最新に更新されたと分かる（最新確認用）。
+//   旧版（10/06）は納品指示×単価を出していたため、エスマルシェと一致しなかった（誤実装）。
+// 計算：ヤオコー店舗の 販売数（state.zaiko＝画面の「売」と同じ値）× 単価 ＋ 臨時品目の販売数（state.zaikoExtras）× 価格。
+//   税・手数料は調整しない（エスマルシェも手数料控除前）。販売数がまだ無い日（hasSales=false）は 0 として数える。
 function uriageFor(ids){
   var t = 0;
   ids.forEach(function(id){
     var def = STORE_DEFS[id];
     if(!def || def.type !== 'yaoko') return;
-    var e = state.data[def.name];
-    if(e && e.prices){
-      YAOKO_PRICES.forEach(function(p){ t += _priceNum(p) * (parseInt(e.prices[p], 10) || 0); });
+    var z = state.zaiko && state.zaiko[def.name];
+    if(z){
+      YAOKO_PRICES.forEach(function(p){ if(z[p]) t += _priceNum(p) * (parseInt(z[p].sales, 10) || 0); });
     }
-    var ex = extrasOf(def.name);
-    Object.keys(ex).forEach(function(p){
-      if(YAOKO_PRICES.indexOf(p) > -1) return;
-      t += _priceNum(p) * (parseInt(ex[p], 10) || 0);
-    });
+    var zx = state.zaikoExtras && state.zaikoExtras[def.name];
+    if(zx){
+      Object.keys(zx).forEach(function(p){
+        if(YAOKO_PRICES.indexOf(p) > -1 || !zx[p]) return;
+        t += _priceNum(p) * (parseInt(zx[p].sales, 10) || 0);
+      });
+    }
   });
   return t;
 }
 function uriageAllRoutes(){ return uriageFor(allYaokoIds()); }
 function uriageForRoute(r){ return uriageFor(routeYaokoIds(r)); }
 function fmtYen(n){ return '¥' + String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+// 販売数が今日の最新として出ているときだけ金額を出す（取得中・失敗・前日の値のときは金額を出さない）
+function _uriageReady(){ return state.zaikoView === 'fresh' && state.zaikoDataDate === todayStr; }
+function _uriageState(){
+  if(state.zaikoView === 'fresh' && state.zaikoDataDate !== todayStr) return '今日の販売数はまだありません';
+  if(state.zaikoView === 'failed') return '販売数を取得できませんでした';
+  return '販売数を取得中…';
+}
 function _uriageHtml(){
   var _rlabel = (typeof ROUTES!=='undefined' && ROUTES[state.route] && ROUTES[state.route].label) || 'この経路';
+  var ok = _uriageReady();
   return '<div class="uriage">'
-    + '<div class="uriage-main"><span class="uriage-ttl">💴 全ルート 売上</span><span class="uriage-v" id="uriageAll">'+fmtYen(uriageAllRoutes())+'</span></div>'
-    + '<div class="uriage-sub"><span>このルート（'+eH(_rlabel)+'）</span><b id="uriageRoute">'+fmtYen(uriageForRoute(state.route))+'</b></div>'
-    + '<div class="uriage-note" id="uriageNote"'+(state.dirty?'':' hidden')+'>（未保存の入力を含む）</div>'
+    + '<div class="uriage-main"><span class="uriage-ttl">💴 今日の売上（エスマルシェ）</span><span class="uriage-v" id="uriageAll">'+(ok?fmtYen(uriageAllRoutes()):'―')+'</span></div>'
+    + '<div class="uriage-sub"><span>このルート（'+eH(_rlabel)+'）</span><b id="uriageRoute">'+(ok?fmtYen(uriageForRoute(state.route)):'―')+'</b></div>'
+    + (ok ? '' : '<div class="uriage-note">'+eH(_uriageState())+'</div>')
     + '</div>';
 }
-// 入力ごと・保存の前後に呼ぶ（DOM が無い＝閲覧モード等では何もしない）
-function updateUriage(){
-  var a = document.getElementById('uriageAll');
-  if(!a) return;
-  a.textContent = fmtYen(uriageAllRoutes());
-  var r = document.getElementById('uriageRoute');
-  if(r) r.textContent = fmtYen(uriageForRoute(state.route));
-  var n = document.getElementById('uriageNote');
-  if(n) n.hidden = !state.dirty;
-}
+// 販売数は入力で変わらないので、入力ごとの更新は不要（販売数の取得時に renderRoute で描き直される）。
+function updateUriage(){}
 function updateStoreSubtotal(storeName){
   var el = document.getElementById('st_'+esc(storeName));
   if(el) el.textContent = '合計 '+storeSubtotal(storeName)+'個';
@@ -1222,7 +1227,7 @@ function _renderRouteUnsafe(){
 
   // 編集モード：最上段に「全ルート総合計」＋直下に「この経路合計」（入力ミス検算用・案B上下2段）
   if(state.mode==='edit'){
-    // 売上（単価×数量）を最上段に。最新が届く前（loading/failed）はここまで来ない。
+    // 今日の売上（エスマルシェの販売数×単価）を最上段に。
     html += _uriageHtml();
     html += '<div class="all-total"><div class="all-total-ttl">📦 全ルート ヤオコー納品数 総合計</div><div class="all-total-grid">';
     YAOKO_PRICES.forEach(function(p){
