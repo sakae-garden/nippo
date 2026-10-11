@@ -193,6 +193,7 @@ body.has-unsaved .toast{bottom:130px}
 .uriage-sub{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:13px;color:var(--sub);margin-top:4px}
 .uriage-sub b{font-size:16px;color:var(--ink);font-family:'Inter','Noto Sans JP',sans-serif}
 .uriage-note{font-size:11px;color:var(--sub);margin-top:4px}
+.uriage-upd{font-size:11px;font-weight:400;color:var(--sub);margin-left:6px;font-family:'Noto Sans JP',sans-serif}
 .all-total{background:#fff;border:1px solid var(--border);border-left:4px solid var(--green);border-radius:10px;padding:12px 14px;margin-bottom:14px;box-shadow:var(--shadow)}
 .all-total-ttl{font-size:11px;font-weight:700;color:var(--green);letter-spacing:.08em;margin-bottom:8px}
 .all-total-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
@@ -937,17 +938,32 @@ function _uriageState(){
   if(state.zaikoView === 'failed') return '販売数を取得できませんでした';
   return '販売数を取得中…';
 }
+// 【2026-10-11 案C】金額はエスマルシェの「売上合計（税抜）」そのもの（値引後）。エスマルシェの画面と1円単位で一致する。
+// 応答に売上が無いとき（古い応答など）は、販売数×単価で代用せず「―」にする（値引前を値引後と見誤らせないため）。
+function _uriageEsm(ids){
+  var u = (state.zaikoUriage && state.zaikoUriage.by) || {}, yen = 0, n = 0;
+  ids.forEach(function(id){ var d = STORE_DEFS[id]; if(d && d.type === 'yaoko' && (d.name in u)){ yen += u[d.name]; n++; } });
+  return { yen: yen, n: n };
+}
 function _uriageHtml(){
   var _rlabel = (typeof ROUTES!=='undefined' && ROUTES[state.route] && ROUTES[state.route].label) || 'この経路';
   var ok = _uriageReady();
-  var all = ok ? _uriageCalc(allYaokoIds()) : null;
-  var rt  = ok ? _uriageCalc(routeYaokoIds(state.route)) : null;
+  var ids = allYaokoIds(), rids = routeYaokoIds(state.route);
+  var esA = ok ? _uriageEsm(ids) : null, esR = ok ? _uriageEsm(rids) : null;
+  var has = ok && esA.n > 0;
+  var upd = (state.zaikoUriage && state.zaikoUriage.updateTime) || '';
+  var all = ok ? _uriageCalc(ids) : null, rt = ok ? _uriageCalc(rids) : null;
   var fmtPts = function(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '点'; };
+  var note = !ok ? eH(_uriageState())
+           : !has ? '金額を取得できませんでした（販売点数は最新です）'
+           : (esA.n < ids.length ? '一部の店舗（' + (ids.length - esA.n) + '店）の売上がまだありません。' : '')
+             + 'エスマルシェの「売上合計（税抜）」と同じ値です（値引後）。更新回の時刻は目安';
   return '<div class="uriage">'
-    + '<div class="uriage-main"><span class="uriage-ttl">💴 今日の売上（エスマルシェ）</span><span class="uriage-v">'+(ok?fmtYen(all.yen):'―')+'</span></div>'
-    + '<div class="uriage-sub"><span>販売点数</span><b>'+(ok?fmtPts(all.pts):'―')+'</b></div>'
-    + '<div class="uriage-sub"><span>このルート（'+eH(_rlabel)+'）</span><b>'+(ok?fmtYen(rt.yen)+' ／ '+fmtPts(rt.pts):'―')+'</b></div>'
-    + '<div class="uriage-note">'+(ok ? '金額は値引前。値引がある日はエスマルシェより少し多くなります（点数は一致）' : eH(_uriageState()))+'</div>'
+    + '<div class="uriage-main"><span class="uriage-ttl">💴 売上（エスマルシェ）</span><span class="uriage-v">' + (has ? fmtYen(esA.yen) : '―')
+    + (has && upd ? '<small class="uriage-upd">' + eH(upd) + ' 更新分</small>' : '') + '</span></div>'
+    + '<div class="uriage-sub"><span>販売点数</span><b>' + (ok ? fmtPts(all.pts) : '―') + '</b></div>'
+    + '<div class="uriage-sub"><span>このルート（' + eH(_rlabel) + '）</span><b>' + (has ? fmtYen(esR.yen) + ' ／ ' + fmtPts(rt.pts) : '―') + '</b></div>'
+    + '<div class="uriage-note">' + note + '</div>'
     + '</div>';
 }
 // 販売数は入力で変わらないので、入力ごとの更新は不要（販売数の取得時に renderRoute で描き直される）。
@@ -1038,7 +1054,7 @@ function _prepareZaiko(){
 // 残在庫/販売数を消して「取得中」にする（出どころもいったん空にする＝前の回の値をマージに持ち込まない）
 function _zaikoBeginLoad(){
   state.zaikoView = 'loading';
-  state.zaiko = {}; state.zaikoExtras = {}; state.zaikoDataDate = '';
+  state.zaiko = {}; state.zaikoExtras = {}; state.zaikoDataDate = ''; state.zaikoUriage = null;
   state.zaikoSrc = { gas:null, snap:null };
   state.zaikoLoaded = false; state.zaikoLoading = true; state.zaikoError = false;
   state.zaikoFromGas = false; state.zaikoRevalidating = true; state.zaikoChanged = null;
@@ -2124,7 +2140,20 @@ function _mergeZaikoSources(){
   var use = srcs.filter(function(x){ return x.d.dataDate === newest; });
   return { items: _mergeZaikoTree(use, 'items'),
            extras: _mergeZaikoTree(use, 'extras'),
-           dataDate: newest };
+           dataDate: newest,
+           uriage: _mergeUriage(use, newest) };
+}
+// 【2026-10-11 案C】エスマルシェの売上合計（税抜・値引後）を店舗別に。販売数と同じく1日の中で減らないので店舗ごとに最大。
+// 更新回の時刻（esm.updateTime "HH:MM"）は参照日と同じ日のものだけ採る（目安）。
+function _mergeUriage(use, dataDate){
+  var by = {}, upd = '';
+  use.forEach(function(x){
+    var u = x.d.uriage || {};
+    Object.keys(u).forEach(function(sn){ var n = _zaikoNum(u[sn]); if(!(sn in by) || n > by[sn]) by[sn] = n; });
+    var e = x.d.esm;
+    if(e && e.date === dataDate && e.updateTime && e.updateTime > upd) upd = e.updateTime;
+  });
+  return { by: by, updateTime: upd };
 }
 
 /// 取得成功時の共通適用。出どころを記録し、マージ結果で state を更新して再描画する。
@@ -2136,10 +2165,11 @@ function _mergeZaikoSources(){
 //   （待たないと販売数だけ後から書き換わる2段階の表示になる）。
 var ZAIKO_SNAP_WAIT_MS = 500;
 var _zaikoHoldT = null;
-function _applyZaiko(items, dataDate, extras, source, snapGenAt){
+function _applyZaiko(items, dataDate, extras, source, snapGenAt, uriage, esm){
   var isGas = (source === 'gas');
   state.zaikoSrc[isGas ? 'gas' : 'snap'] = {
     items: items || {}, extras: extras || {}, dataDate: dataDate || todayStr,
+    uriage: uriage || {}, esm: esm || null,
     genAt: isGas ? 0 : (Date.parse(snapGenAt || '') || 0)
   };
   if(isGas){
@@ -2168,6 +2198,7 @@ function _commitZaiko(){
   state.zaiko = merged.items;
   state.zaikoExtras = merged.extras;
   state.zaikoDataDate = merged.dataDate;
+  state.zaikoUriage = merged.uriage;
   state.zaikoView = 'fresh';
   state.zaikoLoaded = true;
   state.zaikoLoading = false;
@@ -2285,7 +2316,7 @@ var _zaikoFetch = makeLatestFetcher({
   },
   onData: function(res){
     _zaikoFirstTry = false;
-    _applyZaiko(res.items, res.actualDate || res.date || todayStr, res.extras || {}, 'gas');
+    _applyZaiko(res.items, res.actualDate || res.date || todayStr, res.extras || {}, 'gas', null, res.uriage, res.esm);
   },
   onFail: function(){
     var keepLoading = _zaikoFirstTry && _zaikoSawPending && state.zaikoView === 'loading';
