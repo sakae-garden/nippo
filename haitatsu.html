@@ -192,7 +192,7 @@ body.has-unsaved .toast{bottom:130px}
 .uriage-v{font-size:28px;font-weight:700;color:var(--ink);font-family:'Inter','Noto Sans JP',sans-serif;line-height:1.1}
 .uriage-sub{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:13px;color:var(--sub);margin-top:4px}
 .uriage-sub b{font-size:16px;color:var(--ink);font-family:'Inter','Noto Sans JP',sans-serif}
-.uriage-note{font-size:11px;color:#b26a00;margin-top:4px}
+.uriage-note{font-size:11px;color:var(--sub);margin-top:4px}
 .all-total{background:#fff;border:1px solid var(--border);border-left:4px solid var(--green);border-radius:10px;padding:12px 14px;margin-bottom:14px;box-shadow:var(--shadow)}
 .all-total-ttl{font-size:11px;font-weight:700;color:var(--green);letter-spacing:.08em;margin-bottom:8px}
 .all-total-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
@@ -901,24 +901,31 @@ function updateRouteTotal(){
 //   旧版（10/06）は納品指示×単価を出していたため、エスマルシェと一致しなかった（誤実装）。
 // 計算：ヤオコー店舗の 販売数（state.zaiko＝画面の「売」と同じ値）× 単価 ＋ 臨時品目の販売数（state.zaikoExtras）× 価格。
 //   税・手数料は調整しない（エスマルシェも手数料控除前）。販売数がまだ無い日（hasSales=false）は 0 として数える。
-function uriageFor(ids){
-  var t = 0;
+function uriageFor(ids){ return _uriageCalc(ids).yen; }
+// 金額（値引前）と販売点数を一緒に数える。点数はエスマルシェの点数と一致する（値引分も1点として数えられているため）
+function _uriageCalc(ids){
+  var yen = 0, pts = 0;
   ids.forEach(function(id){
     var def = STORE_DEFS[id];
     if(!def || def.type !== 'yaoko') return;
     var z = state.zaiko && state.zaiko[def.name];
     if(z){
-      YAOKO_PRICES.forEach(function(p){ if(z[p]) t += _priceNum(p) * (parseInt(z[p].sales, 10) || 0); });
+      YAOKO_PRICES.forEach(function(p){
+        if(!z[p]) return;
+        var n = parseInt(z[p].sales, 10) || 0;
+        yen += _priceNum(p) * n; pts += n;
+      });
     }
     var zx = state.zaikoExtras && state.zaikoExtras[def.name];
     if(zx){
       Object.keys(zx).forEach(function(p){
         if(YAOKO_PRICES.indexOf(p) > -1 || !zx[p]) return;
-        t += _priceNum(p) * (parseInt(zx[p].sales, 10) || 0);
+        var n = parseInt(zx[p].sales, 10) || 0;
+        yen += _priceNum(p) * n; pts += n;
       });
     }
   });
-  return t;
+  return { yen: yen, pts: pts };
 }
 function uriageAllRoutes(){ return uriageFor(allYaokoIds()); }
 function uriageForRoute(r){ return uriageFor(routeYaokoIds(r)); }
@@ -933,10 +940,14 @@ function _uriageState(){
 function _uriageHtml(){
   var _rlabel = (typeof ROUTES!=='undefined' && ROUTES[state.route] && ROUTES[state.route].label) || 'この経路';
   var ok = _uriageReady();
+  var all = ok ? _uriageCalc(allYaokoIds()) : null;
+  var rt  = ok ? _uriageCalc(routeYaokoIds(state.route)) : null;
+  var fmtPts = function(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '点'; };
   return '<div class="uriage">'
-    + '<div class="uriage-main"><span class="uriage-ttl">💴 今日の売上（エスマルシェ）</span><span class="uriage-v" id="uriageAll">'+(ok?fmtYen(uriageAllRoutes()):'―')+'</span></div>'
-    + '<div class="uriage-sub"><span>このルート（'+eH(_rlabel)+'）</span><b id="uriageRoute">'+(ok?fmtYen(uriageForRoute(state.route)):'―')+'</b></div>'
-    + (ok ? '' : '<div class="uriage-note">'+eH(_uriageState())+'</div>')
+    + '<div class="uriage-main"><span class="uriage-ttl">💴 今日の売上（エスマルシェ）</span><span class="uriage-v">'+(ok?fmtYen(all.yen):'―')+'</span></div>'
+    + '<div class="uriage-sub"><span>販売点数</span><b>'+(ok?fmtPts(all.pts):'―')+'</b></div>'
+    + '<div class="uriage-sub"><span>このルート（'+eH(_rlabel)+'）</span><b>'+(ok?fmtYen(rt.yen)+' ／ '+fmtPts(rt.pts):'―')+'</b></div>'
+    + '<div class="uriage-note">'+(ok ? '金額は値引前。値引がある日はエスマルシェより少し多くなります（点数は一致）' : eH(_uriageState()))+'</div>'
     + '</div>';
 }
 // 販売数は入力で変わらないので、入力ごとの更新は不要（販売数の取得時に renderRoute で描き直される）。
