@@ -193,7 +193,7 @@ body.has-unsaved .toast{bottom:130px}
 .uriage-sub{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:13px;color:var(--sub);margin-top:4px}
 .uriage-sub b{font-size:16px;color:var(--ink);font-family:'Inter','Noto Sans JP',sans-serif}
 .uriage-note{font-size:11px;color:var(--sub);margin-top:4px}
-.uriage-upd{font-size:11px;font-weight:400;color:var(--sub);margin-left:6px;font-family:'Noto Sans JP',sans-serif}
+.uriage-upd{white-space:nowrap;font-size:11px;font-weight:400;color:var(--sub);margin-left:6px;font-family:'Noto Sans JP',sans-serif}
 .all-total{background:#fff;border:1px solid var(--border);border-left:4px solid var(--green);border-radius:10px;padding:12px 14px;margin-bottom:14px;box-shadow:var(--shadow)}
 .all-total-ttl{font-size:11px;font-weight:700;color:var(--green);letter-spacing:.08em;margin-bottom:8px}
 .all-total-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
@@ -955,7 +955,7 @@ function _uriageHtml(){
   var all = ok ? _uriageCalc(ids) : null, rt = ok ? _uriageCalc(rids) : null;
   var fmtPts = function(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '点'; };
   var note = !ok ? eH(_uriageState())
-           : !has ? '金額を取得できませんでした（販売点数は最新です）'
+           : !has ? ((state.zaikoUriage && state.zaikoUriage.seen) ? '今日の売上はまだありません' : '金額を取得できませんでした（販売点数は最新です）')
            : (esA.n < ids.length ? '一部の店舗（' + (ids.length - esA.n) + '店）の売上がまだありません。' : '')
              + 'エスマルシェの「売上合計（税抜）」と同じ値です（値引後）。更新回の時刻は目安';
   return '<div class="uriage">'
@@ -2146,14 +2146,15 @@ function _mergeZaikoSources(){
 // 【2026-10-11 案C】エスマルシェの売上合計（税抜・値引後）を店舗別に。販売数と同じく1日の中で減らないので店舗ごとに最大。
 // 更新回の時刻（esm.updateTime "HH:MM"）は参照日と同じ日のものだけ採る（目安）。
 function _mergeUriage(use, dataDate){
-  var by = {}, upd = '';
+  var by = {}, upd = '', seen = false;
   use.forEach(function(x){
+    if(x.d.uriage) seen = true;   // 応答に売上の項目があった（中身が空でも）
     var u = x.d.uriage || {};
     Object.keys(u).forEach(function(sn){ var n = _zaikoNum(u[sn]); if(!(sn in by) || n > by[sn]) by[sn] = n; });
     var e = x.d.esm;
     if(e && e.date === dataDate && e.updateTime && e.updateTime > upd) upd = e.updateTime;
   });
-  return { by: by, updateTime: upd };
+  return { by: by, updateTime: upd, seen: seen };
 }
 
 /// 取得成功時の共通適用。出どころを記録し、マージ結果で state を更新して再描画する。
@@ -2169,7 +2170,7 @@ function _applyZaiko(items, dataDate, extras, source, snapGenAt, uriage, esm){
   var isGas = (source === 'gas');
   state.zaikoSrc[isGas ? 'gas' : 'snap'] = {
     items: items || {}, extras: extras || {}, dataDate: dataDate || todayStr,
-    uriage: uriage || {}, esm: esm || null,
+    uriage: (uriage && typeof uriage === 'object') ? uriage : null, esm: esm || null,
     genAt: isGas ? 0 : (Date.parse(snapGenAt || '') || 0)
   };
   if(isGas){
