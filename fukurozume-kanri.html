@@ -93,7 +93,7 @@ const api = FukuroApi.create('fukuroAdmin');
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const WD = '日月火水木金土';
-const MEMO = { yaoko:'ヤオコー', hers:'ハーズ', choku:'直売所', yaotomo:'やおとも', other:'その他' };
+const MEMO = { yaoko:'ヤオコー', hers:'ハーズ', choku:'直売所', yaotomo:'やおとも', tamaya:'たまや', other:'その他' };
 const unit = k => k === 'yaotomoKg' ? 'kg' : (k === 'yaotomoP' ? 'P' : '袋');
 const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const parse = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
