@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>袋詰め 管理 | 栄ガーデン</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&family=Inter:wght@600;700&display=swap">
+<style>
+/* 杉さん専用：日ごと（全員の商品別 袋数・1時間あたり・他の作業）と、人ごとの伸び（商品別の週平均）。日報と同じ見た目 */
+:root{
+  --ink:#1c1c1e; --bg:#f5f1e8; --card:#ffffff; --border:#e8e2d5; --sub:#6f6a60;
+  --green:#2d7a4f; --green-bg:#edf7f1; --yellow-bg:#fffde7; --yellow:#f9a825;
+  --f:'Noto Sans JP','Hiragino Sans',sans-serif; --num:'Inter','Noto Sans JP',sans-serif;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{background:var(--bg);color:var(--ink);font-family:var(--f);font-size:15px;line-height:1.5}
+body{margin:0}
+.hdr{background:var(--ink);color:#fff;padding:12px 16px;position:sticky;top:env(safe-area-inset-top,0px);z-index:5}
+.hdr .in{max-width:760px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.hdr b{font-size:18px;letter-spacing:.06em}
+.tabs{display:flex;gap:6px}
+.tabs button{font:inherit;font-weight:700;padding:7px 14px;border-radius:999px;border:1px solid rgba(255,255,255,.35);background:transparent;color:#fff;cursor:pointer}
+.tabs button[aria-selected="true"]{background:#fff;color:var(--ink)}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid var(--yellow);outline-offset:2px}
+.wrap{max-width:760px;margin:0 auto;padding-inline:16px;padding-block:14px 40px;display:grid;gap:14px}
+.bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.bar select,.bar button{font:inherit;font-weight:700;padding:7px 12px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--ink)}
+.bar .lbl{color:var(--sub);font-size:13px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.card h2{margin:0;font-size:16px;padding:10px 14px;background:var(--green-bg);color:var(--green);display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.card h2 small{color:var(--ink);font-weight:500;font-size:13px}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%}
+th,td{padding:8px 12px;border-top:1px solid var(--border);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+th{font-size:12px;color:var(--sub);border-top:0;font-weight:700}
+td:first-child,th:first-child{text-align:left}
+td:first-child{white-space:normal}
+td b{font-family:var(--num);font-size:17px}
+.low{background:var(--yellow-bg)}
+.memo{padding:10px 14px;border-top:1px solid var(--border);font-size:14px;display:grid;gap:4px}
+.memo span{color:var(--sub);font-size:12px;margin-right:6px}
+.bars{display:grid;grid-template-columns:repeat(8,1fr);gap:8px;align-items:end;min-height:170px;padding:14px}
+.bars div{display:grid;justify-items:center;gap:4px;font-size:12px;color:var(--sub);align-self:end;white-space:nowrap}
+.bars i{display:block;width:100%;max-width:36px;background:var(--green);border-radius:6px 6px 0 0}
+.bars b{font-family:var(--num);color:var(--ink);font-size:14px}
+.note{font-size:13px;color:var(--sub);margin:0}
+/* 読み込み中・失敗・パスコード */
+.msg{text-align:center;color:var(--sub);padding:14px 0}
+.retry{font:inherit;font-weight:700;padding:8px 16px;border-radius:10px;border:1px solid var(--green);background:var(--card);color:var(--green);cursor:pointer}
+.pass{position:fixed;inset:0;z-index:30;background:var(--bg);padding:48px 16px}
+.pass .in{max-width:360px;margin:0 auto;display:grid;gap:12px}
+.pass h1{font-size:20px;margin:0;text-align:center}
+.pass input{font:inherit;font-size:24px;text-align:center;padding:10px;border:2px solid var(--border);border-radius:12px;background:#fff}
+.pass button{font:inherit;font-weight:700;font-size:18px;padding:12px;border-radius:12px;border:0;background:var(--green);color:#fff;cursor:pointer}
+.pass p{margin:0;text-align:center;color:#c62828;font-weight:700;min-height:1.5em}
+</style>
+</head>
+<body>
+<div class="hdr"><div class="in"><b>袋詰め 管理（杉さん用）</b>
+  <div class="tabs" role="tablist"><button type="button" role="tab" id="tDay" aria-selected="true">日ごと</button><button type="button" role="tab" id="tPer" aria-selected="false">人ごとの伸び</button></div>
+</div></div>
+
+<div class="pass" id="pass" hidden><div class="in">
+  <h1>管理用のパスコード</h1>
+  <input id="pc" type="password" autocomplete="off" aria-label="パスコード">
+  <button type="button" id="pcGo">開く</button>
+  <p id="pcMsg"></p>
+</div></div>
+
+<div class="wrap">
+  <section id="pDay" style="display:grid;gap:14px">
+    <div class="bar"><button type="button" id="dPrev">‹ 前の日</button><b style="font-size:18px" id="dTtl"></b><button type="button" id="dNext">次の日 ›</button></div>
+    <div id="day" style="display:grid;gap:14px"></div>
+    <p class="note">1時間あたり＝その商品の袋数 ÷（シフトの時間 − シフトの休憩）。休憩がシフトに入っていない日は60分。黄色はその人のふだん（直近4週の平均）より2割以上低いところ。</p>
+  </section>
+
+  <section id="pPer" hidden style="display:grid;gap:14px">
+    <div class="bar"><span class="lbl">人</span><select id="selP"></select><span class="lbl">商品</span><select id="selG"></select></div>
+    <div id="perBody" style="display:grid;gap:14px">
+      <div class="card"><h2 id="perTtl"></h2><div class="bars" id="bars"></div></div>
+      <div class="card"><h2>日ごとの記録</h2><div class="scroll"><table id="perTbl"></table></div></div>
+    </div>
+    <div id="perMsg"></div>
+  </section>
+</div>
+
+<script src="fukuro-api.js"></script>
+<script>
+'use strict';
+const api = FukuroApi.create('fukuroAdmin');
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const WD = '日月火水木金土';
+const MEMO = { yaoko:'ヤオコー', hers:'ハーズ', choku:'直売所', yaotomo:'やおとも', other:'その他' };
+const unit = k => k === 'yaotomoKg' ? 'kg' : (k === 'yaotomoP' ? 'P' : '袋');
+const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const parse = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+const md = s => { const d = parse(s); return `${d.getMonth() + 1}/${d.getDate()}（${WD[d.getDay()]}）`; };
+const mins = t => { const [h, m] = String(t).split(':').map(Number); return h * 60 + (m || 0); };
+
+// パスコード（初回だけ。トークンが無効になったら出し直す）
+let passAfter = null;
+function showPass(after){ passAfter = after; $('pcMsg').textContent = ''; $('pass').hidden = false; setTimeout(() => $('pc').focus(), 0); }
+function doLogin(){
+  const pc = $('pc').value.trim(); if (!pc) return;
+  $('pcGo').disabled = true;
+  api.login(pc).then(r => {
+    $('pcGo').disabled = false;
+    if (r.kind === 'ok') { $('pc').value = ''; $('pass').hidden = true; const f = passAfter; passAfter = null; if (f) f(); return; }
+    $('pcMsg').textContent = r.kind === 'bad_passcode' ? 'パスコードが違います' : r.kind === 'rate_limited' ? '1分ほど待ってからもう一度'
+      : r.kind === 'not_ready' ? '準備中です' : 'つながりませんでした';
+  });
+}
+$('pcGo').onclick = doLogin;
+$('pc').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+function failed(el, r, again){
+  if (r.kind === 'auth') { el.innerHTML = ''; return showPass(again); }
+  el.innerHTML = `<div class="msg">${r.kind === 'not_ready' ? '準備中です' : '読み込めませんでした'}　<button type="button" class="retry">もう一度</button></div>`;
+  el.querySelector('.retry').onclick = again;
+}
+
+// 日ごと
+let cur = ymd(new Date());
+function loadDay(){
+  const d = cur;
+  $('dTtl').textContent = md(d);
+  $('day').innerHTML = '<div class="msg">読み込んでいます…</div>';
+  api.call('fukuroAdminDay', { date: d }).then(r => {
+    if (d !== cur) return;
+    if (r.kind !== 'ok') return failed($('day'), r, loadDay);
+    const recs = r.body.records || [], names = Object.fromEntries(r.body.products || []);
+    if (!recs.length) { $('day').innerHTML = '<div class="msg">この日の記録はありません</div>'; return; }
+    $('day').innerHTML = recs.map(x => {
+      let head = 'シフトにありません';
+      if (x.shift) {
+        const brk = x.hours == null ? null : Math.round(mins(x.shift.end) - mins(x.shift.start) - x.hours * 60);
+        head = `${esc(x.shift.start)}〜${esc(x.shift.end)}${brk == null ? '' : `（休憩${brk}分）＝ ${x.hours}時間`}`;
+      }
+      const rate = x.rate || {}, usual = x.usual || {}, low = x.low || [];
+      const rows = (r.body.products || []).filter(([k]) => x.counts && x.counts[k] != null).map(([k, l]) => {
+        const v = x.counts[k], u = usual[k];
+        const rt = rate[k] == null ? '－' : `<b>${rate[k].toFixed(1)}</b>${unit(k)}`;
+        return `<tr class="${low.includes(k) ? 'low' : ''}"><td>${esc(l)}</td><td><b>${v}</b>${unit(k)}</td><td>${rt}</td><td>${u == null ? '－' : u.toFixed(1)}</td></tr>`;
+      }).concat((x.others || []).map(o => `<tr><td>その他 ${esc(o.name)}${o.price ? `（${esc(o.price)}円）` : ''}</td><td><b>${esc(o.count)}</b>袋</td><td>－</td><td>－</td></tr>`)).join('');
+      const memos = Object.keys(MEMO).filter(k => x.memos && x.memos[k]).map(k => `${MEMO[k]}：${esc(x.memos[k])}`).join('　');
+      return `<div class="card"><h2>${esc(x.name)}さん<small>${head}</small></h2>
+        <div class="scroll"><table><tr><th>商品</th><th>袋数</th><th>1時間あたり</th><th>ふだん</th></tr>${rows}</table></div>
+        ${x.otherWork || memos ? `<div class="memo">${x.otherWork ? `<div><span>他の作業</span>${esc(x.otherWork)}</div>` : ''}${memos ? `<div><span>メモ</span>${memos}</div>` : ''}</div>` : ''}</div>`;
+    }).join('');
+  });
+}
+function shiftDay(n){ const d = parse(cur); d.setDate(d.getDate() + n); cur = ymd(d); loadDay(); }
+$('dPrev').onclick = () => shiftDay(-1); $('dNext').onclick = () => shiftDay(1);
+
+// 人ごとの伸び（直近8週）
+let TR = null;
+const selP = $('selP'), selG = $('selG');
+function loadTrend(){
+  $('perBody').hidden = true; $('perMsg').innerHTML = '<div class="msg">読み込んでいます…</div>';
+  api.call('fukuroAdminTrend', { weeks: 8 }).then(r => {
+    if (r.kind !== 'ok') return failed($('perMsg'), r, loadTrend);
+    TR = r.body;
+    const ns = [...new Set((TR.weekly || []).map(w => w.name))];
+    if (!ns.length) { $('perMsg').innerHTML = '<div class="msg">まだ記録がありません</div>'; return; }
+    $('perMsg').innerHTML = ''; $('perBody').hidden = false;
+    const keep = selP.value;
+    selP.innerHTML = ns.map(n => `<option value="${esc(n)}">${esc(n)}さん</option>`).join('');
+    if (ns.includes(keep)) selP.value = keep;
+    fillG(); renderPer();
+  });
+}
+function fillG(){
+  const has = new Set(TR.weekly.filter(w => w.name === selP.value).map(w => w.product)), keep = selG.value;
+  const ps = (TR.products || []).filter(([k]) => has.has(k));
+  selG.innerHTML = ps.map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('');
+  if (has.has(keep)) selG.value = keep;
+}
+function renderPer(){
+  const n = selP.value, g = selG.value, label = selG.selectedOptions[0] ? selG.selectedOptions[0].textContent : '';
+  const wk = [], d0 = parse(TR.from);
+  for (let i = 0; i < 8; i++) { const d = new Date(d0); d.setDate(d.getDate() + i * 7); wk.push(ymd(d)); }
+  const W = wk.map(w => { const x = TR.weekly.find(v => v.name === n && v.product === g && v.week === w); return x ? x.rate : null; });
+  const mx = Math.max(1, ...W.filter(v => v != null));
+  $('perTtl').innerHTML = `${esc(n)}さん　${esc(label)}<small>1時間あたりの${unit(g)}数（週ごとの平均。日付は週の月曜）</small>`;
+  $('bars').innerHTML = W.map((v, i) => { const d = parse(wk[i]);
+    return `<div><b>${v == null ? '－' : v.toFixed(1)}</b><i style="height:${v == null ? 0 : Math.round(v / mx * 120)}px"></i>${d.getMonth() + 1}/${d.getDate()}</div>`; }).join('');
+  const rows = (TR.daily || []).filter(x => x.name === n && x.counts && x.counts[g] != null).reverse();
+  $('perTbl').innerHTML = `<tr><th>日にち</th><th>時間</th><th>${unit(g)}数</th><th>1時間あたり</th><th>他の作業</th></tr>`
+    + (rows.length ? rows.map(x => `<tr><td>${md(x.date)}</td><td>${x.hours == null ? '－' : x.hours + 'h'}</td><td>${x.counts[g]}</td><td>${x.rate && x.rate[g] != null ? `<b>${x.rate[g].toFixed(1)}</b>${unit(g)}` : '－'}</td><td style="text-align:left">${esc(x.otherWork || '')}</td></tr>`).join('')
+      : '<tr><td colspan="5" class="msg">この期間の記録はありません</td></tr>');
+}
+selP.onchange = () => { fillG(); renderPer(); }; selG.onchange = renderPer;
+
+function tab(d){
+  $('tDay').setAttribute('aria-selected', d); $('tPer').setAttribute('aria-selected', !d); $('pDay').hidden = !d; $('pPer').hidden = d;
+  if (!d) loadTrend();
+}
+$('tDay').onclick = () => tab(true); $('tPer').onclick = () => tab(false);
+
+if (api.hasToken()) loadDay(); else showPass(loadDay);
+</script>
+</body>
+</html>
