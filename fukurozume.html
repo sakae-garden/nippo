@@ -238,10 +238,11 @@ function collect(){
 
 // 今日（サーバの日付）
 let TODAY = null, ME = null, NAMES = [], pick = null;
-// 名前を出す順番（杉さん指定 2026-10-14。入社順）。ここに無い人は後ろに、元の順番のまま並ぶ
-const ORDER = ['大橋', '高橋', '石塚', '吉田', '須山', '新保'];
+// 名前の画面の順番（杉さん指定 2026-10-14。入社順。新しく入った人は後ろに足す）。ここに無い人は後ろに、元の順番のまま並ぶ
+const ORDER = ['大橋', '高橋', '石塚', '野口', '吉田', '須山', '新保', '根岸'];
 function rank(n){ const k = String(n).replace(/さん$/, '').trim(); const i = ORDER.findIndex(o => k.startsWith(o)); return i < 0 ? ORDER.length : i; }
 function byOrder(list, get){ return list.map((x, i) => [x, i]).sort((p, q) => (rank(get(p[0])) - rank(get(q[0]))) || (p[1] - q[1])).map(p => p[0]); }
+function mins(t){ const m = String(t || '').match(/(\d+):(\d+)/); return m ? (+m[1]) * 60 + (+m[2]) : 9999; }
 function md(s){ const [y, m, d] = s.split('-').map(Number); return `${m}/${d}（${WD[new Date(y, m - 1, d).getDay()]}）`; }
 
 // 名前の画面：シフトに載っている全員を ORDER の順に。前回の名前に色を付けて確認まで出しておく
@@ -348,7 +349,7 @@ function renderCal(days){
     const [y, m, d] = x.date.split('-').map(Number), w = new Date(y, m - 1, d).getDay();
     if (d === 1 || w === 1) { const end = Math.min(last, d + (w === 0 ? 0 : 7 - w)); h += `<div class="wk">${m}/${d}〜${m}/${end}</div>`; }
     const cls = w === 6 ? ' sat' : (w === 0 ? ' sun' : ''), isT = x.date === TODAY;
-    const ms = byOrder(x.members || [], p => p.name);
+    const ms = byOrder(x.members || [], p => p.name).sort((p, q) => mins(p.start) - mins(q.start));   // シフトタブは出勤時刻の順（同じ時刻なら ORDER の順）
     const right = ms.length ? `<div class="names">${ms.map(p => `<div${p.name === ME ? ' class="me"' : ''}><em>${esc(p.name)}さん</em><span>${esc(p.start)}〜${esc(p.end)}</span></div>`).join('')}</div>` : '<div class="t off">だれもいません</div>';
     h += `<div class="day${isT ? ' today' : ''}"><div class="d${cls}">${m}/${d}<small>${WD[w]}曜${isT ? '・きょう' : ''}</small></div>${right}</div>`;
   });
