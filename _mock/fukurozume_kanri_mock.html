@@ -1,0 +1,103 @@
+<title>袋詰め 管理 試作</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&family=Inter:wght@600;700&display=swap">
+<style>
+/* 杉さん専用：日ごと（全員の商品別 袋数・1時間あたり・他の作業）と、人ごとの伸び（商品別の週平均）。日報と同じ見た目 */
+:root{
+  --ink:#1c1c1e; --bg:#f5f1e8; --card:#ffffff; --border:#e8e2d5; --sub:#6f6a60;
+  --green:#2d7a4f; --green-bg:#edf7f1; --yellow-bg:#fffde7; --yellow:#f9a825;
+  --f:'Noto Sans JP','Hiragino Sans',sans-serif; --num:'Inter','Noto Sans JP',sans-serif;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{background:var(--bg);color:var(--ink);font-family:var(--f);font-size:15px;line-height:1.5}
+.hdr{background:var(--ink);color:#fff;padding:12px 16px;position:sticky;top:env(safe-area-inset-top,0px);z-index:5}
+.hdr .in{max-width:760px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.hdr b{font-size:18px;letter-spacing:.06em}
+.tabs{display:flex;gap:6px}
+.tabs button{font:inherit;font-weight:700;padding:7px 14px;border-radius:999px;border:1px solid rgba(255,255,255,.35);background:transparent;color:#fff;cursor:pointer}
+.tabs button[aria-selected="true"]{background:#fff;color:var(--ink)}
+button:focus-visible,select:focus-visible{outline:3px solid var(--yellow);outline-offset:2px}
+.wrap{max-width:760px;margin:0 auto;padding-inline:16px;padding-block:14px 40px;display:grid;gap:14px}
+.bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.bar select,.bar button{font:inherit;font-weight:700;padding:7px 12px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--ink)}
+.bar .lbl{color:var(--sub);font-size:13px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.card h2{margin:0;font-size:16px;padding:10px 14px;background:var(--green-bg);color:var(--green);display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.card h2 small{color:var(--ink);font-weight:500;font-size:13px}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%}
+th,td{padding:8px 12px;border-top:1px solid var(--border);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+th{font-size:12px;color:var(--sub);border-top:0;font-weight:700}
+td:first-child,th:first-child{text-align:left}
+td b{font-family:var(--num);font-size:17px}
+.low{background:var(--yellow-bg)}
+.memo{padding:10px 14px;border-top:1px solid var(--border);font-size:14px;display:grid;gap:4px}
+.memo span{color:var(--sub);font-size:12px;margin-right:6px}
+.bars{display:grid;grid-template-columns:repeat(8,1fr);gap:8px;align-items:end;height:170px;padding:14px}
+.bars div{display:grid;justify-items:center;gap:4px;font-size:12px;color:var(--sub);align-self:end}
+.bars i{display:block;width:100%;max-width:36px;background:var(--green);border-radius:6px 6px 0 0}
+.bars b{font-family:var(--num);color:var(--ink);font-size:14px}
+.note{font-size:13px;color:var(--sub);margin:0}
+.test{position:fixed;top:0;left:0;right:0;background:#c62828;color:#fff;text-align:center;font:700 11px/1.6 system-ui,sans-serif;z-index:20;pointer-events:none}
+</style>
+
+<div class="test">試作（見本データ・名前は仮）</div>
+<div class="hdr"><div class="in"><b>袋詰め 管理（杉さん用）</b>
+  <div class="tabs" role="tablist"><button type="button" role="tab" id="tDay" aria-selected="true">日ごと</button><button type="button" role="tab" id="tPer" aria-selected="false">人ごとの伸び</button></div>
+</div></div>
+
+<div class="wrap">
+  <section id="pDay" style="display:grid;gap:14px">
+    <div class="bar"><button type="button">‹ 前の日</button><b style="font-size:18px">10/12（月）</b><button type="button">次の日 ›</button></div>
+    <div id="day" style="display:grid;gap:14px"></div>
+    <p class="note">1時間あたり＝その商品の袋数 ÷（シフトの時間 − その人の休憩）。黄色はその人のふだん（直近4週の平均）より2割以上低いところ。</p>
+  </section>
+
+  <section id="pPer" hidden style="display:grid;gap:14px">
+    <div class="bar"><span class="lbl">人</span><select id="selP"></select><span class="lbl">商品</span><select id="selG"></select></div>
+    <div class="card"><h2 id="perTtl"></h2><div class="bars" id="bars"></div></div>
+    <div class="card"><h2>日ごとの記録</h2><div class="scroll"><table id="perTbl"></table></div></div>
+  </section>
+</div>
+
+<script>
+// 見本データ：[名前, シフト, 休憩分, {商品:袋数}, 他の作業, 販路メモ]
+const DAY = [
+  ['山田さん','9:00〜15:00',60,{'ヤオコー ¥99':80,'ヤオコー ¥198':40,'ヤオコー ¥398':8},'',''],
+  ['佐々木さん','9:00〜13:00',0,{'ヤオコー ¥99':30,'ヤオコー ¥198':22,'ハーズ ¥198':10},'10時〜11時 ラベル貼り',''],
+  ['鈴木さん','9:00〜15:00',60,{'ヤオコー ¥99':95,'ヤオコー ¥198':45,'直売所 傷':12,'やおとも':'8P'},'','やおとも：椎茸30枚'],
+];
+const USUAL = {'山田さん':{'ヤオコー ¥99':14.5,'ヤオコー ¥198':7.6,'ヤオコー ¥398':1.5},'佐々木さん':{'ヤオコー ¥99':11.0,'ヤオコー ¥198':7.2,'ハーズ ¥198':3.0},'鈴木さん':{'ヤオコー ¥99':18.0,'ヤオコー ¥198':8.5,'直売所 傷':2.0}};
+const hrs = (sh,br)=>{ const [a,b]=sh.split('〜').map(t=>{const [h,m]=t.split(':').map(Number);return h*60+m;}); return (b-a-br)/60; };
+document.getElementById('day').innerHTML = DAY.map(([n,sh,br,items,work,memo])=>{
+  const h = hrs(sh,br);
+  const rows = Object.keys(items).map(p=>{
+    const v = items[p];
+    if(typeof v === 'string') return `<tr><td>${p}</td><td><b>${v}</b></td><td>－</td><td></td></tr>`;
+    const r = v/h, u = USUAL[n] && USUAL[n][p], low = u && r < u*0.8;
+    return `<tr class="${low?'low':''}"><td>${p}</td><td><b>${v}</b>袋</td><td><b>${r.toFixed(1)}</b>袋</td><td>${u?u.toFixed(1):'－'}</td></tr>`;
+  }).join('');
+  return `<div class="card"><h2>${n}<small>${sh}（休憩${br}分）＝ ${h}時間</small></h2>
+    <div class="scroll"><table><tr><th>商品</th><th>袋数</th><th>1時間あたり</th><th>ふだん</th></tr>${rows}</table></div>
+    ${work||memo?`<div class="memo">${work?`<div><span>他の作業</span>${work}</div>`:''}${memo?`<div><span>メモ</span>${memo}</div>`:''}</div>`:''}</div>`;
+}).join('');
+// 人ごとの伸び（見本）
+const PER = {'山田さん':{'ヤオコー ¥99':[10.2,10.8,11.5,12.1,12.9,13.6,14.8,16.0],'ヤオコー ¥198':[6.1,6.0,6.6,7.0,7.1,7.4,7.8,8.0],'ヤオコー ¥398':[1.0,1.2,1.1,1.4,1.3,1.3,1.5,1.6]},
+  '佐々木さん':{'ヤオコー ¥99':[8.0,8.5,9.1,9.0,9.8,10.4,10.9,11.2],'ヤオコー ¥198':[5.5,5.9,6.2,6.4,6.8,7.0,7.1,7.3]},
+  '鈴木さん':{'ヤオコー ¥99':[15.1,15.8,16.2,16.9,17.0,17.6,18.2,19.0],'ヤオコー ¥198':[7.8,8.0,8.1,8.4,8.3,8.6,8.8,9.0]}};
+const WK = ['8/24週','8/31週','9/7週','9/14週','9/21週','9/28週','10/5週','10/12週'];
+const selP=document.getElementById('selP'), selG=document.getElementById('selG');
+selP.innerHTML = Object.keys(PER).map(n=>`<option>${n}</option>`).join('');
+function fillG(){ selG.innerHTML = Object.keys(PER[selP.value]).map(g=>`<option>${g}</option>`).join(''); }
+function renderPer(){
+  const W = PER[selP.value][selG.value], mx = Math.max(...W);
+  document.getElementById('perTtl').innerHTML = `${selP.value}　${selG.value}<small>1時間あたりの袋数（週ごとの平均）</small>`;
+  document.getElementById('bars').innerHTML = W.map((v,i)=>`<div><b>${v.toFixed(1)}</b><i style="height:${Math.round(v/mx*120)}px"></i>${WK[i]}</div>`).join('');
+  document.getElementById('perTbl').innerHTML = '<tr><th>日にち</th><th>時間</th><th>袋数</th><th>1時間あたり</th><th>他の作業</th></tr>'
+    + [['10/12（月）',5,80,''],['10/9（金）',5,74,''],['10/8（木）',5,70,'片付け30分'],['10/6（火）',4,58,''],['10/5（月）',5,66,'']].map(r=>`<tr><td>${r[0]}</td><td>${r[1]}h</td><td>${r[2]}</td><td><b>${(r[2]/r[1]).toFixed(1)}</b>袋</td><td style="text-align:left">${r[3]}</td></tr>`).join('');
+}
+selP.onchange=()=>{ fillG(); renderPer(); }; selG.onchange=renderPer; fillG(); renderPer();
+function tab(d){ document.getElementById('tDay').setAttribute('aria-selected',d); document.getElementById('tPer').setAttribute('aria-selected',!d); document.getElementById('pDay').hidden=!d; document.getElementById('pPer').hidden=d; }
+document.getElementById('tDay').onclick=()=>tab(true); document.getElementById('tPer').onclick=()=>tab(false);
+</script>

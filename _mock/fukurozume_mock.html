@@ -1,0 +1,249 @@
+<title>袋詰め記録 試作</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&family=Inter:wght@600;700&display=swap">
+<style>
+/* 日報アプリと同じ見た目（明るいベージュの背景・黒いヘッダー・白いカード）。一本道：名前 → 販路ごとに数を入れる → 送信 */
+:root{
+  --ink:#1c1c1e; --bg:#f5f1e8; --card:#ffffff; --border:#e8e2d5; --sub:#6f6a60;
+  --green:#2d7a4f; --green-bg:#edf7f1; --orange:#e65100; --sat:#1976d2; --sun:#c62828;
+  --f:'Noto Sans JP','Hiragino Sans',sans-serif; --num:'Inter','Noto Sans JP',sans-serif;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{background:var(--bg);color:var(--ink);font-family:var(--f);font-size:18px;line-height:1.5}
+.hdr{background:var(--ink);color:#fff;padding:12px 16px 12px;position:sticky;top:env(safe-area-inset-top,0px);z-index:5;box-shadow:0 2px 6px rgba(0,0,0,.1)}
+.hdr .in{max-width:480px;margin:0 auto;display:grid;gap:10px}
+.hdr-top{display:flex;justify-content:space-between;align-items:baseline}
+.hdr-top b{font-size:20px;letter-spacing:.06em}
+.hdr-top small{font-size:15px;opacity:.85;font-family:var(--num)}
+.tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tabs button{font:inherit;font-weight:700;font-size:17px;padding:10px;border-radius:12px;border:1px solid rgba(255,255,255,.35);background:transparent;color:#fff;cursor:pointer}
+.tabs button[aria-selected="true"]{background:#fff;color:var(--ink);border-color:#fff}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--orange);outline-offset:2px}
+.wrap{max-width:480px;margin:0 auto;padding-inline:16px;padding-block:14px 130px;display:grid;gap:14px}
+.who{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:10px 14px}
+.who label{font-size:15px;color:var(--sub);white-space:nowrap}
+.who b#meName{font-size:34px!important;font-weight:900}
+.who select{flex:1;min-width:0;font:inherit;font-weight:700;font-size:21px;border:0;background:transparent;color:var(--ink)}
+.note{font-size:14px;color:var(--sub);margin:0}
+.ch{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.ch h2{margin:0;font-size:26px;font-weight:900;padding:10px 14px;background:var(--green-bg);color:var(--green);display:flex;justify-content:space-between;align-items:baseline}
+.ch h2 small{font-size:20px;color:var(--ink);font-family:var(--num)}
+.row{display:grid;grid-template-columns:1fr 150px;align-items:center;gap:12px;padding:10px 14px;border-top:1px solid var(--border)}
+.row:first-of-type{border-top:0}
+.lbl{font-weight:900;font-size:34px;min-width:0;font-family:var(--num);line-height:1.15}
+.lbl small{display:block;font-family:var(--f);font-size:15px;font-weight:500;color:var(--sub)}
+.num{display:flex;align-items:center;gap:6px}
+.num input{font:inherit;font-family:var(--num);font-size:36px;font-weight:700;text-align:right;width:100%;min-width:0;height:66px;padding:0 10px;border:2px solid var(--border);border-radius:12px;background:#fff;color:var(--ink);font-variant-numeric:tabular-nums}
+.num span{font-size:18px;color:var(--sub);width:1.6em}
+.free{padding:10px 14px 12px;border-top:1px solid var(--border)}
+.free label{display:block;font-size:14px;color:var(--sub);margin-bottom:4px}
+.free textarea{width:100%;font:inherit;font-size:18px;border:2px solid var(--border);border-radius:10px;padding:8px 10px;background:#fff;color:var(--ink);resize:vertical;min-height:48px}
+.other{display:grid;grid-template-columns:1fr 96px;gap:8px;padding:10px 14px;border-top:1px solid var(--border)}
+.other input{font:inherit;font-size:19px;padding:10px;border:2px solid var(--border);border-radius:10px;background:#fff;color:var(--ink);min-width:0}
+.other .num{grid-column:1 / -1;justify-content:flex-end}
+.other .num input{width:150px;flex:none}
+.add{display:block;width:calc(100% - 28px);margin:4px 14px 12px;font:inherit;font-weight:700;font-size:17px;padding:10px;border-radius:10px;border:2px dashed var(--green);background:transparent;color:var(--green);cursor:pointer}
+.bar{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--border);box-shadow:0 -2px 10px rgba(0,0,0,.06);padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px))}
+.bar .in{max-width:480px;margin:0 auto;display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center}
+.sum small{display:block;font-size:13px;color:var(--sub)}
+.sum b{font-size:32px;font-family:var(--num);font-variant-numeric:tabular-nums}
+.send{font:inherit;font-weight:900;font-size:20px;padding:14px 26px;border-radius:14px;border:0;background:var(--green);color:#fff;cursor:pointer}
+.done{background:var(--green-bg);border:2px solid var(--green);border-radius:14px;padding:12px 14px;font-weight:700;color:var(--green)}
+/* シフト（見るだけ・1か月を縦に） */
+.mhead{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.mhead b{font-size:22px;font-weight:900}
+.mhead button{font:inherit;font-weight:700;font-size:16px;padding:8px 14px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--ink);cursor:pointer}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.seg button{font:inherit;font-weight:700;font-size:17px;padding:10px;border-radius:12px;border:1px solid var(--border);background:var(--card);color:var(--ink);cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}
+.cal{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.wk{font-size:13px;color:var(--sub);background:var(--bg);padding:4px 14px;border-top:1px solid var(--border)}
+.wk:first-child{border-top:0}
+.day{display:grid;grid-template-columns:84px 1fr;gap:12px;padding:12px 14px;border-top:1px solid var(--border);align-items:center}
+.day.today{background:#fffde7;box-shadow:inset 4px 0 0 #f9a825}
+.d{font-family:var(--num);font-weight:700;font-size:26px;line-height:1.1}
+.d small{display:block;font-family:var(--f);font-size:14px;font-weight:700}
+.d.sat small{color:var(--sat)} .d.sun small{color:var(--sun)}
+.t{font-family:var(--num);font-size:28px;font-weight:700;font-variant-numeric:tabular-nums}
+.t.off{font-family:var(--f);color:var(--sub);font-weight:500;font-size:18px}
+.names{display:grid;gap:4px;font-size:22px}
+.names div{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.names span{white-space:nowrap}
+.names span{font-family:var(--num);font-size:20px;font-weight:700;color:var(--ink)!important;color:var(--sub);margin-left:6px}
+.names .me{font-weight:900}
+.ro{font-size:14px;color:var(--sub);margin:0}
+.start{position:fixed;inset:0;z-index:30;background:var(--bg);overflow-y:auto;padding:calc(env(safe-area-inset-top,0px) + 24px) 16px 24px}
+.sin{max-width:480px;margin:0 auto;display:grid;gap:16px}
+.start h1{font-size:30px;font-weight:900;margin:8px 0 0;text-align:center;line-height:1.4}
+.names-btn{display:grid;grid-template-columns:1fr;gap:12px}
+.names-btn button{font:inherit;font-size:30px;font-weight:900;padding:22px 8px;border-radius:16px;border:2px solid var(--border);background:var(--card);color:var(--ink);cursor:pointer}
+.names-btn button[aria-pressed="true"]{border-color:var(--green);background:var(--green-bg);color:var(--green)}
+.confirm{background:var(--card);border:2px solid var(--green);border-radius:16px;padding:16px;text-align:center}
+.confirm p{margin:0 0 12px;font-size:28px}
+.cbtn{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.cbtn button{font:inherit;font-size:22px;font-weight:900;padding:14px;border-radius:14px;border:2px solid var(--border);background:var(--bg);color:var(--ink);cursor:pointer}
+#cYes{background:var(--green);border-color:var(--green);color:#fff}
+.saved{background:#fffde7;border:1px solid #f9a825;border-radius:12px;padding:10px 12px;font-size:15px}
+.rate{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:12px 14px;display:grid;gap:4px}
+.rate small{font-size:14px;color:var(--sub)}
+.rate .big{display:flex;gap:16px;align-items:baseline;flex-wrap:wrap}
+.rate .big b{font-family:var(--num);font-size:30px}
+.rate .big span{font-size:15px;color:var(--sub)}
+.pr{border-collapse:collapse;width:100%;margin:4px 0}
+.pr th,.pr td{padding:7px 4px;border-top:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums;font-size:17px}
+.pr th{font-size:13px;color:var(--sub);border-top:0}
+.pr td:first-child,.pr th:first-child{text-align:left;font-weight:700}
+.pr b{font-family:var(--num);font-size:22px}
+.pick{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.pick button{font:inherit;font-weight:700;font-size:15px;padding:6px 12px;border-radius:999px;border:1px solid var(--border);background:var(--card);color:var(--ink);cursor:pointer}
+.pick button[aria-pressed="true"]{background:var(--green);border-color:var(--green);color:#fff}
+.hist{border-collapse:collapse;width:100%;font-size:16px}
+.hist th,.hist td{padding:9px 10px;border-top:1px solid var(--border);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.hist th{font-size:13px;color:var(--sub);font-weight:700;border-top:0}
+.hist td:first-child,.hist th:first-child{text-align:left}
+.scroll{overflow-x:auto}
+.bars{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;align-items:end;height:160px}
+.bars div{display:grid;justify-items:center;gap:4px;font-size:13px;color:var(--sub);align-self:end}
+.bars i{display:block;width:100%;max-width:40px;background:var(--green);border-radius:6px 6px 0 0}
+.bars b{font-family:var(--num);color:var(--ink);font-size:15px}
+.tape{display:inline-block;width:14px;height:30px;border-radius:3px;margin-right:8px;vertical-align:-4px}
+.tape.r{background:#d32f2f}.tape.g{background:#2e7d32}.tape.b{background:#1565c0}
+.warn{color:#c62828;font-weight:900}
+.test{position:fixed;top:0;left:0;right:0;background:#c62828;color:#fff;text-align:center;font:700 11px/1.6 system-ui,sans-serif;z-index:20;pointer-events:none}
+</style>
+
+<div class="test">試作（見本データ・名前は仮）</div>
+<div class="hdr"><div class="in">
+  <div class="hdr-top"><b>袋詰め</b><small id="today">10/13（火）</small></div>
+  <div class="tabs" role="tablist">
+    <button type="button" role="tab" id="tabRec" aria-selected="true">きょう</button>
+    <button type="button" role="tab" id="tabShift" aria-selected="false">シフト</button>
+  </div>
+</div></div>
+
+<div class="start" id="start">
+  <div class="sin">
+    <h1>あなたのお名前を<br>押してください</h1>
+    <div class="names-btn" id="nameBtns"></div>
+    <div class="confirm" id="confirm" hidden>
+      <p><b id="cName"></b> でよろしいですか？</p>
+      <div class="cbtn"><button type="button" id="cNo">ちがう</button><button type="button" id="cYes">はい</button></div>
+    </div>
+  </div>
+</div>
+<div class="wrap" id="main" hidden>
+  <div class="who"><div><small style="display:block;font-size:13px;color:var(--sub)">きょうの記録</small><b id="meName" style="font-size:24px"></b></div>
+    <button type="button" id="change" style="margin-left:auto;font:inherit;font-size:14px;padding:6px 12px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--sub)">名前を変える</button>
+  </div>
+
+  <div id="pRec" style="display:grid;gap:14px">
+    <div class="saved" id="saved">10:42 に保存した数を出しています。続きを足して、また「保存」を押してください。</div>
+    <div id="channels" style="display:grid;gap:14px"></div>
+    <div class="ch">
+      <h2>袋詰め以外の作業</h2>
+      <div class="free" style="border-top:0"><label for="work">したことを書いてください（例：10時〜11時 片付け）<br><span class="warn">ラベル貼りは除く（ラベル貼りは袋詰めの数に入ります）</span></label>
+        <textarea id="work" rows="2"></textarea></div>
+    </div>
+    <div class="done" id="done" hidden></div>
+  </div>
+
+  <div id="pShift" hidden style="display:grid;gap:12px">
+    <div class="mhead"><button type="button" id="prevM" aria-label="前の月">‹ 9月</button><b>2026年10月</b><button type="button" id="nextM" aria-label="次の月">11月 ›</button></div>
+    <div class="cal" id="cal"></div>
+    <p class="ro">シフトは見るだけです。変更は杉さんに連絡してください。</p>
+  </div>
+</div>
+
+<div class="bar" id="bar" hidden><div class="in">
+  <div class="sum"><small>きょうの合計</small><b id="total">0袋</b></div>
+  <button type="button" class="send" id="send">保存</button>
+</div></div>
+
+<script>
+// 販路と商品（杉さんの説明どおり）
+const CH = [
+  { id:'yaoko', name:'ヤオコー', items:[['¥99','小　50〜60g','袋'],['¥198','中〜大　100〜110g','袋'],['¥398','特大　190〜200g','袋'],['キズ','230〜240g','袋']] },
+  { id:'hers',  name:'ハーズ',   items:[['¥198','中〜大　100〜110g','袋'],['¥398','特大　200〜210g','袋']] },
+  { id:'choku', name:'直売所',   items:[['<i class="tape r"></i>キズ','赤テープ　170〜180g','袋'],['<i class="tape r"></i>小','赤テープ　100〜110g','袋'],['<i class="tape g"></i>キズ','緑テープ　170〜180g','袋'],['<i class="tape g"></i>小','緑テープ　100〜110g','袋'],['<i class="tape b"></i>キズ','青テープ　170〜180g','袋'],['<i class="tape b"></i>小','青テープ　100〜110g','袋']] },
+  { id:'yaotomo', name:'やおとも', items:[['パック','中〜大　120〜130g・5〜7枚','P'],['キロ','中〜特大（中と特大を同じ袋に混ぜない）','kg']] },
+  { id:'other', name:'その他', other:true },
+];
+const st = {};
+const numBox = (k,u)=>`<div class="num"><input id="in_${k}" data-k="${k}" inputmode="decimal" placeholder="0" aria-label="数"><span>${u}</span></div>`;
+let nOther = 1;
+function otherRow(i){ return `<div class="other"><input id="on_${i}" placeholder="商品（例：大袋）"><input id="op_${i}" inputmode="numeric" placeholder="金額">${numBox('other_'+i,'袋')}</div>`; }
+document.getElementById('channels').innerHTML = CH.map(c=>{
+  const body = c.other
+    ? `<div id="others">${otherRow(0)}</div><button type="button" class="add" id="addOther">＋ 商品を足す</button>`
+    : c.items.map(([l,s,u],i)=>`<div class="row"><div class="lbl">${l}${s?`<small>${s}</small>`:''}</div>${numBox(c.id+'_'+i,u)}</div>`).join('');
+  return `<section class="ch" id="ch_${c.id}"><h2>${c.name}<small></small></h2>${body}
+    <div class="free"><label for="memo_${c.id}">メモ（例：椎茸30枚、200gを5袋）</label><textarea id="memo_${c.id}" rows="1"></textarea></div></section>`;
+}).join('');
+const isKg = k => k==='yaotomo_1';
+
+function sum(){
+  let t=0, kg=0;
+  Object.keys(st).forEach(k=>{ if(isKg(k)) kg+=st[k]; else t+=st[k]; });
+  document.getElementById('total').textContent = t+'袋'+(kg?' ＋ '+kg+'kg':'');
+
+  CH.forEach(c=>{
+    const n = Object.keys(st).filter(k=>!isKg(k) && (k.startsWith(c.id+'_') || (c.other && k.startsWith('other_')))).reduce((a,k)=>a+st[k],0);
+    document.querySelector('#ch_'+c.id+' h2 small').textContent = n ? n+'袋' : '';
+  });
+}
+document.getElementById('channels').addEventListener('input',e=>{ const k=e.target.dataset.k; if(!k) return; st[k]=Math.max(0,parseFloat(e.target.value)||0); sum(); });
+document.getElementById('channels').addEventListener('click',e=>{ if(e.target.id==='addOther'){ document.getElementById('others').insertAdjacentHTML('beforeend', otherRow(nOther++)); } });
+document.getElementById('send').addEventListener('click',()=>{
+  const d=new Date(), el=document.getElementById('done');
+  const hm=`${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`;
+  el.hidden=false; el.textContent=`${ME}の記録として保存しました（${hm}）。あとで開いても、この数が出ます。`;
+  document.getElementById('saved').textContent=`${hm} に保存した数を出しています。続きを足して、また「保存」を押してください。`;
+  el.scrollIntoView({behavior:'smooth',block:'center'});
+});
+// シフト（見本：2026年10月）
+const SHIFT = {
+  '山田さん':  {1:'9:00〜15:00',2:'9:00〜15:00',5:'9:00〜13:00',6:'9:00〜15:00',8:'9:00〜15:00',9:'9:00〜15:00',12:'9:00〜13:00',13:'9:00〜15:00',15:'9:00〜13:00',16:'9:00〜15:00',18:'8:30〜12:30',19:'9:00〜15:00',22:'9:00〜15:00',23:'9:00〜15:00',26:'9:00〜15:00',27:'9:00〜13:00',29:'9:00〜15:00',30:'9:00〜15:00'},
+  '佐々木さん':{1:'9:00〜13:00',3:'9:00〜15:00',6:'9:00〜13:00',7:'9:00〜15:00',10:'9:00〜15:00',13:'9:00〜13:00',14:'9:00〜15:00',16:'9:00〜15:00',17:'9:00〜13:00',20:'9:00〜15:00',21:'9:00〜15:00',24:'9:00〜13:00',27:'9:00〜15:00',28:'9:00〜15:00',31:'9:00〜13:00'},
+  '田中さん':  {2:'9:00〜15:00',4:'8:30〜12:30',7:'9:00〜13:00',9:'9:00〜15:00',11:'8:30〜12:30',14:'9:00〜15:00',15:'9:00〜15:00',18:'8:30〜12:30',21:'9:00〜13:00',23:'9:00〜15:00',25:'8:30〜12:30',28:'9:00〜15:00',30:'9:00〜15:00'},
+  '鈴木さん':  {1:'9:00〜15:00',3:'9:00〜13:00',5:'9:00〜15:00',8:'9:00〜13:00',10:'9:00〜15:00',12:'9:00〜15:00',13:'9:00〜15:00',17:'9:00〜15:00',19:'9:00〜13:00',20:'9:00〜15:00',24:'9:00〜15:00',26:'9:00〜13:00',29:'9:00〜15:00',31:'9:00〜15:00'},
+};
+const WD='日月火水木金土'; let mineOnly = true;
+let ME = null;
+function me(){ return ME; }
+function renderCal(){
+  let h='';
+  for(let d=1; d<=31; d++){
+    const dt=new Date(2026,9,d), w=dt.getDay();
+    if(d===1 || w===1){ const end=Math.min(31,d+(w===0?0:7-w)); h+=`<div class="wk">10/${d}〜10/${end}</div>`; }
+    const cls = w===6?' sat':(w===0?' sun':'');
+    let right;
+    const ns = Object.keys(SHIFT).filter(n=>SHIFT[n][d]);
+    right = ns.length ? `<div class="names">${ns.map(n=>`<div>${n}<span>${SHIFT[n][d]}</span></div>`).join('')}</div>` : '<div class="t off">だれもいません</div>';
+    h += `<div class="day${d===13?' today':''}"><div class="d${cls}">10/${d}<small>${WD[w]}曜${d===13?'・きょう':''}</small></div>${right}</div>`;
+  }
+  document.getElementById('cal').innerHTML = h;
+}
+function tab(which){
+  if(which===true) which='rec'; if(which===false) which='shift';
+  [['rec','tabRec','pRec'],['shift','tabShift','pShift']].forEach(([k,t,p])=>{
+    document.getElementById(t).setAttribute('aria-selected', String(k===which)); document.getElementById(p).hidden = k!==which; });
+  document.getElementById('bar').hidden = which!=='rec';
+  if(which==='shift'){ renderCal(); const t=document.querySelector('.day.today'); if(t) t.scrollIntoView({block:'center'}); }
+}
+document.getElementById('tabRec').onclick=()=>tab('rec'); document.getElementById('tabShift').onclick=()=>tab('shift');
+
+document.getElementById('prevM').onclick=document.getElementById('nextM').onclick=()=>{};
+// 最初の画面で名前を選ぶ → 確認 → 記録の画面へ。スマホごとに覚える（名前は見本）
+const NAMES = Object.keys(SHIFT); let pick = null;
+document.getElementById('nameBtns').innerHTML = NAMES.map(n=>`<button type="button" data-n="${n}" aria-pressed="false">${n}</button>`).join('');
+document.getElementById('nameBtns').addEventListener('click',e=>{ const b=e.target.closest('button'); if(!b) return; pick=b.dataset.n;
+  document.querySelectorAll('#nameBtns button').forEach(x=>x.setAttribute('aria-pressed', String(x===b)));
+  document.getElementById('cName').textContent=pick; const c=document.getElementById('confirm'); c.hidden=false; c.scrollIntoView({block:'center'}); });
+document.getElementById('cNo').onclick=()=>{ pick=null; document.getElementById('confirm').hidden=true; document.querySelectorAll('#nameBtns button').forEach(x=>x.setAttribute('aria-pressed','false')); };
+document.getElementById('cYes').onclick=()=>{ enter(pick); try{localStorage.setItem('fz_me',pick);}catch(_){} };
+document.getElementById('change').onclick=()=>{ ME=null; document.getElementById('cNo').onclick(); document.getElementById('start').hidden=false; document.getElementById('main').hidden=true; document.getElementById('bar').hidden=true; };
+function enter(n){ ME=n; [['yaoko_0',60],['yaoko_1',25]].forEach(([k,v])=>{ st[k]=v; const i=document.getElementById('in_'+k); if(i) i.value=v; }); sum(); document.getElementById('meName').textContent=n; document.getElementById('start').hidden=true; document.getElementById('main').hidden=false; tab(true); renderCal(); }
+// 案B：毎回最初の画面を出す。前回の名前に色を付け、「はい」を押すだけにする
+try{ const s=localStorage.getItem('fz_me'); if(s && NAMES.includes(s)){ const b=[...document.querySelectorAll('#nameBtns button')].find(x=>x.dataset.n===s); if(b) b.click(); } }catch(e){}
+</script>
