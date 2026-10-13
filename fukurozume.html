@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>袋詰め | 栄ガーデン</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&family=Inter:wght@600;700&display=swap">
+<style>
+/* 日報アプリと同じ見た目（明るいベージュの背景・黒いヘッダー・白いカード）。一本道：名前 → 販路ごとに数を入れる → 保存 */
+:root{
+  --ink:#1c1c1e; --bg:#f5f1e8; --card:#ffffff; --border:#e8e2d5; --sub:#6f6a60;
+  --green:#2d7a4f; --green-bg:#edf7f1; --orange:#e65100; --sat:#1976d2; --sun:#c62828;
+  --f:'Noto Sans JP','Hiragino Sans',sans-serif; --num:'Inter','Noto Sans JP',sans-serif;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{background:var(--bg);color:var(--ink);font-family:var(--f);font-size:18px;line-height:1.5}
+body{margin:0}
+.hdr{background:var(--ink);color:#fff;padding:12px 16px 12px;position:sticky;top:env(safe-area-inset-top,0px);z-index:5;box-shadow:0 2px 6px rgba(0,0,0,.1)}
+.hdr .in{max-width:480px;margin:0 auto;display:grid;gap:10px}
+.hdr-top{display:flex;justify-content:space-between;align-items:baseline}
+.hdr-top b{font-size:20px;letter-spacing:.06em}
+.hdr-top small{font-size:15px;opacity:.85;font-family:var(--num)}
+.tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tabs button{font:inherit;font-weight:700;font-size:17px;padding:10px;border-radius:12px;border:1px solid rgba(255,255,255,.35);background:transparent;color:#fff;cursor:pointer}
+.tabs button[aria-selected="true"]{background:#fff;color:var(--ink);border-color:#fff}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--orange);outline-offset:2px}
+.wrap{max-width:480px;margin:0 auto;padding-inline:16px;padding-block:14px 130px;display:grid;gap:14px}
+.who{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:10px 14px}
+.who b#meName{font-size:34px!important;font-weight:900}
+.ch{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.ch h2{margin:0;font-size:26px;font-weight:900;padding:10px 14px;background:var(--green-bg);color:var(--green);display:flex;justify-content:space-between;align-items:baseline}
+.ch h2 small{font-size:20px;color:var(--ink);font-family:var(--num)}
+.row{display:grid;grid-template-columns:1fr 150px;align-items:center;gap:12px;padding:10px 14px;border-top:1px solid var(--border)}
+.row:first-of-type{border-top:0}
+.lbl{font-weight:900;font-size:34px;min-width:0;font-family:var(--num);line-height:1.15}
+.lbl small{display:block;font-family:var(--f);font-size:15px;font-weight:500;color:var(--sub)}
+.num{display:flex;align-items:center;gap:6px}
+.num input{font:inherit;font-family:var(--num);font-size:36px;font-weight:700;text-align:right;width:100%;min-width:0;height:66px;padding:0 10px;border:2px solid var(--border);border-radius:12px;background:#fff;color:var(--ink);font-variant-numeric:tabular-nums}
+.num span{font-size:18px;color:var(--sub);width:1.6em}
+.free{padding:10px 14px 12px;border-top:1px solid var(--border)}
+.free label{display:block;font-size:14px;color:var(--sub);margin-bottom:4px}
+.free textarea{width:100%;font:inherit;font-size:18px;border:2px solid var(--border);border-radius:10px;padding:8px 10px;background:#fff;color:var(--ink);resize:vertical;min-height:48px}
+.other{display:grid;grid-template-columns:1fr 96px;gap:8px;padding:10px 14px;border-top:1px solid var(--border)}
+.other input{font:inherit;font-size:19px;padding:10px;border:2px solid var(--border);border-radius:10px;background:#fff;color:var(--ink);min-width:0}
+.other .num{grid-column:1 / -1;justify-content:flex-end}
+.other .num input{width:150px;flex:none}
+.add{display:block;width:calc(100% - 28px);margin:4px 14px 12px;font:inherit;font-weight:700;font-size:17px;padding:10px;border-radius:10px;border:2px dashed var(--green);background:transparent;color:var(--green);cursor:pointer}
+.bar{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--border);box-shadow:0 -2px 10px rgba(0,0,0,.06);padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px))}
+.bar .in{max-width:480px;margin:0 auto;display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center}
+.sum small{display:block;font-size:13px;color:var(--sub)}
+.sum b{font-size:32px;font-family:var(--num);font-variant-numeric:tabular-nums}
+.send{font:inherit;font-weight:900;font-size:20px;padding:14px 26px;border-radius:14px;border:0;background:var(--green);color:#fff;cursor:pointer}
+.send:disabled{background:#9db8a8;cursor:default}
+.done{background:var(--green-bg);border:2px solid var(--green);border-radius:14px;padding:12px 14px;font-weight:700;color:var(--green)}
+.done.wait{background:var(--card);border-color:var(--border);color:var(--sub)}
+.done.ng{background:#fdecea;border-color:#c62828;color:#c62828}
+.done.note{background:#fffde7;border-color:#f9a825;color:#6d4c00}
+/* シフト（見るだけ・1か月を縦に） */
+.mhead{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.mhead b{font-size:22px;font-weight:900}
+.mhead button{font:inherit;font-weight:700;font-size:16px;padding:8px 14px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--ink);cursor:pointer}
+.cal{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.wk{font-size:13px;color:var(--sub);background:var(--bg);padding:4px 14px;border-top:1px solid var(--border)}
+.wk:first-child{border-top:0}
+.day{display:grid;grid-template-columns:84px 1fr;gap:12px;padding:12px 14px;border-top:1px solid var(--border);align-items:center}
+.day.today{background:#fffde7;box-shadow:inset 4px 0 0 #f9a825}
+.d{font-family:var(--num);font-weight:700;font-size:26px;line-height:1.1}
+.d small{display:block;font-family:var(--f);font-size:14px;font-weight:700}
+.d.sat small{color:var(--sat)} .d.sun small{color:var(--sun)}
+.t{font-family:var(--num);font-size:28px;font-weight:700;font-variant-numeric:tabular-nums}
+.t.off{font-family:var(--f);color:var(--sub);font-weight:500;font-size:18px}
+.names{display:grid;gap:4px;font-size:22px}
+.names div{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.names span{white-space:nowrap}
+.names span{font-family:var(--num);font-size:20px;font-weight:700;color:var(--ink)!important;color:var(--sub);margin-left:6px}
+.names .me{font-weight:900}
+.names em{font-style:normal;white-space:nowrap}
+.ro{font-size:14px;color:var(--sub);margin:0}
+.start{position:fixed;inset:0;z-index:30;background:var(--bg);overflow-y:auto;padding:calc(env(safe-area-inset-top,0px) + 24px) 16px 24px}
+.sin{max-width:480px;margin:0 auto;display:grid;gap:16px}
+.start h1{font-size:30px;font-weight:900;margin:8px 0 0;text-align:center;line-height:1.4}
+.names-btn{display:grid;grid-template-columns:1fr;gap:12px}
+.names-btn button{font:inherit;font-size:30px;font-weight:900;padding:22px 8px;border-radius:16px;border:2px solid var(--border);background:var(--card);color:var(--ink);cursor:pointer}
+.names-btn button[aria-pressed="true"]{border-color:var(--green);background:var(--green-bg);color:var(--green)}
+.confirm{background:var(--card);border:2px solid var(--green);border-radius:16px;padding:16px;text-align:center}
+.confirm p{margin:0 0 12px;font-size:28px}
+.cbtn{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.cbtn button{font:inherit;font-size:22px;font-weight:900;padding:14px;border-radius:14px;border:2px solid var(--border);background:var(--bg);color:var(--ink);cursor:pointer}
+#cYes{background:var(--green);border-color:var(--green);color:#fff}
+.saved{background:#fffde7;border:1px solid #f9a825;border-radius:12px;padding:10px 12px;font-size:15px}
+.tape{display:inline-block;width:14px;height:30px;border-radius:3px;margin-right:8px;vertical-align:-4px}
+.tape.r{background:#d32f2f}.tape.g{background:#2e7d32}.tape.b{background:#1565c0}
+.warn{color:#c62828;font-weight:900}
+/* 読み込み中・失敗 */
+.msg{text-align:center;font-size:22px;color:var(--sub);padding:18px 0}
+.retry{display:block;width:100%;font:inherit;font-size:24px;font-weight:900;padding:18px;border-radius:16px;border:2px solid var(--green);background:var(--card);color:var(--green);cursor:pointer}
+</style>
+</head>
+<body>
+<div class="hdr"><div class="in">
+  <div class="hdr-top"><b>袋詰め</b><small id="today"></small></div>
+  <div class="tabs" role="tablist">
+    <button type="button" role="tab" id="tabRec" aria-selected="true">きょう</button>
+    <button type="button" role="tab" id="tabShift" aria-selected="false">シフト</button>
+  </div>
+</div></div>
+
+<div class="start" id="start">
+  <div class="sin">
+    <h1>あなたのお名前を<br>押してください</h1>
+    <div class="names-btn" id="nameBtns"></div>
+    <div class="confirm" id="confirm" hidden>
+      <p><b id="cName"></b> でよろしいですか？</p>
+      <div class="cbtn"><button type="button" id="cNo">ちがう</button><button type="button" id="cYes">はい</button></div>
+    </div>
+  </div>
+</div>
+<div class="wrap" id="main" hidden>
+  <div class="who"><div><small style="display:block;font-size:13px;color:var(--sub)">きょうの記録</small><b id="meName" style="font-size:24px"></b></div>
+    <button type="button" id="change" style="margin-left:auto;font:inherit;font-size:14px;padding:6px 12px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--sub)">名前を変える</button>
+  </div>
+
+  <div id="pRec" style="display:grid;gap:14px">
+    <div class="saved" id="saved"></div>
+    <button type="button" class="retry" id="reload" hidden>読み込めませんでした。もう一度</button>
+    <div id="form" style="display:grid;gap:14px" hidden>
+      <div id="channels" style="display:grid;gap:14px"></div>
+      <div class="ch">
+        <h2>袋詰め以外の作業</h2>
+        <div class="free" style="border-top:0"><label for="work">したことを書いてください（例：10時〜11時 片付け）<br><span class="warn">ラベル貼りは除く（ラベル貼りは袋詰めの数に入ります）</span></label>
+          <textarea id="work" rows="2"></textarea></div>
+      </div>
+    </div>
+    <div class="done" id="done" hidden></div>
+  </div>
+
+  <div id="pShift" hidden style="display:grid;gap:12px">
+    <div class="mhead"><button type="button" id="prevM" aria-label="前の月"></button><b id="mTtl"></b><button type="button" id="nextM" aria-label="次の月"></button></div>
+    <div class="cal" id="cal"></div>
+    <p class="ro">シフトは見るだけです。変更は杉さんに連絡してください。</p>
+  </div>
+</div>
+
+<div class="bar" id="bar" hidden><div class="in">
+  <div class="sum"><small>きょうの合計</small><b id="total">0袋</b></div>
+  <button type="button" class="send" id="send">保存</button>
+</div></div>
+
+<script src="fukuro-api.js"></script>
+<script>
+'use strict';
+const api = FukuroApi.create('fukuro');
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ME_KEY = FukuroApi.isTest() ? 'fz_me_test' : 'fz_me';
+const WD = '日月火水木金土';
+
+// 販路と商品（キーは API の取り決め §3-2。並びもシートの列の順）
+const CH = [
+  { id:'yaoko', name:'ヤオコー', items:[['yaoko99','¥99','小　50〜60g','袋'],['yaoko198','¥198','中〜大　100〜110g','袋'],['yaoko398','¥398','特大　190〜200g','袋'],['yaokoKizu','キズ','230〜240g','袋']] },
+  { id:'hers',  name:'ハーズ',   items:[['hers198','¥198','中〜大　100〜110g','袋'],['hers398','¥398','特大　200〜210g','袋']] },
+  { id:'choku', name:'直売所',   items:[['chokuRedKizu','<i class="tape r"></i>キズ','赤テープ　170〜180g','袋'],['chokuRedSho','<i class="tape r"></i>小','赤テープ　100〜110g','袋'],['chokuGreenKizu','<i class="tape g"></i>キズ','緑テープ　170〜180g','袋'],['chokuGreenSho','<i class="tape g"></i>小','緑テープ　100〜110g','袋'],['chokuBlueKizu','<i class="tape b"></i>キズ','青テープ　170〜180g','袋'],['chokuBlueSho','<i class="tape b"></i>小','青テープ　100〜110g','袋']] },
+  { id:'yaotomo', name:'やおとも', items:[['yaotomoP','パック','中〜大　120〜130g・5〜7枚','P'],['yaotomoKg','キロ','中〜特大（中と特大を同じ袋に混ぜない）','kg']] },
+  { id:'other', name:'その他', other:true },
+];
+const KEYS = [].concat(...CH.filter(c => c.items).map(c => c.items.map(i => i[0])));
+const isKg = k => k === 'yaotomoKg';
+
+const numBox = (k, u, dec) => `<div class="num"><input id="in_${k}" data-k="${k}" inputmode="${dec ? 'decimal' : 'numeric'}" placeholder="0" aria-label="数"><span>${u}</span></div>`;
+let nOther = 0;
+function otherRow(o){ const i = nOther++; o = o || {};
+  return `<div class="other" data-o="${i}"><input id="on_${i}" placeholder="商品（例：大袋）" maxlength="40" value="${esc(o.name)}"><input id="op_${i}" inputmode="numeric" placeholder="金額" maxlength="20" value="${esc(o.price)}">${numBox('other_'+i,'袋')}</div>`; }
+$('channels').innerHTML = CH.map(c => {
+  const body = c.other
+    ? `<div id="others"></div><button type="button" class="add" id="addOther">＋ 商品を足す</button>`
+    : c.items.map(([k,l,s,u]) => `<div class="row"><div class="lbl">${l}${s?`<small>${s}</small>`:''}</div>${numBox(k,u,isKg(k))}</div>`).join('');
+  return `<section class="ch" id="ch_${c.id}"><h2>${c.name}<small></small></h2>${body}
+    <div class="free"><label for="memo_${c.id}">メモ（例：椎茸30枚、200gを5袋）</label><textarea id="memo_${c.id}" rows="1" maxlength="500"></textarea></div></section>`;
+}).join('');
+
+// 数の入力：全角は半角に。やおとものキロだけ小数1桁まで、他は整数
+function clean(v, dec){
+  v = String(v).replace(/[０-９．]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+  if (!dec) return v.replace(/\D/g, '');
+  v = v.replace(/[^\d.]/g, '');
+  const i = v.indexOf('.');
+  return i < 0 ? v : v.slice(0, i + 1) + v.slice(i + 1).replace(/\./g, '').slice(0, 1);
+}
+const val = k => { const e = $('in_' + k); return e ? e.value : ''; };
+function sum(){
+  let t = 0, kg = 0;
+  KEYS.forEach(k => { const n = parseFloat(val(k)) || 0; if (isKg(k)) kg += n; else t += n; });
+  let ot = 0; document.querySelectorAll('#others [data-k]').forEach(e => { ot += parseFloat(e.value) || 0; });
+  t += ot;
+  $('total').textContent = t + '袋' + (kg ? ' ＋ ' + (Math.round(kg * 10) / 10) + 'kg' : '');
+  CH.forEach(c => {
+    const n = c.other ? ot : c.items.filter(i => !isKg(i[0])).reduce((a, i) => a + (parseFloat(val(i[0])) || 0), 0);
+    document.querySelector('#ch_' + c.id + ' h2 small').textContent = n ? n + '袋' : '';
+  });
+}
+$('channels').addEventListener('input', e => {
+  const k = e.target.dataset.k;
+  if (k) { const v = clean(e.target.value, isKg(k)); if (v !== e.target.value) e.target.value = v; sum(); }
+  else if (e.target.id && e.target.id.indexOf('op_') === 0) { const v = clean(e.target.value, false); if (v !== e.target.value) e.target.value = v; }
+});
+$('channels').addEventListener('click', e => { if (e.target.id === 'addOther') $('others').insertAdjacentHTML('beforeend', otherRow()); });
+
+// 画面 ⇔ 記録
+function fillForm(rec){
+  rec = rec || {};
+  const counts = rec.counts || {}, memos = rec.memos || {};
+  KEYS.forEach(k => { $('in_' + k).value = counts[k] == null ? '' : String(counts[k]); });
+  nOther = 0;
+  const os = (rec.others || []).filter(o => o && (o.name || o.count));
+  $('others').innerHTML = (os.length ? os : [{}]).map(otherRow).join('');
+  os.forEach((o, i) => { $('in_other_' + i).value = o.count == null ? '' : String(o.count); });
+  CH.forEach(c => { $('memo_' + c.id).value = memos[c.id] || ''; });
+  $('work').value = rec.otherWork || '';
+  sum();
+}
+function collect(){
+  const counts = {};
+  KEYS.forEach(k => { const v = val(k); if (v !== '' && v !== '.') counts[k] = Number(v); });
+  const others = [];
+  document.querySelectorAll('#others .other').forEach(r => {
+    const i = r.dataset.o, name = $('on_' + i).value.trim(), price = $('op_' + i).value.trim(), count = $('in_other_' + i).value.trim();
+    if (name || count) others.push({ name, price, count });
+  });
+  const memos = {}; CH.forEach(c => { memos[c.id] = $('memo_' + c.id).value; });
+  return { counts, others, memos, otherWork: $('work').value };
+}
+
+// パスコードはなし（杉さん決定 2026-10-13）。開いたらすぐ名前の画面
+
+// 今日（サーバの日付）
+let TODAY = null, ME = null, NAMES = [], pick = null;
+function md(s){ const [y, m, d] = s.split('-').map(Number); return `${m}/${d}（${WD[new Date(y, m - 1, d).getDay()]}）`; }
+
+// 名前の画面：シフトに載っている全員。今日の出勤者を上に。前回の名前に色を付けて確認まで出しておく
+function loadNames(){
+  $('confirm').hidden = true;
+  $('nameBtns').innerHTML = '<div class="msg">読み込んでいます…</div>';
+  api.call('fukuroNames', {}).then(r => {
+    if (r.kind !== 'ok') {
+      $('nameBtns').innerHTML = `<div class="msg">${r.kind === 'not_ready' ? '準備中です' : '名前を読み込めませんでした'}</div><button type="button" class="retry" id="namesRetry">もう一度</button>`;
+      $('namesRetry').onclick = loadNames; return;
+    }
+    TODAY = r.body.date; $('today').textContent = md(TODAY);
+    const ns = r.body.names || [];
+    NAMES = ns.filter(n => n.today).concat(ns.filter(n => !n.today)).map(n => n.name);
+    $('nameBtns').innerHTML = NAMES.map(n => `<button type="button" data-n="${esc(n)}" aria-pressed="false">${esc(n)}さん</button>`).join('');
+    let s = null; try { s = localStorage.getItem(ME_KEY); } catch (e) {}
+    if (s && NAMES.includes(s)) choose(s, false);
+  });
+}
+function choose(n, scroll){
+  pick = n;
+  document.querySelectorAll('#nameBtns button').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.n === n)));
+  $('cName').textContent = n + 'さん'; $('confirm').hidden = false;
+  if (scroll) $('confirm').scrollIntoView({ block: 'center' });
+}
+$('nameBtns').addEventListener('click', e => { const b = e.target.closest('button[data-n]'); if (b) choose(b.dataset.n, true); });
+$('cNo').onclick = () => { pick = null; $('confirm').hidden = true; document.querySelectorAll('#nameBtns button').forEach(x => x.setAttribute('aria-pressed', 'false')); };
+$('cYes').onclick = () => { if (!pick) return; try { localStorage.setItem(ME_KEY, pick); } catch (e) {} enter(pick); };
+$('change').onclick = () => { ME = null; $('cNo').onclick(); $('start').hidden = false; $('main').hidden = true; $('bar').hidden = true; loadNames(); };
+
+// 記録の画面
+let ready = false, saving = false, pending = null;
+function enter(n){
+  ME = n; pending = null;
+  $('meName').textContent = n + 'さん';
+  $('start').hidden = true; $('main').hidden = false;
+  tab('rec'); loadDay();
+}
+function loadDay(){
+  ready = false; $('send').disabled = true;
+  $('form').hidden = true; $('reload').hidden = true; $('done').hidden = true;
+  $('saved').hidden = false; $('saved').textContent = '読み込んでいます…';
+  api.call('fukuroGetDay', { date: TODAY, name: ME }).then(r => {
+    if (r.kind !== 'ok') { $('saved').hidden = true; $('reload').hidden = false; return; }
+    fillForm(r.body.record);
+    showSaved(r.body.record);
+    $('form').hidden = false; ready = true; $('send').disabled = false;
+  });
+}
+function showSaved(rec){
+  $('saved').hidden = false;
+  $('saved').textContent = rec ? `${rec.savedHm} に保存した数を出しています。続きを足して、また「保存」を押してください。` : 'きょうはまだ保存していません';
+}
+$('reload').onclick = loadDay;
+function done(cls, text){ const el = $('done'); el.className = 'done' + (cls ? ' ' + cls : ''); el.textContent = text; el.hidden = false; el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+
+const BAD = { 'date must be today or yesterday': '日付が変わりました。画面を開き直してください',
+              'name is not in the shift': 'シフトに名前がありません。杉さんに連絡してください' };
+$('send').addEventListener('click', () => {
+  if (!ready || saving) return;
+  const body = collect(), sig = JSON.stringify(body);
+  // 「保存できませんでした」の後に同じ内容で押し直したら同じ reqId・clientTs で送る（届いていれば重複として扱われる）
+  if (!pending || pending.sig !== sig) pending = { sig, clientTs: Date.now(), reqId: 'r-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6) };
+  const p = pending;
+  saving = true; $('send').disabled = true; $('send').textContent = '保存中…';
+  done('wait', '保存しています…');
+  api.call('fukuroSave', Object.assign({ date: TODAY, name: ME, clientTs: p.clientTs, reqId: p.reqId }, body)).then(r => {
+    saving = false; $('send').disabled = false; $('send').textContent = '保存';
+    const rec = r.body.record;
+    if (r.kind === 'ok' && rec) {
+      if (pending === p) pending = null;
+      if (r.body.stale) { fillForm(rec); showSaved(rec); done('note', `別の端末で新しい保存がありました。最新を表示しました（${rec.savedHm} の保存）`); return; }
+      if (r.body.duplicate) fillForm(rec);
+      showSaved(rec);
+      done('', `${ME}さんの記録として保存しました（${rec.savedHm}）。あとで開いても、この数が出ます。`);
+      return;
+    }
+    if (r.kind === 'bad_request') { pending = null; done('ng', BAD[r.body.error] || '数を確かめてください（' + (r.body.error || '') + '）'); return; }
+    if (r.kind === 'not_ready') { done('ng', '準備中です。杉さんに連絡してください'); return; }
+    done('ng', '保存できませんでした。もう一度押してください');
+  });
+});
+
+// シフト（見るだけ・月表示。休憩は出さない）
+let curY = 0, curM = 0;
+const months = {};
+function shiftMonth(y, m){
+  curY = y; curM = m;
+  const pm = m === 1 ? 12 : m - 1, nm = m === 12 ? 1 : m + 1;
+  $('prevM').textContent = `‹ ${pm}月`; $('nextM').textContent = `${nm}月 ›`; $('mTtl').textContent = `${y}年${m}月`;
+  const key = y + '-' + m;
+  if (months[key]) return renderCal(months[key]);
+  $('cal').innerHTML = '<div class="msg">読み込んでいます…</div>';
+  api.call('fukuroShiftMonth', { year: y, month: m }).then(r => {
+    if (curY !== y || curM !== m) return;
+    if (r.kind !== 'ok') { $('cal').innerHTML = '<div class="msg">シフトを読み込めませんでした</div><div style="padding:0 14px 14px"><button type="button" class="retry" id="calRetry">もう一度</button></div>'; $('calRetry').onclick = () => shiftMonth(y, m); return; }
+    months[key] = r.body.days || []; renderCal(months[key]);
+  });
+}
+function renderCal(days){
+  let h = '';
+  const last = days.length;
+  days.forEach(x => {
+    const [y, m, d] = x.date.split('-').map(Number), w = new Date(y, m - 1, d).getDay();
+    if (d === 1 || w === 1) { const end = Math.min(last, d + (w === 0 ? 0 : 7 - w)); h += `<div class="wk">${m}/${d}〜${m}/${end}</div>`; }
+    const cls = w === 6 ? ' sat' : (w === 0 ? ' sun' : ''), isT = x.date === TODAY;
+    const ms = x.members || [];
+    const right = ms.length ? `<div class="names">${ms.map(p => `<div${p.name === ME ? ' class="me"' : ''}><em>${esc(p.name)}さん</em><span>${esc(p.start)}〜${esc(p.end)}</span></div>`).join('')}</div>` : '<div class="t off">だれもいません</div>';
+    h += `<div class="day${isT ? ' today' : ''}"><div class="d${cls}">${m}/${d}<small>${WD[w]}曜${isT ? '・きょう' : ''}</small></div>${right}</div>`;
+  });
+  $('cal').innerHTML = h;
+  const t = document.querySelector('.day.today'); if (t) t.scrollIntoView({ block: 'center' });
+}
+$('prevM').onclick = () => curM === 1 ? shiftMonth(curY - 1, 12) : shiftMonth(curY, curM - 1);
+$('nextM').onclick = () => curM === 12 ? shiftMonth(curY + 1, 1) : shiftMonth(curY, curM + 1);
+
+function tab(which){
+  [['rec','tabRec','pRec'],['shift','tabShift','pShift']].forEach(([k,t,p]) => {
+    $(t).setAttribute('aria-selected', String(k === which)); $(p).hidden = k !== which; });
+  $('bar').hidden = which !== 'rec' || $('main').hidden;
+  if (which === 'shift' && TODAY) { const [y, m] = TODAY.split('-').map(Number); shiftMonth(y, m); }
+}
+$('tabRec').onclick = () => tab('rec'); $('tabShift').onclick = () => tab('shift');
+
+loadNames();
+</script>
+</body>
+</html>
