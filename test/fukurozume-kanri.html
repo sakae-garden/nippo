@@ -107,10 +107,10 @@ const parse = s => { const [y, m, d] = s.split('-').map(Number); return new Date
 const md = s => { const d = parse(s); return `${d.getMonth() + 1}/${d.getDate()}（${WD[d.getDay()]}）`; };
 const mins = t => { const [h, m] = String(t).split(':').map(Number); return h * 60 + (m || 0); };
 
-// 手間の重み（ヤオコー¥99＝1。杉さん決定 2026-10-15）。直すときはここだけ
+// 手間の重み（ヤオコー¥99＝1。杉さん決定 2026-10-15、¥398 は 21:30 に 2→2.5）。直すときはここだけ
 const WEIGHT = {
-  yaoko99: 1, yaoko198: 2, yaoko398: 2, yaokoKizu: 2,
-  hers198: 2, hers398: 2, tamaya198: 2, tamaya398: 2,
+  yaoko99: 1, yaoko198: 2, yaoko398: 2.5, yaokoKizu: 2,
+  hers198: 2, hers398: 2.5, tamaya198: 2, tamaya398: 2.5,
   chokuRedKizu: 2, chokuGreenKizu: 2, chokuBlueKizu: 2, chokuRedSho: 1.5, chokuGreenSho: 1.5, chokuBlueSho: 1.5,
   yaotomoP: 2, yaotomoKg: 1.5,   // やおとものキロは 1kg あたり
 };
@@ -234,7 +234,7 @@ $('tDay').onclick = () => tab(true); $('tPer').onclick = () => tab(false);
 
 // 重みの一覧（商品名はヤオコー¥99などの見出しで）
 $('wtTbl').innerHTML = '<tr><th>商品</th><th>重み</th></tr>' + [
-  ['ヤオコー ¥99', 1], ['ヤオコー ¥198・¥398・キズ', 2], ['ハーズ・たまや ¥198・¥398', 2], ['直売所 キズ（赤・緑・青）', 2], ['直売所 小（赤・緑・青）', 1.5],
+  ['ヤオコー ¥99', 1], ['ヤオコー ¥198・キズ', 2], ['ヤオコー ¥398', 2.5], ['ハーズ・たまや ¥198', 2], ['ハーズ・たまや ¥398', 2.5], ['直売所 キズ（赤・緑・青）', 2], ['直売所 小（赤・緑・青）', 1.5],
   ['やおとも パック', 2], ['やおとも キロ（1kgあたり）', 1.5], ['その他（仮）', OTHER_WEIGHT]].map(([a, b]) => `<tr><td>${a}</td><td>×${b}</td></tr>`).join('');
 
 if (api.hasToken()) loadDay(); else showPass(loadDay);
