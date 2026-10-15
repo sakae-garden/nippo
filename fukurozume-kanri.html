@@ -6,7 +6,7 @@
 <title>袋詰め 管理 | 栄ガーデン</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&family=Inter:wght@600;700&display=swap">
 <style>
-/* 杉さん専用：日ごと（全員の商品別 袋数・1時間あたり・他の作業）と、人ごとの伸び（商品別の週平均）。日報と同じ見た目 */
+/* 杉さん専用：日ごと（全員の商品別 袋数・標準袋・1時間あたりの標準袋・他の作業）と、人ごとの伸び（標準袋の週平均）。日報と同じ見た目 */
 :root{
   --ink:#1c1c1e; --bg:#f5f1e8; --card:#ffffff; --border:#e8e2d5; --sub:#6f6a60;
   --green:#2d7a4f; --green-bg:#edf7f1; --yellow-bg:#fffde7; --yellow:#f9a825;
@@ -46,6 +46,12 @@ td b{font-family:var(--num);font-size:17px}
 .bars i{display:block;width:100%;max-width:36px;background:var(--green);border-radius:6px 6px 0 0}
 .bars b{font-family:var(--num);color:var(--ink);font-size:14px}
 .note{font-size:13px;color:var(--sub);margin:0}
+.sum{display:flex;gap:18px;flex-wrap:wrap;padding:10px 14px;border-bottom:1px solid var(--border);align-items:baseline}
+.sum div{font-size:12px;color:var(--sub)}
+.sum b{font-family:var(--num);font-size:24px;color:var(--ink);margin-right:2px}
+.sum .pct{font-size:13px;color:var(--ink);font-weight:700}
+.wt{width:100%;font-size:13px}
+.wt td,.wt th{padding:4px 12px}
 /* 読み込み中・失敗・パスコード */
 .msg{text-align:center;color:var(--sub);padding:14px 0}
 .retry{font:inherit;font-weight:700;padding:8px 16px;border-radius:10px;border:1px solid var(--green);background:var(--card);color:var(--green);cursor:pointer}
@@ -73,11 +79,12 @@ td b{font-family:var(--num);font-size:17px}
   <section id="pDay" style="display:grid;gap:14px">
     <div class="bar"><button type="button" id="dPrev">‹ 前の日</button><b style="font-size:18px" id="dTtl"></b><button type="button" id="dNext">次の日 ›</button></div>
     <div id="day" style="display:grid;gap:14px"></div>
-    <p class="note">1時間あたり＝その商品の袋数 ÷（シフトの時間 − シフトの休憩）。休憩がシフトに入っていない日は60分。黄色はその人のふだん（直近4週の平均）より2割以上低いところ。</p>
+    <p class="note">標準袋＝袋数 × 手間の重み（ヤオコー¥99＝1）。1時間あたり＝標準袋の合計 ÷（シフトの時間 − シフトの休憩。休憩が入っていない日は60分）。ふだん＝その人の直近4週の平均。詰めやすさは箱によって違うので、1日の数字より「人ごとの伸び」の週平均で見てください。</p>
+    <div class="card"><h2>手間の重み<small>杉さん決定 2026-10-15</small></h2><div class="scroll"><table class="wt" id="wtTbl"></table></div></div>
   </section>
 
   <section id="pPer" hidden style="display:grid;gap:14px">
-    <div class="bar"><span class="lbl">人</span><select id="selP"></select><span class="lbl">商品</span><select id="selG"></select></div>
+    <div class="bar"><span class="lbl">人</span><select id="selP"></select></div>
     <div id="perBody" style="display:grid;gap:14px">
       <div class="card"><h2 id="perTtl"></h2><div class="bars" id="bars"></div></div>
       <div class="card"><h2>日ごとの記録</h2><div class="scroll"><table id="perTbl"></table></div></div>
@@ -99,6 +106,34 @@ const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')
 const parse = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
 const md = s => { const d = parse(s); return `${d.getMonth() + 1}/${d.getDate()}（${WD[d.getDay()]}）`; };
 const mins = t => { const [h, m] = String(t).split(':').map(Number); return h * 60 + (m || 0); };
+
+// 手間の重み（ヤオコー¥99＝1。杉さん決定 2026-10-15）。直すときはここだけ
+const WEIGHT = {
+  yaoko99: 1, yaoko198: 2, yaoko398: 2, yaokoKizu: 2,
+  hers198: 2, hers398: 2, tamaya198: 2, tamaya398: 2,
+  chokuRedKizu: 2, chokuGreenKizu: 2, chokuBlueKizu: 2, chokuRedSho: 1.5, chokuGreenSho: 1.5, chokuBlueSho: 1.5,
+  yaotomoP: 2, yaotomoKg: 1.5,   // やおとものキロは 1kg あたり
+};
+const OTHER_WEIGHT = 1;          // 「その他」の商品は1袋あたり1（仮）
+const wOf = k => WEIGHT[k] == null ? 1 : WEIGHT[k];
+// 1日の標準袋の合計
+function stdOf(x){
+  let t = 0;
+  Object.keys(x.counts || {}).forEach(k => { const v = Number(x.counts[k]); if (isFinite(v)) t += v * wOf(k); });
+  (x.others || []).forEach(o => { const v = Number(o.count); if (isFinite(v)) t += v * OTHER_WEIGHT; });
+  return t;
+}
+const f1 = v => v == null ? '－' : (Math.round(v * 10) / 10).toFixed(1);
+// ふだん：その人の、見ている日の前日までの28日の 標準袋の合計 ÷ 時間の合計
+let TR8 = null;
+function trend8(){ return TR8 ? Promise.resolve(TR8) : api.call('fukuroAdminTrend', { weeks: 8 }).then(r => { if (r.kind === 'ok') TR8 = r.body; return TR8; }); }
+function usualOf(name, date){
+  if (!TR8 || !TR8.daily) return null;
+  const d1 = parse(date), d0 = new Date(d1); d0.setDate(d0.getDate() - 28);
+  let s = 0, h = 0;
+  TR8.daily.forEach(x => { if (x.name !== name || !x.hours) return; const d = parse(x.date); if (d >= d0 && d < d1) { s += stdOf(x); h += x.hours; } });
+  return h > 0 ? s / h : null;
+}
 
 // パスコード（初回だけ。トークンが無効になったら出し直す）
 let passAfter = null;
@@ -127,10 +162,10 @@ function loadDay(){
   const d = cur;
   $('dTtl').textContent = md(d);
   $('day').innerHTML = '<div class="msg">読み込んでいます…</div>';
-  api.call('fukuroAdminDay', { date: d }).then(r => {
+  Promise.all([api.call('fukuroAdminDay', { date: d }), trend8()]).then(([r]) => {
     if (d !== cur) return;
     if (r.kind !== 'ok') return failed($('day'), r, loadDay);
-    const recs = r.body.records || [], names = Object.fromEntries(r.body.products || []);
+    const recs = r.body.records || [];
     if (!recs.length) { $('day').innerHTML = '<div class="msg">この日の記録はありません</div>'; return; }
     $('day').innerHTML = recs.map(x => {
       let head = 'シフトにありません';
@@ -138,15 +173,16 @@ function loadDay(){
         const brk = x.hours == null ? null : Math.round(mins(x.shift.end) - mins(x.shift.start) - x.hours * 60);
         head = `${esc(x.shift.start)}〜${esc(x.shift.end)}${brk == null ? '' : `（休憩${brk}分）＝ ${x.hours}時間`}`;
       }
-      const rate = x.rate || {}, usual = x.usual || {}, low = x.low || [];
+      const tot = stdOf(x), rt = x.hours ? tot / x.hours : null, us = usualOf(x.name, d);
+      const pct = rt != null && us ? Math.round(rt / us * 100) : null;
+      const sum = `<div class="sum"><div><b>${f1(tot)}</b>標準袋</div><div>1時間あたり <b>${f1(rt)}</b></div><div>ふだん <b style="font-size:18px">${f1(us)}</b>${pct == null ? '' : ` <span class="pct">（ふだんの${pct}%）</span>`}</div></div>`;
       const rows = (r.body.products || []).filter(([k]) => x.counts && x.counts[k] != null).map(([k, l]) => {
-        const v = x.counts[k], u = usual[k];
-        const rt = rate[k] == null ? '－' : `<b>${rate[k].toFixed(1)}</b>${unit(k)}`;
-        return `<tr class="${low.includes(k) ? 'low' : ''}"><td>${esc(l)}</td><td><b>${v}</b>${unit(k)}</td><td>${rt}</td><td>${u == null ? '－' : u.toFixed(1)}</td></tr>`;
-      }).concat((x.others || []).map(o => `<tr><td>その他 ${esc(o.name)}${o.price ? `（${esc(o.price)}円）` : ''}</td><td><b>${esc(o.count)}</b>袋</td><td>－</td><td>－</td></tr>`)).join('');
+        const v = x.counts[k];
+        return `<tr><td>${esc(l)}</td><td><b>${v}</b>${unit(k)}</td><td>×${wOf(k)}</td><td><b>${f1(v * wOf(k))}</b></td></tr>`;
+      }).concat((x.others || []).map(o => `<tr><td>その他 ${esc(o.name)}${o.price ? `（${esc(o.price)}円）` : ''}</td><td><b>${esc(o.count)}</b>袋</td><td>×${OTHER_WEIGHT}</td><td><b>${f1((Number(o.count) || 0) * OTHER_WEIGHT)}</b></td></tr>`)).join('');
       const memos = Object.keys(MEMO).filter(k => x.memos && x.memos[k]).map(k => `${MEMO[k]}：${esc(x.memos[k])}`).join('　');
-      return `<div class="card"><h2>${esc(x.name)}さん<small>${head}</small></h2>
-        <div class="scroll"><table><tr><th>商品</th><th>袋数</th><th>1時間あたり</th><th>ふだん</th></tr>${rows}</table></div>
+      return `<div class="card"><h2>${esc(x.name)}さん<small>${head}</small></h2>${sum}
+        <div class="scroll"><table><tr><th>商品</th><th>袋数</th><th>重み</th><th>標準袋</th></tr>${rows}</table></div>
         ${x.otherWork || memos ? `<div class="memo">${x.otherWork ? `<div><span>他の作業</span>${esc(x.otherWork)}</div>` : ''}${memos ? `<div><span>メモ</span>${memos}</div>` : ''}</div>` : ''}</div>`;
     }).join('');
   });
@@ -154,50 +190,52 @@ function loadDay(){
 function shiftDay(n){ const d = parse(cur); d.setDate(d.getDate() + n); cur = ymd(d); loadDay(); }
 $('dPrev').onclick = () => shiftDay(-1); $('dNext').onclick = () => shiftDay(1);
 
-// 人ごとの伸び（直近8週）
+// 人ごとの伸び（直近8週。標準袋の週平均＝その週の標準袋の合計 ÷ 時間の合計）
 let TR = null;
-const selP = $('selP'), selG = $('selG');
+const selP = $('selP');
 function loadTrend(){
   $('perBody').hidden = true; $('perMsg').innerHTML = '<div class="msg">読み込んでいます…</div>';
   api.call('fukuroAdminTrend', { weeks: 8 }).then(r => {
     if (r.kind !== 'ok') return failed($('perMsg'), r, loadTrend);
-    TR = r.body;
-    const ns = [...new Set((TR.weekly || []).map(w => w.name))];
+    TR = TR8 = r.body;
+    const ns = [...new Set((TR.daily || []).map(w => w.name))];
     if (!ns.length) { $('perMsg').innerHTML = '<div class="msg">まだ記録がありません</div>'; return; }
     $('perMsg').innerHTML = ''; $('perBody').hidden = false;
     const keep = selP.value;
     selP.innerHTML = ns.map(n => `<option value="${esc(n)}">${esc(n)}さん</option>`).join('');
     if (ns.includes(keep)) selP.value = keep;
-    fillG(); renderPer();
+    renderPer();
   });
 }
-function fillG(){
-  const has = new Set(TR.weekly.filter(w => w.name === selP.value).map(w => w.product)), keep = selG.value;
-  const ps = (TR.products || []).filter(([k]) => has.has(k));
-  selG.innerHTML = ps.map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('');
-  if (has.has(keep)) selG.value = keep;
-}
 function renderPer(){
-  const n = selP.value, g = selG.value, label = selG.selectedOptions[0] ? selG.selectedOptions[0].textContent : '';
+  const n = selP.value;
   const wk = [], d0 = parse(TR.from);
-  for (let i = 0; i < 8; i++) { const d = new Date(d0); d.setDate(d.getDate() + i * 7); wk.push(ymd(d)); }
-  const W = wk.map(w => { const x = TR.weekly.find(v => v.name === n && v.product === g && v.week === w); return x ? x.rate : null; });
+  for (let i = 0; i < 8; i++) { const d = new Date(d0); d.setDate(d.getDate() + i * 7); wk.push(d); }
+  const mine = (TR.daily || []).filter(x => x.name === n);
+  const W = wk.map(w0 => { const w1 = new Date(w0); w1.setDate(w1.getDate() + 7); let s = 0, h = 0;
+    mine.forEach(x => { const d = parse(x.date); if (d >= w0 && d < w1 && x.hours) { s += stdOf(x); h += x.hours; } });
+    return h > 0 ? s / h : null; });
   const mx = Math.max(1, ...W.filter(v => v != null));
-  $('perTtl').innerHTML = `${esc(n)}さん　${esc(label)}<small>1時間あたりの${unit(g)}数（週ごとの平均。日付は週の月曜）</small>`;
-  $('bars').innerHTML = W.map((v, i) => { const d = parse(wk[i]);
-    return `<div><b>${v == null ? '－' : v.toFixed(1)}</b><i style="height:${v == null ? 0 : Math.round(v / mx * 120)}px"></i>${d.getMonth() + 1}/${d.getDate()}</div>`; }).join('');
-  const rows = (TR.daily || []).filter(x => x.name === n && x.counts && x.counts[g] != null).reverse();
-  $('perTbl').innerHTML = `<tr><th>日にち</th><th>時間</th><th>${unit(g)}数</th><th>1時間あたり</th><th>他の作業</th></tr>`
-    + (rows.length ? rows.map(x => `<tr><td>${md(x.date)}</td><td>${x.hours == null ? '－' : x.hours + 'h'}</td><td>${x.counts[g]}</td><td>${x.rate && x.rate[g] != null ? `<b>${x.rate[g].toFixed(1)}</b>${unit(g)}` : '－'}</td><td style="text-align:left">${esc(x.otherWork || '')}</td></tr>`).join('')
+  $('perTtl').innerHTML = `${esc(n)}さん<small>1時間あたりの標準袋（週ごとの平均。日付は週の月曜）</small>`;
+  $('bars').innerHTML = W.map((v, i) => { const d = wk[i];
+    return `<div><b>${f1(v)}</b><i style="height:${v == null ? 0 : Math.round(v / mx * 120)}px"></i>${d.getMonth() + 1}/${d.getDate()}</div>`; }).join('');
+  const rows = mine.slice().reverse();
+  $('perTbl').innerHTML = `<tr><th>日にち</th><th>時間</th><th>標準袋</th><th>1時間あたり</th><th>他の作業</th></tr>`
+    + (rows.length ? rows.map(x => { const t = stdOf(x); return `<tr><td>${md(x.date)}</td><td>${x.hours == null ? '－' : x.hours + 'h'}</td><td>${f1(t)}</td><td>${x.hours ? `<b>${f1(t / x.hours)}</b>` : '－'}</td><td style="text-align:left">${esc(x.otherWork || '')}</td></tr>`; }).join('')
       : '<tr><td colspan="5" class="msg">この期間の記録はありません</td></tr>');
 }
-selP.onchange = () => { fillG(); renderPer(); }; selG.onchange = renderPer;
+selP.onchange = renderPer;
 
 function tab(d){
   $('tDay').setAttribute('aria-selected', d); $('tPer').setAttribute('aria-selected', !d); $('pDay').hidden = !d; $('pPer').hidden = d;
   if (!d) loadTrend();
 }
 $('tDay').onclick = () => tab(true); $('tPer').onclick = () => tab(false);
+
+// 重みの一覧（商品名はヤオコー¥99などの見出しで）
+$('wtTbl').innerHTML = '<tr><th>商品</th><th>重み</th></tr>' + [
+  ['ヤオコー ¥99', 1], ['ヤオコー ¥198・¥398・キズ', 2], ['ハーズ・たまや ¥198・¥398', 2], ['直売所 キズ（赤・緑・青）', 2], ['直売所 小（赤・緑・青）', 1.5],
+  ['やおとも パック', 2], ['やおとも キロ（1kgあたり）', 1.5], ['その他（仮）', OTHER_WEIGHT]].map(([a, b]) => `<tr><td>${a}</td><td>×${b}</td></tr>`).join('');
 
 if (api.hasToken()) loadDay(); else showPass(loadDay);
 </script>
