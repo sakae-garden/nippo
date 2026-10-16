@@ -52,6 +52,11 @@ td b{font-family:var(--num);font-size:17px}
 .sum .pct{font-size:13px;color:var(--ink);font-weight:700}
 .wt{width:100%;font-size:13px}
 .wt td,.wt th{padding:4px 12px}
+.act{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 14px;border-bottom:1px solid var(--border);font-size:14px}
+.act input{font:inherit;font-family:var(--num);font-size:20px;font-weight:700;width:5.5em;text-align:right;padding:6px 8px;border:2px solid var(--border);border-radius:10px;background:#fff}
+.act input.edited{border-color:var(--yellow);background:var(--yellow-bg)}
+.act button{font:inherit;font-weight:700;padding:7px 12px;border-radius:10px;border:1px solid var(--green);background:var(--card);color:var(--green);cursor:pointer}
+.act .st{font-size:12px;color:var(--sub)}
 /* 読み込み中・失敗・パスコード */
 .msg{text-align:center;color:var(--sub);padding:14px 0}
 .retry{font:inherit;font-weight:700;padding:8px 16px;border-radius:10px;border:1px solid var(--green);background:var(--card);color:var(--green);cursor:pointer}
@@ -79,7 +84,7 @@ td b{font-family:var(--num);font-size:17px}
   <section id="pDay" style="display:grid;gap:14px">
     <div class="bar"><button type="button" id="dPrev">‹ 前の日</button><b style="font-size:18px" id="dTtl"></b><button type="button" id="dNext">次の日 ›</button></div>
     <div id="day" style="display:grid;gap:14px"></div>
-    <p class="note">標準袋＝袋数 × 手間の重み（ヤオコー¥99＝1）。1時間あたり＝標準袋の合計 ÷（シフトの時間 − シフトの休憩。休憩が入っていない日は60分）。ふだん＝その人の直近4週の平均。詰めやすさは箱によって違うので、1日の数字より「人ごとの伸び」の週平均で見てください。</p>
+    <p class="note">標準袋＝袋数 × 手間の重み（ヤオコー¥99＝1）。1時間あたり＝標準袋の合計 ÷ 実際に袋詰めした時間（初めはシフトの時間 − 休憩。休憩が入っていない日は60分。他の作業をした日は杉さんが直す。人ごとの伸びの表で＊が付いた時間は直したもの）。ふだん＝その人の直近4週の平均。詰めやすさは箱によって違うので、1日の数字より「人ごとの伸び」の週平均で見てください。</p>
     <div class="card"><h2>手間の重み<small>杉さん決定 2026-10-15</small></h2><div class="scroll"><table class="wt" id="wtTbl"></table></div></div>
   </section>
 
@@ -124,6 +129,8 @@ function stdOf(x){
   return t;
 }
 const f1 = v => v == null ? '－' : (Math.round(v * 10) / 10).toFixed(1);
+// 計算に使う時間：杉さんが直した「実際の時間」があればそれ、無ければシフト−休憩
+const effH = x => x.actualHours != null ? Number(x.actualHours) : x.hours;
 // ふだん：その人の、見ている日の前日までの28日の 標準袋の合計 ÷ 時間の合計
 let TR8 = null;
 function trend8(){ return TR8 ? Promise.resolve(TR8) : api.call('fukuroAdminTrend', { weeks: 8 }).then(r => { if (r.kind === 'ok') TR8 = r.body; return TR8; }); }
@@ -131,7 +138,7 @@ function usualOf(name, date){
   if (!TR8 || !TR8.daily) return null;
   const d1 = parse(date), d0 = new Date(d1); d0.setDate(d0.getDate() - 28);
   let s = 0, h = 0;
-  TR8.daily.forEach(x => { if (x.name !== name || !x.hours) return; const d = parse(x.date); if (d >= d0 && d < d1) { s += stdOf(x); h += x.hours; } });
+  TR8.daily.forEach(x => { const eh = effH(x); if (x.name !== name || !eh) return; const d = parse(x.date); if (d >= d0 && d < d1) { s += stdOf(x); h += eh; } });
   return h > 0 ? s / h : null;
 }
 
@@ -173,7 +180,7 @@ function loadDay(){
         const brk = x.hours == null ? null : Math.round(mins(x.shift.end) - mins(x.shift.start) - x.hours * 60);
         head = `${esc(x.shift.start)}〜${esc(x.shift.end)}${brk == null ? '' : `（休憩${brk}分）＝ ${x.hours}時間`}`;
       }
-      const tot = stdOf(x), rt = x.hours ? tot / x.hours : null, us = usualOf(x.name, d);
+      const eh = effH(x), tot = stdOf(x), rt = eh ? tot / eh : null, us = usualOf(x.name, d);
       const pct = rt != null && us ? Math.round(rt / us * 100) : null;
       const sum = `<div class="sum"><div><b>${f1(tot)}</b>標準袋</div><div>1時間あたり <b>${f1(rt)}</b></div><div>ふだん <b style="font-size:18px">${f1(us)}</b>${pct == null ? '' : ` <span class="pct">（ふだんの${pct}%）</span>`}</div></div>`;
       const rows = (r.body.products || []).filter(([k]) => x.counts && x.counts[k] != null).map(([k, l]) => {
@@ -181,12 +188,33 @@ function loadDay(){
         return `<tr><td>${esc(l)}</td><td><b>${v}</b>${unit(k)}</td><td>×${wOf(k)}</td><td><b>${f1(v * wOf(k))}</b></td></tr>`;
       }).concat((x.others || []).map(o => `<tr><td>その他 ${esc(o.name)}${o.price ? `（${esc(o.price)}円）` : ''}</td><td><b>${esc(o.count)}</b>袋</td><td>×${OTHER_WEIGHT}</td><td><b>${f1((Number(o.count) || 0) * OTHER_WEIGHT)}</b></td></tr>`)).join('');
       const memos = Object.keys(MEMO).filter(k => x.memos && x.memos[k]).map(k => `${MEMO[k]}：${esc(x.memos[k])}`).join('　');
-      return `<div class="card"><h2>${esc(x.name)}さん<small>${head}</small></h2>${sum}
+      const act = `<div class="act"><span>実際に袋詰めした時間</span><input type="text" inputmode="decimal" data-n="${esc(x.name)}" value="${eh == null ? '' : eh}" class="${x.actualHours != null ? 'edited' : ''}" aria-label="実際の時間">時間<button type="button" data-save="${esc(x.name)}">保存</button>${x.actualHours != null ? `<button type="button" data-clear="${esc(x.name)}">シフトの時間に戻す</button>` : ''}<span class="st">${x.actualHours != null ? '直した時間で計算しています' : (x.hours != null ? 'シフト−休憩の時間です。他の作業をした日は減らしてください' : 'シフトにない日は時間を入れると計算します')}</span></div>`;
+      return `<div class="card"><h2>${esc(x.name)}さん<small>${head}</small></h2>${act}${sum}
         <div class="scroll"><table><tr><th>商品</th><th>袋数</th><th>重み</th><th>標準袋</th></tr>${rows}</table></div>
         ${x.otherWork || memos ? `<div class="memo">${x.otherWork ? `<div><span>他の作業</span>${esc(x.otherWork)}</div>` : ''}${memos ? `<div><span>メモ</span>${memos}</div>` : ''}</div>` : ''}</div>`;
     }).join('');
   });
 }
+// 実際の時間の保存（杉さんだけ。記録が無い日は直せない）
+function setHours(name, v, btn){
+  btn.disabled = true;
+  api.call('fukuroAdminSetHours', { date: cur, name, actualHours: v }).then(r => {
+    btn.disabled = false;
+    if (r.kind === 'ok') { TR8 = null; return loadDay(); }
+    if (r.kind === 'auth') return showPass(loadDay);
+    const st = btn.closest('.act').querySelector('.st'); st.style.color = '#c62828';
+    st.textContent = r.kind === 'bad_request' ? '時間は 0より大きく24以下で入れてください' : '保存できませんでした。もう一度押してください';
+  });
+}
+$('day').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.save != null) {
+    const inp = [...$('day').querySelectorAll('.act input')].find(i => i.dataset.n === b.dataset.save);
+    const v = Number(String(inp.value).trim().replace(/[０-９．]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)));
+    if (!(v > 0 && v <= 24)) { const st = b.closest('.act').querySelector('.st'); st.style.color = '#c62828'; st.textContent = '時間は 0より大きく24以下で入れてください'; inp.focus(); return; }
+    setHours(b.dataset.save, Math.round(v * 100) / 100, b);
+  } else if (b.dataset.clear != null) setHours(b.dataset.clear, null, b);
+});
 function shiftDay(n){ const d = parse(cur); d.setDate(d.getDate() + n); cur = ymd(d); loadDay(); }
 $('dPrev').onclick = () => shiftDay(-1); $('dNext').onclick = () => shiftDay(1);
 
@@ -213,7 +241,7 @@ function renderPer(){
   for (let i = 0; i < 8; i++) { const d = new Date(d0); d.setDate(d.getDate() + i * 7); wk.push(d); }
   const mine = (TR.daily || []).filter(x => x.name === n);
   const W = wk.map(w0 => { const w1 = new Date(w0); w1.setDate(w1.getDate() + 7); let s = 0, h = 0;
-    mine.forEach(x => { const d = parse(x.date); if (d >= w0 && d < w1 && x.hours) { s += stdOf(x); h += x.hours; } });
+    mine.forEach(x => { const d = parse(x.date), eh = effH(x); if (d >= w0 && d < w1 && eh) { s += stdOf(x); h += eh; } });
     return h > 0 ? s / h : null; });
   const mx = Math.max(1, ...W.filter(v => v != null));
   $('perTtl').innerHTML = `${esc(n)}さん<small>1時間あたりの標準袋（週ごとの平均。日付は週の月曜）</small>`;
@@ -221,7 +249,7 @@ function renderPer(){
     return `<div><b>${f1(v)}</b><i style="height:${v == null ? 0 : Math.round(v / mx * 120)}px"></i>${d.getMonth() + 1}/${d.getDate()}</div>`; }).join('');
   const rows = mine.slice().reverse();
   $('perTbl').innerHTML = `<tr><th>日にち</th><th>時間</th><th>標準袋</th><th>1時間あたり</th><th>他の作業</th></tr>`
-    + (rows.length ? rows.map(x => { const t = stdOf(x); return `<tr><td>${md(x.date)}</td><td>${x.hours == null ? '－' : x.hours + 'h'}</td><td>${f1(t)}</td><td>${x.hours ? `<b>${f1(t / x.hours)}</b>` : '－'}</td><td style="text-align:left">${esc(x.otherWork || '')}</td></tr>`; }).join('')
+    + (rows.length ? rows.map(x => { const t = stdOf(x), eh = effH(x); return `<tr><td>${md(x.date)}</td><td>${eh == null ? '－' : eh + 'h' + (x.actualHours != null ? '＊' : '')}</td><td>${f1(t)}</td><td>${eh ? `<b>${f1(t / eh)}</b>` : '－'}</td><td style="text-align:left">${esc(x.otherWork || '')}</td></tr>`; }).join('')
       : '<tr><td colspan="5" class="msg">この期間の記録はありません</td></tr>');
 }
 selP.onchange = renderPer;
