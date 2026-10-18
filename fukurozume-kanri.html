@@ -117,6 +117,7 @@ const WEIGHT = {
   yaoko99: 1, yaoko198: 2, yaoko398: 2.5, yaokoKizu: 2,
   hers198: 2, hers398: 2.5, tamaya198: 2, tamaya398: 2.5,
   chokuRedKizu: 2, chokuGreenKizu: 2, chokuBlueKizu: 2, chokuRedSho: 1.5, chokuGreenSho: 1.5, chokuBlueSho: 1.5,
+  chokuRedSho500: 3, chokuGreenSho500: 3, chokuBlueSho500: 3,   // 直売所 小 500g（2026-10-18 杉さん決定）
   yaotomoP: 2, yaotomoKg: 1.5,   // やおとものキロは 1kg あたり
 };
 const OTHER_WEIGHT = 1;          // 「その他」の商品は1袋あたり1（仮）
@@ -262,7 +263,7 @@ $('tDay').onclick = () => tab(true); $('tPer').onclick = () => tab(false);
 
 // 重みの一覧（商品名はヤオコー¥99などの見出しで）
 $('wtTbl').innerHTML = '<tr><th>商品</th><th>重み</th></tr>' + [
-  ['ヤオコー ¥99', 1], ['ヤオコー ¥198・キズ', 2], ['ヤオコー ¥398', 2.5], ['ハーズ・たまや ¥198', 2], ['ハーズ・たまや ¥398', 2.5], ['直売所 キズ（赤・緑・青）', 2], ['直売所 小（赤・緑・青）', 1.5],
+  ['ヤオコー ¥99', 1], ['ヤオコー ¥198・キズ', 2], ['ヤオコー ¥398', 2.5], ['ハーズ・たまや ¥198', 2], ['ハーズ・たまや ¥398', 2.5], ['直売所 キズ（赤・緑・青）', 2], ['直売所 小（赤・緑・青）', 1.5], ['直売所 小 500g（赤・緑・青）', 3],
   ['やおとも パック', 2], ['やおとも キロ（1kgあたり）', 1.5], ['その他（仮）', OTHER_WEIGHT]].map(([a, b]) => `<tr><td>${a}</td><td>×${b}</td></tr>`).join('');
 
 if (api.hasToken()) loadDay(); else showPass(loadDay);
