@@ -252,7 +252,7 @@ body.has-unsaved .toast{bottom:130px}
   <div class="route-tabs" id="routeTabs">
   </div>
 </div>
-<div class="nippo-link-wrap"><a href="index.html" class="nippo-link-btn">📝 日報入力へ</a></div>
+<div class="nippo-link-wrap"><a href="index.html" class="nippo-link-btn" onclick="return goNippoInput(this)">📝 日報入力へ</a></div>
 <div id="app"><div id="loading"><div class="spinner"></div><br>読み込み中...</div></div>
 <div class="toast"><div class="toast-inner" id="toast"></div></div>
 <div class="unsaved-bar" id="unsavedBar" hidden><span class="unsaved-lbl" id="unsavedLbl">● 未保存</span><span id="unsavedAct"><button class="save-btn" onclick="doSave()">💾 保存する</button></span></div>
@@ -286,6 +286,31 @@ var YAOKO_PRICES = ['¥99','¥198','¥398','¥598'];
 // スナップショットURL(/test/)で環境を判定してキーを分ける。本番のキー名は従来のまま。
 var IS_TEST_ENV = String(SNAPSHOT_URL).indexOf('/test/') > -1;
 function lsKey(base){ return base + (IS_TEST_ENV ? '_test' : ''); }
+// 【2026-10-29】見ていた経路（小川・籠原・坂戸）を、配達商品情報と日報入力の間で引き継ぐ（杉さん要望）。
+// 優先順：URLの ?route=経路ID → この端末で最後に見た経路 → 一番左。経路はIDで覚える（並び・ラベルが変わってもずれない）。
+var LS_LAST_ROUTE = lsKey('last_route_v1');
+function _routeIdxById(id){ if(typeof ROUTES==='undefined' || !id) return -1; for(var i=0;i<ROUTES.length;i++){ if(ROUTES[i].id===id) return i; } return -1; }
+function _rememberRoute(idx){ try{ if(typeof ROUTES!=='undefined' && ROUTES[idx]) localStorage.setItem(LS_LAST_ROUTE, ROUTES[idx].id); }catch(e){} }
+// ブラウザの「戻る」でこの画面が前の状態のまま復元されたとき（bfcache）も、最後に見た経路に合わせる
+window.addEventListener('pageshow', function(e){
+  if(!e.persisted) return;
+  var i=-1; try{ i=_routeIdxById(localStorage.getItem(LS_LAST_ROUTE)||''); }catch(err){}
+  if(i>=0 && i!==state.route && state.mode!=='edit') switchRoute(i);
+});
+function _initialRouteIdx(){
+  var id='', i=-1;
+  try{ id = new URLSearchParams(location.search).get('route') || ''; }catch(e){}
+  i = _routeIdxById(id);
+  if(i>=0){
+    _rememberRoute(i);
+    // 引き継いだら URL から外す（このあとタブを切り替えて再読み込みしたときに、引き継ぎ元の経路へ戻らないように）
+    try{ var u=new URL(location.href); u.searchParams.delete('route'); history.replaceState(history.state,'',u.pathname+u.search+u.hash); }catch(e){}
+    return i;
+  }
+  try{ id = localStorage.getItem(LS_LAST_ROUTE) || ''; }catch(e){}
+  i = _routeIdxById(id);
+  return i>=0 ? i : 0;
+}
 // 【2026-10-04 廃止】納品数・残在庫/販売数を端末に残していたキー（haitatsu_cache_v2・haitatsu_latest・
 // zaiko_cache_v1）。前回の数字を画面に出す手段は設けない（杉さん決定 2026-10-04）ので、端末にも残さない。
 // 起動時に、以前の版が残した値を消す（index.html も haitatsu_latest を消す）。
@@ -297,7 +322,7 @@ function lsKey(base){ return base + (IS_TEST_ENV ? '_test' : ''); }
 // 【2026-09-29】保存と送信の記録（GAS の「保存送信ログ」シート）に付ける端末IDと画面の版。
 // 端末IDはこの端末で一度だけ作るランダムな値（index.html と同じキーを共有＝同じ端末は同じID）。
 // 氏名・電話番号などは入れない。localStorage が使えない端末では画面を開くたびに変わる。
-var PAGE_BUILD = 'nippo-api-run-20261009';   // 画面を変えて出すときに更新する（記録の「画面の版」）
+var PAGE_BUILD = 'route-carry-20261029';   // 画面を変えて出すときに更新する（記録の「画面の版」）
 var LS_DEVICE_ID = lsKey('device_id_v1');
 var _deviceIdMemo = '';
 function _deviceId(){
@@ -319,7 +344,7 @@ function _auditQuery(extra){
 if(window.FetchLog) FetchLog.init({ screen:'haitatsu', api:API_URL, test:IS_TEST_ENV, ver:PAGE_BUILD });
 function _flAttempt(action){ return window.FetchLog ? FetchLog.attempt(action) : { req:function(){ return null; }, bad:function(){}, ok:function(){}, fail:function(){}, abandon:function(){} }; }
 
-var state = { mode:'view', route:0, data:{}, zaiko:{}, zaikoExtras:{}, zaikoDataDate:'', lastUpdated:'', dirty:false, loaded:false,
+var state = { mode:'view', route:_initialRouteIdx(), data:{}, zaiko:{}, zaikoExtras:{}, zaikoDataDate:'', lastUpdated:'', dirty:false, loaded:false,
               // saveState: '' | 'saving'（件C / 固定バーの表示に使う。'failed'・'unknown' は 2026-10-06 に廃止）
               saveState:'',
               zaikoLoaded:false, zaikoLoading:false, zaikoError:false, zaikoFetched:false,
@@ -980,9 +1005,16 @@ function switchRoute(i){
       return;
     }
   }
-  state.route=i;
+  state.route=i; _rememberRoute(i);
   for(var j=0;j<ROUTES.length;j++){ var t=document.getElementById('tab'+j); if(t) t.classList.toggle('active',j===i); }
   renderRoute();
+}
+// 【2026-10-29】「日報入力へ」は、いま見ている経路の店舗一覧を開く（?route=経路ID）
+function goNippoInput(a){
+  var r = (typeof ROUTES!=='undefined' && ROUTES[state.route]) ? ROUTES[state.route].id : '';
+  _rememberRoute(state.route);
+  a.href = 'index.html' + (r ? '?route=' + encodeURIComponent(r) : '');
+  return true;
 }
 // 経路タブを ROUTES から描画（本数・ラベルとも ROUTE_VERSION に追随する）
 function renderRouteTabs(){

@@ -356,6 +356,31 @@ var LABEL_SNAPSHOT_URL = 'https://storage.googleapis.com/sakae-garden-snapshots/
 // 本番のキー名は従来のまま（サフィックス無し）なので、既存ユーザーの値は失われない。
 var IS_TEST_ENV = String(LABEL_SNAPSHOT_URL).indexOf('/test/') > -1;
 function lsKey(base){ return base + (IS_TEST_ENV ? '_test' : ''); }
+// 【2026-10-29】見ていた経路（小川・籠原・坂戸）を、配達商品情報と日報入力の間で引き継ぐ（杉さん要望）。
+// 優先順：URLの ?route=経路ID → この端末で最後に見た経路 → 一番左。経路はIDで覚える（並び・ラベルが変わってもずれない）。
+var LS_LAST_ROUTE = lsKey('last_route_v1');
+function _routeIdxById(id){ if(typeof ROUTES==='undefined' || !id) return -1; for(var i=0;i<ROUTES.length;i++){ if(ROUTES[i].id===id) return i; } return -1; }
+function _rememberRoute(idx){ try{ if(typeof ROUTES!=='undefined' && ROUTES[idx]) localStorage.setItem(LS_LAST_ROUTE, ROUTES[idx].id); }catch(e){} }
+// ブラウザの「戻る」でこの画面が前の状態のまま復元されたとき（bfcache）も、最後に見た経路に合わせる
+window.addEventListener('pageshow', function(e){
+  if(!e.persisted) return;
+  var i=-1; try{ i=_routeIdxById(localStorage.getItem(LS_LAST_ROUTE)||''); }catch(err){}
+  if(i>=0 && i!==state.route && state.screen==='home') switchRoute(i);
+});
+function _initialRouteIdx(){
+  var id='', i=-1;
+  try{ id = new URLSearchParams(location.search).get('route') || ''; }catch(e){}
+  i = _routeIdxById(id);
+  if(i>=0){
+    _rememberRoute(i);
+    // 引き継いだら URL から外す（このあとタブを切り替えて再読み込みしたときに、引き継ぎ元の経路へ戻らないように）
+    try{ var u=new URL(location.href); u.searchParams.delete('route'); history.replaceState(history.state,'',u.pathname+u.search+u.hash); }catch(e){}
+    return i;
+  }
+  try{ id = localStorage.getItem(LS_LAST_ROUTE) || ''; }catch(e){}
+  i = _routeIdxById(id);
+  return i>=0 ? i : 0;
+}
 var LS_CONFIG           = lsKey('nippo_config');
 // 【2026-10-04 廃止】納品指示を端末に残していたキー（haitatsu_latest・取得日・対象日・受け取り時刻）。
 // 前回の数字を画面に出す手段は設けない（杉さん決定 2026-10-04）ので、端末にも残さない。
@@ -367,7 +392,7 @@ var LS_SANCHI_ISSUED    = lsKey('sanchi_issued_today_v1');
 // 【2026-09-29】保存と送信の記録（GAS の「保存送信ログ」シート）に付ける端末IDと画面の版。
 // 端末IDはこの端末で一度だけ作るランダムな値（haitatsu.html と同じキーを共有＝同じ端末は同じID）。
 // 氏名・電話番号などは入れない。localStorage が使えない端末では画面を開くたびに変わる。
-var PAGE_BUILD = 'nippo-api-run-20261009';   // 画面を変えて出すときに更新する（記録の「画面の版」）
+var PAGE_BUILD = 'route-carry-20261029';   // 画面を変えて出すときに更新する（記録の「画面の版」）
 var LS_DEVICE_ID = lsKey('device_id_v1');
 var _deviceIdMemo = '';
 function _deviceId(){
@@ -389,7 +414,7 @@ function _auditQuery(extra){
 if(window.FetchLog) FetchLog.init({ screen:'nippo', api:API_URL, test:IS_TEST_ENV, ver:PAGE_BUILD });
 function _flAttempt(action){ return window.FetchLog ? FetchLog.attempt(action) : { req:function(){ return null; }, bad:function(){}, ok:function(){}, fail:function(){}, abandon:function(){} }; }
 
-var state = { screen:'home', route:0, store:null, formData:{}, staff:'', config:null, extraPrices:[], labelAlert:null, labelIssued:{}, labelIssuedTotal:null, manualIssueOpen:false, sanchiIssuedToday:0 };
+var state = { screen:'home', route:_initialRouteIdx(), store:null, formData:{}, staff:'', config:null, extraPrices:[], labelAlert:null, labelIssued:{}, labelIssuedTotal:null, manualIssueOpen:false, sanchiIssuedToday:0 };
 var today = new Date();
 var DAYS = ['日','月','火','水','木','金','土'];
 var todayStr = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
@@ -499,7 +524,7 @@ function renderRouteTabs(){
   el.innerHTML=h;
 }
 function switchRoute(idx) {
-  state.route=idx;
+  state.route=idx; _rememberRoute(idx);
   for(var i=0;i<ROUTES.length;i++){ var t=document.getElementById('tab'+i); if(t) t.classList.toggle('active',i===idx); }
   renderHome();
 }
@@ -793,6 +818,9 @@ function _postIssue(baseUrl,key,n){
 
 function openStore(id) {
   state.store=STORE_DEFS[id]; state.storeId=id; state.formData={}; state.staff=''; state.extraPrices=[]; state.screen='form';
+  // 【2026-10-29】開いた店舗の経路を「見ている経路」にする（← 戻るで、その店舗の経路の一覧に戻るように）
+  var _ri = _routeIdxById(_routeIdOfStore(id));
+  if(_ri>=0 && _ri!==state.route){ state.route=_ri; _rememberRoute(_ri); renderRouteTabs(); }
   _loadReset();   // 前に開いた店舗の読み込みが遅れて届いても使わない
   // 配達商品情報（haitatsu）の当日分があれば納品数のデフォルト値として反映（localStorage 即読み・0ms）
   applyHaitatsuDefault(id);
