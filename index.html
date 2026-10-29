@@ -392,7 +392,7 @@ var LS_SANCHI_ISSUED    = lsKey('sanchi_issued_today_v1');
 // 【2026-09-29】保存と送信の記録（GAS の「保存送信ログ」シート）に付ける端末IDと画面の版。
 // 端末IDはこの端末で一度だけ作るランダムな値（haitatsu.html と同じキーを共有＝同じ端末は同じID）。
 // 氏名・電話番号などは入れない。localStorage が使えない端末では画面を開くたびに変わる。
-var PAGE_BUILD = 'route-carry-20261029';   // 画面を変えて出すときに更新する（記録の「画面の版」）
+var PAGE_BUILD = 'route-back-20261029';   // 画面を変えて出すときに更新する（記録の「画面の版」）
 var LS_DEVICE_ID = lsKey('device_id_v1');
 var _deviceIdMemo = '';
 function _deviceId(){
@@ -543,7 +543,28 @@ function confirmLeaveIfDirty(){
   if(!hasUnsavedInput()) return true;
   return confirm('送信していない入力があります。\n送信せずに戻りますか？');
 }
-function goBack(){ if(confirmLeaveIfDirty()) renderHome(); }
+function goBack(){ if(confirmLeaveIfDirty()) _toStoreList(); }
+// 【2026-10-29】店舗の入力画面（と送信完了画面）でスマホの「戻る」を押したら、前のページ（配達商品情報など）ではなく
+// その経路の店舗一覧に戻す（杉さん要望：戻る＝別の店舗を入力したい、の意味）。
+// 店舗を開くときに履歴を1つ積み、スマホの「戻る」でそれが外れたら店舗一覧を出す。
+var _skipLeaveConfirm = false;
+function _pushFormHistory(){
+  try{
+    if(history.state && history.state.nippoForm) history.replaceState({nippoForm:1}, '');
+    else history.pushState({nippoForm:1}, '');
+  }catch(e){}
+}
+// 画面の「← 戻る」「← 店舗一覧に戻る」：積んだ履歴があれば外してから店舗一覧へ（スマホの戻るを2回押さないと出られない、を防ぐ）
+function _toStoreList(){
+  if(history.state && history.state.nippoForm){ _skipLeaveConfirm = true; history.back(); return; }
+  renderHome();
+}
+window.addEventListener('popstate', function(){
+  if(state.screen !== 'form' && state.screen !== 'done') return;
+  if(!_skipLeaveConfirm && !confirmLeaveIfDirty()){ _pushFormHistory(); return; }
+  _skipLeaveConfirm = false;
+  renderHome();
+});
 
 function renderHome() {
   state.screen='home';
@@ -827,6 +848,7 @@ function openStore(id) {
   // 同一日・同一経路で先に送信した担当者があれば自動選択（誤タップ抑止のため送信成功時のみ記憶）
   applyStaffMemory(id);
   setHeader(state.store.name,true,false); renderForm();
+  _pushFormHistory();
   // 【2026-09-24】ここでの再取得は廃止。納品指示は配達出発前に確定しているので
   // 起動時の1回で足りる。店舗を開くたびに GAS を叩くと 13 回/配達になる。
   // 取得が終わっていない／当日分が無い／取得に失敗した、は通知バーで知らせる。
@@ -2031,7 +2053,7 @@ function renderDone(reqId) {
   var status = reqId
     ? '<div class="done-status ds-pending" id="done_status" data-req="'+eA(reqId)+'"><div class="ds-msg">確認中…</div></div>'
     : '';
-  document.getElementById('app').innerHTML='<div class="done-screen"><div class="done-icon">✅</div><div class="done-title">送信完了！</div><div class="done-sub">お疲れ様でした。<br>'+s.name+'の日報を送信しました。<br><br>'+todayStr.replace(/-/g,'/')+'　担当：'+state.staff+'</div>'+status+confirm+'<button class="home-btn" onclick="renderHome()">← 店舗一覧に戻る</button></div>';
+  document.getElementById('app').innerHTML='<div class="done-screen"><div class="done-icon">✅</div><div class="done-title">送信完了！</div><div class="done-sub">お疲れ様でした。<br>'+s.name+'の日報を送信しました。<br><br>'+todayStr.replace(/-/g,'/')+'　担当：'+state.staff+'</div>'+status+confirm+'<button class="home-btn" onclick="_toStoreList()">← 店舗一覧に戻る</button></div>';
 }
 function renderDoneConfirm(s) {
   if(!s) return '';
