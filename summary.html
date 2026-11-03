@@ -76,6 +76,9 @@ body{font-family:'Noto Sans JP',sans-serif;background:#e8e0d0;min-height:100vh;p
 .dunit{font-size:10px;color:#999;margin-left:3px}
 .tokki-txt{font-size:12px;color:#444;padding:7px 14px;font-style:italic;border-bottom:1px dotted #e0d9cc}
 .footer{text-align:center;padding:14px;font-size:11px;color:#aaa}
+/* 【2026-11-03】レシート写真ボタン（?receipt=on を開いた端末だけに表示） */
+.receipt-wrap{display:none;text-align:center;padding:10px 14px 0}
+.receipt-wrap a{display:inline-block;font-size:12px;color:#888;background:#fff;border:1px solid #ddd;border-radius:8px;padding:7px 14px;text-decoration:none}
 .topbar-l{display:flex;flex-direction:column;align-items:flex-start;gap:3px}
 .esm-stat{font-size:11px;color:rgba(255,255,255,.55);letter-spacing:.04em;line-height:1.3}
 .esm-stat.reflected{color:#2ecc71;font-weight:600}
@@ -107,6 +110,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:#e8e0d0;min-height:100vh;p
 <div id="loading"><div class="spinner"></div><br>最新を取得中…</div>
 <div id="error">データの取得に失敗しました。<br>しばらく待ってから再度お試しください。</div>
 <div id="report"></div>
+<div class="receipt-wrap" id="receiptWrap"><a id="receiptLink" href="https://drive.google.com/drive/folders/1VKi-_yp4H5ibW87JBVOIntX2fY4yNAYQ" target="_blank" rel="noopener">🧾 レシート写真を入れる</a></div>
 <div class="footer">栄ガーデン 配達日報システム</div>
 
 <script src="shared-stores.js"></script>
@@ -129,7 +133,7 @@ function lsKey(base){ return base + (IS_TEST_ENV ? '_test' : ''); }
 // 前回の数字を画面に出す手段は設けない（杉さん決定 2026-10-04）ので、端末にも残さない。以前の版が残した値を消す。
 try{ localStorage.removeItem(lsKey('summary_cache_v1')); }catch(e){}
 // 【2026-10-06】取得の記録（fetch-log.js。失敗・遅れを GAS の「取得記録」シートへ送る）。読み込めなかった端末では何もしない
-var PAGE_BUILD = 'nippo-api-run-20261009';   // 取得の記録の「画面の版」
+var PAGE_BUILD = 'receipt-btn-20261103';   // 取得の記録の「画面の版」
 if(window.FetchLog) FetchLog.init({ screen:'summary', api:API_URL, test:IS_TEST_ENV, ver:PAGE_BUILD });
 function _flAttempt(action){ return window.FetchLog ? FetchLog.attempt(action) : { req:function(){ return null; }, bad:function(){}, ok:function(){}, fail:function(){}, abandon:function(){} }; }
 var CACHED=null, currentRoute=0, userPickedDate=false;
@@ -949,5 +953,25 @@ function renderOroshi(store,secs){
 <footer style="position:fixed;bottom:0;left:0;width:100%;height:52px;background:#1c1c1e;display:flex;align-items:center;justify-content:center;z-index:100">
   <a href="https://sakae-garden.github.io/" style="color:#fff;text-decoration:none;font-size:15px;font-weight:500;font-family:'Noto Sans JP',sans-serif">🏠 ホームに戻る</a>
 </footer>
+<script>
+// 【2026-11-03】レシート写真ボタン：?receipt=on を開いた端末だけに出す（?receipt=off で消す）。従業員の端末には出ない
+(function(){
+  var KEY = lsKey('receipt_btn_v1');
+  try{
+    var q = new URLSearchParams(location.search).get('receipt');
+    if(q==='on') localStorage.setItem(KEY,'1');
+    if(q==='off') localStorage.removeItem(KEY);
+    if(localStorage.getItem(KEY)!=='1') return;
+  }catch(e){ return; }
+  var wrap=document.getElementById('receiptWrap'), a=document.getElementById('receiptLink');
+  if(!wrap||!a) return;
+  var web='https://drive.google.com/drive/folders/1VKi-_yp4H5ibW87JBVOIntX2fY4yNAYQ';
+  if(/Android/i.test(navigator.userAgent)){
+    a.href='intent://drive.google.com/drive/folders/1VKi-_yp4H5ibW87JBVOIntX2fY4yNAYQ#Intent;scheme=https;package=com.google.android.apps.docs;S.browser_fallback_url='+encodeURIComponent(web)+';end';
+    a.removeAttribute('target');
+  }
+  wrap.style.display='block';
+})();
+</script>
 </body>
 </html>
