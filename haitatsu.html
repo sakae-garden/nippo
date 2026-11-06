@@ -184,6 +184,15 @@ body.has-unsaved .toast{bottom:130px}
 .zan-mini{font-size:11px;color:var(--orange);font-weight:600;background:#fff3e0;border-radius:4px;padding:2px 6px;display:inline-block;margin-left:6px;vertical-align:middle}
 .zan-mini.none{background:#f2f2f2;color:#aaa}
 
+/* 閲覧モードの臨時品目の表（2026-11-07）。定番の表と同じ形・黄土色 */
+.xv-lbl{color:#a1791f}
+.xv-wrap{border-color:#e0c97f;background:#fffdf5}
+.xv-wrap .ya-tbl th{background:#fbf3dc;color:#8a6a1c;border-bottom-color:#e0c97f}
+.xv-wrap .ya-tbl th:first-child{color:#a1791f}
+.xv-wrap .nh-val{color:#8a6a1c}
+.xv-wrap .nh-val.zero{color:#d8cfb5}
+.xv-wrap .ya-tbl tr.total-row{background:#fbf3dc;border-top:2px solid #e0c97f}
+.xv-wrap .ya-tbl tr.total-row td:first-child{color:#8a6a1c}
 /* 全ルート総合計（編集モード最上段） */
 /* 今日の売上（エスマルシェの販売数×単価）。編集モードの最上段。エスマルシェと一致すれば最新 */
 .uriage{background:#fff;border:1px solid var(--border);border-left:4px solid var(--green);border-radius:10px;padding:10px 14px;margin-bottom:14px;box-shadow:var(--shadow)}
@@ -322,7 +331,7 @@ function _initialRouteIdx(){
 // 【2026-09-29】保存と送信の記録（GAS の「保存送信ログ」シート）に付ける端末IDと画面の版。
 // 端末IDはこの端末で一度だけ作るランダムな値（index.html と同じキーを共有＝同じ端末は同じID）。
 // 氏名・電話番号などは入れない。localStorage が使えない端末では画面を開くたびに変わる。
-var PAGE_BUILD = 'route-carry-20261029';   // 画面を変えて出すときに更新する（記録の「画面の版」）
+var PAGE_BUILD = 'extras-table-20261107';   // 画面を変えて出すときに更新する（記録の「画面の版」）
 var LS_DEVICE_ID = lsKey('device_id_v1');
 var _deviceIdMemo = '';
 function _deviceId(){
@@ -1203,29 +1212,40 @@ function _extraSectionHtml(nm){
 //   ＝ 表示対象も storeExtraPrices() ではなく extrasOf()（有効な納品指示）に戻す。
 //   在庫を見ながら数を決めるのは編集モードの仕事で、そちらは従来どおり残・売を出す。
 function _extraViewHtml(yaIds){
-  var rows = [];
+  // 【2026-11-07】店舗＋値段のカードを詰めて並べると値段が混ざって読みにくい（杉さん指摘）。
+  //   定番の表と同じ形の表にする：行＝店舗（定番の表と同じ順）、列＝この経路で数が入っている臨時の値段（安い順）、最後に合計行。
+  var nmOf = {}, prices = {}, any = false;
   yaIds.forEach(function(id){
-    var nm = STORE_DEFS[id].name;
-    var ex = extrasOf(nm);
-    // 数量が入っているものだけ。空欄（入力途中で消した等）は配達員には見せない。
-    var ps = Object.keys(ex).filter(function(p){
-      return ex[p] !== undefined && ex[p] !== null && String(ex[p]).trim() !== '';
+    var nm = STORE_DEFS[id].name, ex = extrasOf(nm), m = {};
+    Object.keys(ex).forEach(function(p){
+      var v = ex[p];
+      if(v === undefined || v === null || String(v).trim() === '') return;
+      m[p] = v; prices[p] = 1; any = true;
     });
-    if(!ps.length) return;
-    ps.sort(function(a,b){ return _priceNum(a)-_priceNum(b); });
-    rows.push({ nm: nm, ps: ps, ex: ex });
+    nmOf[id] = { nm: nm, ex: m };
   });
-  if(!rows.length) return '';
-  var h = '<div class="ya-extra-view"><span class="ya-extra-view-ttl">➕ 臨時品目</span>';
-  rows.forEach(function(r){
-    r.ps.forEach(function(p){
-      // 納品指示数は「→N個」と単位付きで出す（価格と数字が続くと桁を読み違えるため）
-      h += '<span class="ya-extra-view-chip">'
-         + eH(r.nm.replace('ヤオコー','').replace('店','')) + ' ' + eH(p)
-         + '<b>→'+eH(r.ex[p])+'個</b></span>';
+  if(!any) return '';
+  var ps = Object.keys(prices).sort(function(a,b){ return _priceNum(a)-_priceNum(b); });
+  var h = '<div class="sec-lbl xv-lbl">➕ 臨時品目 納品数</div>'
+        + '<div class="ya-tbl-wrap xv-wrap"><table class="ya-tbl"><thead><tr><th>店舗</th>';
+  ps.forEach(function(p){ h += '<th>'+eH(p)+'</th>'; });
+  h += '</tr></thead><tbody>';
+  var tot = {}; ps.forEach(function(p){ tot[p] = 0; });
+  yaIds.forEach(function(id){
+    var r = nmOf[id];
+    h += '<tr><td>'+eH(r.nm.replace('ヤオコー','').replace('店',''))+'</td>';
+    ps.forEach(function(p){
+      var raw = r.ex[p], n = parseInt(raw, 10);
+      if(raw === undefined){ h += '<td><div class="nh-val zero">–</div></td>'; return; }
+      if(!isNaN(n)) tot[p] += n;
+      h += '<td><div class="nh-val'+(n===0?' zero':'')+'">'+eH(raw)+'</div></td>';
     });
+    h += '</tr>';
   });
-  return h + '</div>';
+  h += '<tr class="total-row"><td>合計</td>';
+  ps.forEach(function(p){ h += '<td><div class="nh-val">'+tot[p]+'</div></td>'; });
+  h += '</tr></tbody></table></div>';
+  return h;
 }
 
 // 残在庫/販売数のセル表示。待機(取得中)・故障(取得失敗)・値なし(-) を見た目で区別する。
