@@ -266,6 +266,11 @@ td.itbl-cell.ctl-brown{background:#fff}
 .apply-mini{background:var(--card);color:var(--ink);border:1px solid var(--border);border-radius:var(--r-btn);padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;box-shadow:var(--shadow)}
 .apply-mini:active{opacity:.7}
 .apply-mini:disabled{opacity:.45;cursor:default}
+/* 【2026-11-09】毎日押すので大きく目立たせる（杉さん要望 10:25） */
+.itbl-actions.main{justify-content:stretch;margin:10px 0 8px}
+.apply-main{flex:1;display:block;width:100%;background:var(--ink);color:#fff;border:none;border-radius:var(--r-btn);padding:15px 12px;font-size:16px;font-weight:800;letter-spacing:.04em;cursor:pointer;font-family:inherit;box-shadow:var(--shadow)}
+.apply-main:active{opacity:.8}
+.apply-main:disabled{background:#c9c7bf;color:#fff;cursor:default;box-shadow:none}
 /* 【2026-11-09】ヤオコー系：前日在庫（読み取り専用・サマリーの残在庫） */
 .itbl th.itbl-prev{width:44px;line-height:1.2;font-size:11px}
 .itbl td.itbl-prev{background:#f8f7f2;font-size:15px;font-weight:700;color:var(--sub);font-variant-numeric:tabular-nums}
@@ -399,7 +404,7 @@ var LS_SANCHI_ISSUED    = lsKey('sanchi_issued_today_v1');
 // 【2026-09-29】保存と送信の記録（GAS の「保存送信ログ」シート）に付ける端末IDと画面の版。
 // 端末IDはこの端末で一度だけ作るランダムな値（haitatsu.html と同じキーを共有＝同じ端末は同じID）。
 // 氏名・電話番号などは入れない。localStorage が使えない端末では画面を開くたびに変わる。
-var PAGE_BUILD = 'prev-zan-20261109';   // 画面を変えて出すときに更新する（記録の「画面の版」）
+var PAGE_BUILD = 'prev-zan-btn-20261109';   // 画面を変えて出すときに更新する（記録の「画面の版」）
 var LS_DEVICE_ID = lsKey('device_id_v1');
 var _deviceIdMemo = '';
 function _deviceId(){
@@ -1314,7 +1319,7 @@ function bTable(prices, isYaokoLike, hasSosei) {
   if(isYaokoLike){
     // 【2026-11-09 杉さん】「納品数を陳列数に」をやめ、「前日在庫＋納品 → 陳列数」だけにする
     var pz = state.prevZan, ready = pz && pz.status==='ok' && pz.storeId===state.storeId;
-    h+='<div class="itbl-actions"><button class="apply-mini" onclick="applyPrevPlusNouhin()"'+(ready?'':' disabled')+'>前日在庫＋納品 → 陳列数</button></div>';
+    h+='<div class="itbl-actions main"><button class="apply-main" onclick="applyPrevPlusNouhin()"'+(ready?'':' disabled')+'>前日在庫＋納品 → 陳列数に入れる</button></div>';
     h+=_prevZanNote();
   }
   return h;
