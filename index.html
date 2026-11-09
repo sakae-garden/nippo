@@ -265,6 +265,13 @@ td.itbl-cell.ctl-brown{background:#fff}
 .itbl-actions{display:flex;justify-content:flex-end;margin:8px 0 12px}
 .apply-mini{background:var(--card);color:var(--ink);border:1px solid var(--border);border-radius:var(--r-btn);padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;box-shadow:var(--shadow)}
 .apply-mini:active{opacity:.7}
+.apply-mini:disabled{opacity:.45;cursor:default}
+/* 【2026-11-09】ヤオコー系：前日在庫（読み取り専用・サマリーの残在庫） */
+.itbl th.itbl-prev{width:44px;line-height:1.2;font-size:11px}
+.itbl td.itbl-prev{background:#f8f7f2;font-size:15px;font-weight:700;color:var(--sub);font-variant-numeric:tabular-nums}
+.prev-note{font-size:11px;color:var(--sub);margin:-6px 0 10px;text-align:right}
+.prev-note.err{color:#c62828}
+.prev-note button{margin-left:6px;padding:2px 8px;font-family:inherit;font-size:11px;font-weight:700;color:#5b7a99;background:#fff;border:1px solid #b0bec5;border-radius:10px;cursor:pointer}
 
 /* ============ 値引きタイミング説明: 統一カード＋2日目黄・3日目赤アクセントのみ残す ============ */
 .dg-wrap{padding:12px var(--pad-card)}
@@ -392,7 +399,7 @@ var LS_SANCHI_ISSUED    = lsKey('sanchi_issued_today_v1');
 // 【2026-09-29】保存と送信の記録（GAS の「保存送信ログ」シート）に付ける端末IDと画面の版。
 // 端末IDはこの端末で一度だけ作るランダムな値（haitatsu.html と同じキーを共有＝同じ端末は同じID）。
 // 氏名・電話番号などは入れない。localStorage が使えない端末では画面を開くたびに変わる。
-var PAGE_BUILD = 'route-back-20261029';   // 画面を変えて出すときに更新する（記録の「画面の版」）
+var PAGE_BUILD = 'prev-zan-20261109';   // 画面を変えて出すときに更新する（記録の「画面の版」）
 var LS_DEVICE_ID = lsKey('device_id_v1');
 var _deviceIdMemo = '';
 function _deviceId(){
@@ -848,6 +855,7 @@ function openStore(id) {
   // 同一日・同一経路で先に送信した担当者があれば自動選択（誤タップ抑止のため送信成功時のみ記憶）
   applyStaffMemory(id);
   setHeader(state.store.name,true,false); renderForm();
+  loadPrevZan(false);   // 【2026-11-09】前日在庫（ヤオコー系のみ）
   _pushFormHistory();
   // 【2026-09-24】ここでの再取得は廃止。納品指示は配達出発前に確定しているので
   // 起動時の1回で足りる。店舗を開くたびに GAS を叩くと 13 回/配達になる。
@@ -1275,10 +1283,12 @@ function bTable(prices, isYaokoLike, hasSosei) {
   };
   var h='<div class="itbl-wrap"><table class="itbl"><thead><tr>';
   h+='<th class="itbl-price">価格</th>';
+  if(isYaokoLike) h+='<th class="itbl-col itbl-prev">前日<br>在庫</th>';
   cols.forEach(function(c){ h+='<th class="itbl-col '+colCls[c]+'">'+c+'</th>'; });
   h+='</tr></thead><tbody>';
   prices.forEach(function(p){
     h+='<tr><td class="itbl-price">'+eH(p)+'</td>';
+    if(isYaokoLike) h+='<td class="itbl-cell itbl-prev">'+_prevZanCell(p, false)+'</td>';
     cols.forEach(function(c){
       var key = c+'_'+p;
       var v = state.formData[key] || '';
@@ -1291,6 +1301,7 @@ function bTable(prices, isYaokoLike, hasSosei) {
     state.extraPrices.forEach(function(p){
       var suffix='臨#'+p;
       h+='<tr class="itbl-extra"><td class="itbl-price">➕'+eH(p)+'</td>';
+      if(isYaokoLike) h+='<td class="itbl-cell itbl-prev">'+_prevZanCell(p, true)+'</td>';
       cols.forEach(function(c){
         var key = c+'_'+suffix;
         var v = state.formData[key] || '';
@@ -1301,7 +1312,10 @@ function bTable(prices, isYaokoLike, hasSosei) {
   }
   h+='</tbody></table></div>';
   if(isYaokoLike){
-    h+='<div class="itbl-actions"><button class="apply-mini" onclick="applyToChin()">→ 納品数を陳列数に一括反映</button></div>';
+    // 【2026-11-09 杉さん】「納品数を陳列数に」をやめ、「前日在庫＋納品 → 陳列数」だけにする
+    var pz = state.prevZan, ready = pz && pz.status==='ok' && pz.storeId===state.storeId;
+    h+='<div class="itbl-actions"><button class="apply-mini" onclick="applyPrevPlusNouhin()"'+(ready?'':' disabled')+'>前日在庫＋納品 → 陳列数</button></div>';
+    h+=_prevZanNote();
   }
   return h;
 }
@@ -1420,6 +1434,84 @@ function applyToChin() {
 }
 // 旧関数名も互換のため残す
 function applyToS(){ applyToChin(); }
+// ===== 【2026-11-09 杉さん】前日在庫（ヤオコー系） =====
+// 前日在庫＝前日の残在庫（サマリー・配達商品情報と同じ GAS getYaokoZaiko の zan。陳列数+蘇生庫+値引き−販売数）。
+// 前日の日付で取りに行く。表示だけで送信はしない（formData に入れない）。
+// ボタン「前日在庫＋納品 → 陳列数」で、陳列数 = 前日在庫 + 納品数 を入れる。
+var PREV_ZAN_BUILD = 'prev-zan-20261109';
+function _yesterdayStr(){
+  var d=new Date(today.getFullYear(), today.getMonth(), today.getDate()-1);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function _prevZanEntry(p, isExtra){
+  var pz=state.prevZan;
+  if(!pz || pz.status!=='ok' || pz.storeId!==state.storeId) return null;
+  var tree = isExtra ? pz.extras : pz.items;
+  var e = tree && tree[p];
+  return (e && typeof e==='object') ? e : null;
+}
+function _prevZanVal(p, isExtra){
+  var e=_prevZanEntry(p, isExtra);
+  if(!e) return 0;
+  var n=parseInt(e.zan,10); return isNaN(n)?0:n;
+}
+function _prevZanCell(p, isExtra){
+  var pz=state.prevZan;
+  if(!pz || pz.storeId!==state.storeId || pz.status==='loading') return '…';
+  if(pz.status!=='ok') return '–';
+  var e=_prevZanEntry(p, isExtra);
+  return e ? String(_prevZanVal(p, isExtra)) : '0';
+}
+function _prevZanNote(){
+  var pz=state.prevZan;
+  if(!pz || pz.storeId!==state.storeId || pz.status==='loading') return '<div class="prev-note">前日在庫を読み込み中…</div>';
+  if(pz.status!=='ok') return '<div class="prev-note err">前日在庫を読み込めませんでした<button onclick="loadPrevZan(true)">もう一度</button></div>';
+  var d=String(pz.date||'').slice(5).replace('-','/');
+  return '<div class="prev-note">前日在庫は '+eH(d)+' の残在庫（サマリーと同じ）</div>';
+}
+function loadPrevZan(force){
+  var s=state.store;
+  if(!s || !(s.type==='yaoko'||s.type==='yaoko_simple')) return;
+  var sid=state.storeId, name=s.name, ymd=_yesterdayStr();
+  if(!force && state.prevZan && state.prevZan.storeId===sid && state.prevZan.status==='ok' && state.prevZan.reqDate===ymd) return;
+  state.prevZan={storeId:sid, reqDate:ymd, status:'loading', items:{}, extras:{}, date:''};
+  if(force) renderForm();
+  var tries=0;
+  function go(){
+    tries++;
+    jsonp(API_URL+'?action=getYaokoZaiko&date='+encodeURIComponent(ymd), 'cb_prevzan', function(res){
+      if(!state.prevZan || state.prevZan.storeId!==sid) return;
+      if(res && res.success && res.items && !res._pending){
+        state.prevZan={storeId:sid, reqDate:ymd, status:'ok',
+          items:(res.items||{})[name]||{}, extras:(res.extras||{})[name]||{}, date:res.actualDate||res.date||ymd};
+      } else if(res && res._pending && tries<4){ setTimeout(go, 4000); return; }
+      else { state.prevZan.status='err'; }
+      if(state.screen==='form' && state.storeId===sid) _rerenderKeepInputs();
+    }, function(){
+      if(!state.prevZan || state.prevZan.storeId!==sid) return;
+      if(tries<3){ setTimeout(go, 3000); return; }
+      state.prevZan.status='err';
+      if(state.screen==='form' && state.storeId===sid) _rerenderKeepInputs();
+    }, 20000);
+  }
+  go();
+}
+// 入力中の値は state.formData にあるので、描き直しても消えない。スクロール位置だけ保つ。
+function _rerenderKeepInputs(){ var y=window.scrollY; renderForm(); window.scrollTo(0,y); }
+function applyPrevPlusNouhin(){
+  var pz=state.prevZan;
+  if(!pz || pz.status!=='ok' || pz.storeId!==state.storeId) return;
+  _formEdits++;
+  state.store.prices.forEach(function(p){
+    state.formData['陳列数_'+p]=String(_prevZanVal(p,false)+(parseInt(state.formData['納品_'+p],10)||0));
+  });
+  if(state.store.type==='yaoko'){
+    state.extraPrices.forEach(function(p){
+      state.formData['陳列数_臨#'+p]=String(_prevZanVal(p,true)+(parseInt(state.formData['納品_臨#'+p],10)||0));
+    });
+  }
+  _rerenderKeepInputs();
+}
 // ===== 保存済みデータの読み込み（2026-10-06 修正） =====
 // ・日報が未送信の店舗に販売数の取り込みで今日の行ができると、販売数だけの応答が success:true で返り、
 //   入力欄を全部消して空欄を描いていた。入力欄の値が1件も無い応答は「保存データなし」として扱い、
@@ -2154,7 +2246,7 @@ function renderManual() {
   state.screen='manual';setHeader('📖 入力マニュアル',true,false);_updateIraiNotice();
   var h='<div class="manual"><h2>配達日報 入力ガイド（新レイアウト）</h2>';
   h+='<div class="manual-tip">📱 「送信する」を押すまでデータは保存されません。<br>⚠️ 入力ミスは再送信で修正できます（最新データが反映されます）。<br>🔄 過去データは旧項目(S品/A品/B品/C品)から新項目(陳列数/値引き)に自動変換されます。</div>';
-  h+='<h3><span class="manual-badge mb-green">🟩 納品数</span></h3><p>その日に店舗に持っていった個数。「→ 納品数を陳列数に一括反映」ボタンで、納品数をそのまま陳列数にコピーできます。<br>💡 配達商品情報アプリで事前入力していれば自動でデフォルト値が入ります。</p>';
+  h+='<h3><span class="manual-badge mb-green">🟩 納品数</span></h3><p>その日に店舗に持っていった個数。「前日在庫＋納品 → 陳列数」ボタンで、前日在庫（前日の残在庫）と納品数の合計を陳列数に入れられます。<br>💡 配達商品情報アプリで事前入力していれば自動でデフォルト値が入ります。</p>';
   h+='<h3><span class="manual-badge mb-blue">🟦 陳列数</span></h3><p>棚に並んでいる商品の合計個数（値引き対象は含めない）。<br>従来の <b>S品(当日) + A品(1日前) + B品(2日前)</b> を合算したものと同じ。個別の切り分けは廃止し、1つの入力欄に直接入力します。</p>';
   h+='<h3><span class="manual-badge mb-purple">🟪 蘇生庫へ</span></h3><p>蘇生庫に移した個数を入力します。（ヤオコーのみ）</p>';
   h+='<h3><span class="manual-badge mb-orange">🟧 持ち帰り</span></h3><p>持ち帰った個数を入力します。</p>';
