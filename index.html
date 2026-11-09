@@ -404,7 +404,7 @@ var LS_SANCHI_ISSUED    = lsKey('sanchi_issued_today_v1');
 // 【2026-09-29】保存と送信の記録（GAS の「保存送信ログ」シート）に付ける端末IDと画面の版。
 // 端末IDはこの端末で一度だけ作るランダムな値（haitatsu.html と同じキーを共有＝同じ端末は同じID）。
 // 氏名・電話番号などは入れない。localStorage が使えない端末では画面を開くたびに変わる。
-var PAGE_BUILD = 'prev-zan-btn-20261109';   // 画面を変えて出すときに更新する（記録の「画面の版」）
+var PAGE_BUILD = 'auto-chin-20261109';   // 画面を変えて出すときに更新する（記録の「画面の版」）
 var LS_DEVICE_ID = lsKey('device_id_v1');
 var _deviceIdMemo = '';
 function _deviceId(){
@@ -850,7 +850,7 @@ function _postIssue(baseUrl,key,n){
 }
 
 function openStore(id) {
-  state.store=STORE_DEFS[id]; state.storeId=id; state.formData={}; state.staff=''; state.extraPrices=[]; state.screen='form';
+  state.store=STORE_DEFS[id]; state.storeId=id; state.formData={}; state.autoChin={}; state.staff=''; state.extraPrices=[]; state.screen='form';
   // 【2026-10-29】開いた店舗の経路を「見ている経路」にする（← 戻るで、その店舗の経路の一覧に戻るように）
   var _ri = _routeIdxById(_routeIdOfStore(id));
   if(_ri>=0 && _ri!==state.route){ state.route=_ri; _rememberRoute(_ri); renderRouteTabs(); }
@@ -1320,6 +1320,7 @@ function bTable(prices, isYaokoLike, hasSosei) {
     // 【2026-11-09 杉さん】「納品数を陳列数に」をやめ、「前日在庫＋納品 → 陳列数」だけにする
     var pz = state.prevZan, ready = pz && pz.status==='ok' && pz.storeId===state.storeId;
     h+='<div class="itbl-actions main"><button class="apply-main" onclick="applyPrevPlusNouhin()"'+(ready?'':' disabled')+'>前日在庫＋納品 → 陳列数に入れる</button></div>';
+    h+='<div class="prev-note">押した後は、蘇生庫・値引き・持ち帰りを入れると陳列数から自動で引きます</div>';
     h+=_prevZanNote();
   }
   return h;
@@ -1424,7 +1425,7 @@ function eA(s){return String(s||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;')
 function eH(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function selStaff(n){state.staff=n;_formEdits++;document.querySelectorAll('.sbtn').forEach(function(b){b.classList.toggle('sel',b.textContent===n);});}
 // 【新】直接入力方式のため updateChin は no-op（互換用に残す）
-function upd(k,v){state.formData[k]=v;_formEdits++;}
+function upd(k,v){state.formData[k]=v;_formEdits++;_autoChinOnInput(k);}
 function updateChin() { /* 陳列数は直接入力になったため自動計算なし */ }
 // 【互換】cY: 陳列数の直接入力値を返す（旧: S+A+B+C 合計）
 function cY(p){return parseInt(state.formData['陳列数_'+p])||0;}
@@ -1503,18 +1504,38 @@ function loadPrevZan(force){
 }
 // 入力中の値は state.formData にあるので、描き直しても消えない。スクロール位置だけ保つ。
 function _rerenderKeepInputs(){ var y=window.scrollY; renderForm(); window.scrollTo(0,y); }
+// 【2026-11-09 杉さん 10:27】ボタンを押した後は、蘇生庫・値引き・持ち帰り・納品を入れるたびに
+// 陳列数 = 前日在庫 + 納品 − 蘇生庫 − 値引き − 持ち帰り を自動で入れ直す（0未満は0）。
+// その行の陳列数を手で直したら、その行の自動はやめる（手の数字を優先）。
+var AUTO_CHIN_BUILD = 'auto-chin-20261109';
+var _AUTO_SRC = ['納品','蘇生庫','値引き','持ち帰り'];
+function _autoChinCalc(row){
+  var isExtra = row.indexOf('臨#')===0, p = isExtra ? row.slice(2) : row, fd=state.formData;
+  function n(c){ var v=parseInt(fd[c+'_'+row],10); return isNaN(v)?0:v; }
+  return Math.max(_prevZanVal(p,isExtra)+n('納品')-n('蘇生庫')-n('値引き')-n('持ち帰り'), 0);
+}
+function _autoChinOnInput(k){
+  if(!state.autoChin) return;
+  var i=k.indexOf('_'); if(i<0) return;
+  var col=k.slice(0,i), row=k.slice(i+1);
+  if(col==='陳列数'){ delete state.autoChin[row]; return; }
+  if(_AUTO_SRC.indexOf(col)<0 || !state.autoChin[row]) return;
+  var key='陳列数_'+row, v=String(_autoChinCalc(row));
+  state.formData[key]=v;
+  var el=document.querySelector('input[data-fkey="'+key.replace(/"/g,'\\"')+'"]');
+  if(el) el.value=v;
+}
 function applyPrevPlusNouhin(){
   var pz=state.prevZan;
   if(!pz || pz.status!=='ok' || pz.storeId!==state.storeId) return;
   _formEdits++;
-  state.store.prices.forEach(function(p){
-    state.formData['陳列数_'+p]=String(_prevZanVal(p,false)+(parseInt(state.formData['納品_'+p],10)||0));
+  state.autoChin = {};
+  var rows = state.store.prices.slice();
+  if(state.store.type==='yaoko') state.extraPrices.forEach(function(p){ rows.push('臨#'+p); });
+  rows.forEach(function(row){
+    state.autoChin[row] = true;
+    state.formData['陳列数_'+row] = String(_autoChinCalc(row));
   });
-  if(state.store.type==='yaoko'){
-    state.extraPrices.forEach(function(p){
-      state.formData['陳列数_臨#'+p]=String(_prevZanVal(p,true)+(parseInt(state.formData['納品_臨#'+p],10)||0));
-    });
-  }
   _rerenderKeepInputs();
 }
 // ===== 保存済みデータの読み込み（2026-10-06 修正） =====
@@ -1691,7 +1712,7 @@ function _applyLoadedData(res) {
     if (res.staff) state.staff = res.staff;
 
     // formData / extraPrices をリセット
-    state.formData = {};
+    state.formData = {}; state.autoChin = {};
     state.extraPrices = [];
 
     // GASのキー形式（例: "S品_¥99（個）"）→ アプリのキー形式（"S品_¥99"）に変換
