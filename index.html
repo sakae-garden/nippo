@@ -284,6 +284,9 @@ td.itbl-cell.ctl-brown{background:#fff}
   box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 4px 0 #1d5536,0 8px 14px rgba(0,0,0,.18);transition:transform .08s;text-shadow:0 1px 1px rgba(0,0,0,.25)}
 .submit-float .submit-btn:active{transform:translateY(4px);box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 0 0 #1d5536,0 2px 4px rgba(0,0,0,.15)}
 .submit-spacer{height:76px}
+.store-btn.sent .sname{color:var(--sub)}
+.sdone{flex:0 0 auto;margin-left:auto;margin-right:8px;font-size:12px;font-weight:800;color:#1f7a4a;background:#e3f3ea;border-radius:10px;padding:3px 9px;white-space:nowrap}
+.itbl th{white-space:nowrap}
 .twin-btns{display:flex;gap:8px;margin:10px 0 14px}
 .twin-btns > button{flex:1;min-width:0;margin:0;padding:10px 6px;font-size:13px;line-height:1.3}
 .load-btn.twin{border:1px solid #ddd1bd;color:#6b5e4a;background:linear-gradient(180deg,#fbf7f0 0%,#efe6d7 100%);border-radius:12px;box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 3px 0 #d6c8b0,0 5px 10px rgba(120,95,55,.12);font-weight:800}
@@ -421,7 +424,7 @@ var LS_SANCHI_ISSUED    = lsKey('sanchi_issued_today_v1');
 // 【2026-09-29】保存と送信の記録（GAS の「保存送信ログ」シート）に付ける端末IDと画面の版。
 // 端末IDはこの端末で一度だけ作るランダムな値（haitatsu.html と同じキーを共有＝同じ端末は同じID）。
 // 氏名・電話番号などは入れない。localStorage が使えない端末では画面を開くたびに変わる。
-var PAGE_BUILD = 'twin-btns-still-20261110';   // 画面を変えて出すときに更新する（記録の「画面の版」）
+var PAGE_BUILD = 'sent-mark-20261110';   // 画面を変えて出すときに更新する（記録の「画面の版」）
 var LS_DEVICE_ID = lsKey('device_id_v1');
 var _deviceIdMemo = '';
 function _deviceId(){
@@ -606,13 +609,15 @@ function renderHome() {
     // 産地シールは全社共通1在庫なので、経路タブに関係なく常に同じ位置に出す。
     + renderSanchiAlert()
     + renderManualIssue();
+  var _sent=_sentToday();
   route.groups.forEach(function(g) {
     html+='<div class="sec-lbl">'+g.label+'</div><div class="store-list">';
     g.stores.forEach(function(id) {
       // ③値段シール：男衾・川本の店舗名の上に、アラート時のみ表示（値段ごとの発行入力欄付き）
       if(id==='obusuma'||id==='kawamoto'){ html+=renderNedanAlertForStore(id); }
       var s=STORE_DEFS[id], sub=(cfg.storeContacts&&cfg.storeContacts[s.name])||'';
-      html+='<button class="store-btn '+s.cls+'" onclick="openStore(\''+id+'\')"><span class="si">'+s.icon+'</span><span class="sinfo"><span class="sname">'+s.name+'</span>'+(sub?'<br><span class="ssub">'+sub+'</span>':'')+'</span><span class="sarr">›</span></button>';
+      var sentAt=_sent[id];
+      html+='<button class="store-btn '+s.cls+(sentAt!==undefined?' sent':'')+'" onclick="openStore(\''+id+'\')"><span class="si">'+s.icon+'</span><span class="sinfo"><span class="sname">'+s.name+'</span>'+(sub?'<br><span class="ssub">'+sub+'</span>':'')+'</span>'+(sentAt!==undefined?'<span class="sdone">✓ 送信'+(sentAt?' '+eH(sentAt):'')+'</span>':'')+'<span class="sarr">›</span></button>';
     });
     html+='</div>';
   });
@@ -902,6 +907,17 @@ function _updateIraiNotice(){
 // 日次リセット: date が todayStr と異なれば全破棄
 // 経路判定: ROUTES[i].groups[j].stores に storeId が含まれる経路
 var LS_STAFF_MEMORY = lsKey('staff_by_route_v1');
+// 【2026-11-10】この端末で今日送信した店舗（店舗一覧に「✓ 送信 8:12」を出す。日付が変われば消える）
+var LS_SENT_TODAY = lsKey('nippo_sent_today_v1');
+var SENT_MARK_BUILD = 'sent-mark-20261110';
+function _sentToday(){
+  try{ var o=JSON.parse(localStorage.getItem(LS_SENT_TODAY)||'null'); if(o && o.date===todayStr && o.stores) return o.stores; }catch(e){}
+  return {};
+}
+function _markSent(storeId, at){
+  if(!storeId) return;
+  try{ var s=_sentToday(); s[storeId]=at||''; localStorage.setItem(LS_SENT_TODAY, JSON.stringify({date:todayStr, stores:s})); }catch(e){}
+}
 
 function _routeIdOfStore(storeId){
   if(typeof ROUTES==='undefined') return null;
@@ -1306,7 +1322,7 @@ function bTable(prices, isYaokoLike, hasSosei) {
   var h='<div class="itbl-wrap"><table class="itbl"><thead><tr>';
   h+='<th class="itbl-price">価格</th>';
   if(isYaokoLike) h+='<th class="itbl-col itbl-prev">前日<br>在庫</th>';
-  cols.forEach(function(c){ h+='<th class="itbl-col '+colCls[c]+'">'+c+'</th>'; });
+  cols.forEach(function(c){ h+='<th class="itbl-col '+colCls[c]+'">'+((isYaokoLike && c==='持ち帰り')?'持帰り':c)+'</th>'; });   // 5列の表では2行に折れるので見出しだけ短く
   h+='</tr></thead><tbody>';
   prices.forEach(function(p){
     h+='<tr><td class="itbl-price">'+eH(p)+'</td>';
@@ -1314,7 +1330,7 @@ function bTable(prices, isYaokoLike, hasSosei) {
     cols.forEach(function(c){
       var key = c+'_'+p;
       var v = state.formData[key] || '';
-      h+='<td class="itbl-cell '+colCls[c]+'"><input type="text" inputmode="numeric" pattern="[0-9]*" data-fkey="'+eA(key)+'" placeholder="0" value="'+eA(v)+'" oninput="upd(\''+eA(key)+'\',this.value)"></td>';
+      h+='<td class="itbl-cell '+colCls[c]+'"><input type="text" inputmode="numeric" pattern="[0-9]*" data-fkey="'+eA(key)+'" placeholder="0" value="'+eA(v)+'" onfocus="_selAll(this)" oninput="upd(\''+eA(key)+'\',this.value)"></td>';
     });
     h+='</tr>';
   });
@@ -1327,7 +1343,7 @@ function bTable(prices, isYaokoLike, hasSosei) {
       cols.forEach(function(c){
         var key = c+'_'+suffix;
         var v = state.formData[key] || '';
-        h+='<td class="itbl-cell '+colCls[c]+'"><input type="text" inputmode="numeric" pattern="[0-9]*" data-fkey="'+eA(key)+'" placeholder="0" value="'+eA(v)+'" oninput="upd(\''+eA(key)+'\',this.value)"></td>';
+        h+='<td class="itbl-cell '+colCls[c]+'"><input type="text" inputmode="numeric" pattern="[0-9]*" data-fkey="'+eA(key)+'" placeholder="0" value="'+eA(v)+'" onfocus="_selAll(this)" oninput="upd(\''+eA(key)+'\',this.value)"></td>';
       });
       h+='</tr>';
     });
@@ -1396,7 +1412,7 @@ function bExtraMgr() {
 function frow(label,key,isExtra) {
   var v=state.formData[key]||'';
   var unit=(state.store.units&&state.store.units[label])?state.store.units[label]:'個';
-  return '<div class="frow'+(isExtra?' extra':'')+'"><span class="frow-lbl">'+label+'</span><div class="frow-inp"><input type="text" inputmode="numeric" pattern="[0-9]*" data-fkey="'+eA(key)+'" placeholder="0" value="'+eA(v)+'" oninput="upd(\''+eA(key)+'\',this.value)"><span class="frow-unit">'+unit+'</span></div></div>';
+  return '<div class="frow'+(isExtra?' extra':'')+'"><span class="frow-lbl">'+label+'</span><div class="frow-inp"><input type="text" inputmode="numeric" pattern="[0-9]*" data-fkey="'+eA(key)+'" placeholder="0" value="'+eA(v)+'" onfocus="_selAll(this)" oninput="upd(\''+eA(key)+'\',this.value)"><span class="frow-unit">'+unit+'</span></div></div>';
 }
 function addExtraPrice() {
   // prompt を廃止し、inputmode="numeric" のHTML入力モーダルで金額入力（数字テンキー対応）
@@ -1446,6 +1462,8 @@ function eH(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').r
 function selStaff(n){state.staff=n;_formEdits++;document.querySelectorAll('.sbtn').forEach(function(b){b.classList.toggle('sel',b.textContent===n);});}
 // 【新】直接入力方式のため updateChin は no-op（互換用に残す）
 function upd(k,v){state.formData[k]=v;_formEdits++;_autoChinOnInput(k);}
+// 【2026-11-10】数字の欄をタップしたら中身を全部選ぶ（打てば置き換わる。消してから打たなくてよい）
+function _selAll(el){ setTimeout(function(){ try{ el.setSelectionRange(0, String(el.value).length); }catch(e){ try{ el.select(); }catch(e2){} } },0); }
 function updateChin() { /* 陳列数は直接入力になったため自動計算なし */ }
 // 【互換】cY: 陳列数の直接入力値を返す（旧: S+A+B+C 合計）
 function cY(p){return parseInt(state.formData['陳列数_'+p])||0;}
@@ -2169,6 +2187,7 @@ function _setDoneStatus(reqId, kind, msg){
 // 以降の送信・照合・再送はすべて裏（_dlSend/_dlCheck）で行う。
 function _runSubmit(pending){
   rememberStaff(state.store, pending.staff);   // 確認の成否に関わらず害はない
+  _markSent(pending.storeId, pending.at);
   _submitBusy=false; _setSubmitBtnDisabled(false); hideLoading();
   renderDone(pending.reqId);
   _dlSend(pending.reqId,'first');
