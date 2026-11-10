@@ -273,7 +273,7 @@ td.itbl-cell.ctl-brown{background:#fff}
 .apply-main:disabled{background:#c9c7bf;color:#fff;cursor:default;box-shadow:none}
 /* 【2026-11-10】小さい青枠ボタン（押し間違い防止）と、画面の下に固定の送信 */
 .apply-small{background:linear-gradient(180deg,#dcebff 0%,#9fc6f6 55%,#82b2ee 100%);color:#0a428a;border:1px solid #6fa2e4;border-radius:12px;padding:13px 10px;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 3px 0 #7aa5dc,0 6px 12px rgba(31,111,209,.22);animation:nudge 1.8s ease-in-out infinite;transition:transform .08s}
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 3px 0 #7aa5dc,0 6px 12px rgba(31,111,209,.22);transition:transform .08s}   /* 【2026-11-10 10:55】跳ねる動きはやめた */
 .apply-small:active{transform:translateY(3px);box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 0 0 #7aa5dc,0 2px 4px rgba(31,111,209,.2);animation:none}
 .apply-small.done{background:#eef4fc;color:#8aa8d0;border-color:#dfe9f6;box-shadow:none;animation:none}
 .apply-small:disabled{background:#f0f0f0;color:#bbb;border-color:#e5e5e5;box-shadow:none;animation:none;cursor:default}
@@ -421,7 +421,7 @@ var LS_SANCHI_ISSUED    = lsKey('sanchi_issued_today_v1');
 // 【2026-09-29】保存と送信の記録（GAS の「保存送信ログ」シート）に付ける端末IDと画面の版。
 // 端末IDはこの端末で一度だけ作るランダムな値（haitatsu.html と同じキーを共有＝同じ端末は同じID）。
 // 氏名・電話番号などは入れない。localStorage が使えない端末では画面を開くたびに変わる。
-var PAGE_BUILD = 'twin-btns-gloss-20261110';   // 画面を変えて出すときに更新する（記録の「画面の版」）
+var PAGE_BUILD = 'twin-btns-still-20261110';   // 画面を変えて出すときに更新する（記録の「画面の版」）
 var LS_DEVICE_ID = lsKey('device_id_v1');
 var _deviceIdMemo = '';
 function _deviceId(){
