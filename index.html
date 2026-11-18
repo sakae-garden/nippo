@@ -424,7 +424,7 @@ var LS_SANCHI_ISSUED    = lsKey('sanchi_issued_today_v1');
 // 【2026-09-29】保存と送信の記録（GAS の「保存送信ログ」シート）に付ける端末IDと画面の版。
 // 端末IDはこの端末で一度だけ作るランダムな値（haitatsu.html と同じキーを共有＝同じ端末は同じID）。
 // 氏名・電話番号などは入れない。localStorage が使えない端末では画面を開くたびに変わる。
-var PAGE_BUILD = 'sent-mark-20261110';   // 画面を変えて出すときに更新する（記録の「画面の版」）
+var PAGE_BUILD = 'prev-extras-20261119';   // 画面を変えて出すときに更新する（記録の「画面の版」）
 var LS_DEVICE_ID = lsKey('device_id_v1');
 var _deviceIdMemo = '';
 function _deviceId(){
@@ -872,7 +872,7 @@ function _postIssue(baseUrl,key,n){
 }
 
 function openStore(id) {
-  state.store=STORE_DEFS[id]; state.storeId=id; state.formData={}; state.autoChin={}; state.autoApplied=false; state.staff=''; state.extraPrices=[]; state.screen='form';
+  state.store=STORE_DEFS[id]; state.storeId=id; state.formData={}; state.autoChin={}; state.autoApplied=false; state.staff=''; state.extraPrices=[]; state.prevExtraOff={}; state.screen='form';
   // 【2026-10-29】開いた店舗の経路を「見ている経路」にする（← 戻るで、その店舗の経路の一覧に戻るように）
   var _ri = _routeIdxById(_routeIdOfStore(id));
   if(_ri>=0 && _ri!==state.route){ state.route=_ri; _rememberRoute(_ri); renderRouteTabs(); }
@@ -1454,6 +1454,8 @@ function rmExtraPrice(idx) {
     if(k.indexOf('_臨#'+p)>-1) delete state.formData[k];
   });
   state.extraPrices.splice(idx,1); _formEdits++;
+  if(!state.prevExtraOff) state.prevExtraOff={};
+  state.prevExtraOff[p]=true;
   renderForm();
 }
 function esc(s){return String(s).replace(/[^a-zA-Z0-9]/g,'_');}
@@ -1512,11 +1514,31 @@ function _prevZanNote(){
   if(pz.status!=='ok') return '<div class="prev-note err">前日在庫を読み込めませんでした<button onclick="loadPrevZan(true)">もう一度</button></div>';
   return '';
 }
+// 【2026-11-19 杉さん】前日在庫が残っている追加商品（¥360・¥698 など）は、今日の納品が無くても行を出す。
+// それまでは、行が出るのは「今日の配達商品情報にある追加商品」と「手で追加した商品」だけで、
+// 前日に残っていても行が無く、日報に入らないので在庫が消えていた。
+// ×で消した値段（state.prevExtraOff）は、その店舗を開いている間は出し直さない。
+function _addPrevZanExtras(){
+  var pz=state.prevZan, s=state.store;
+  if(!pz || pz.status!=='ok' || pz.storeId!==state.storeId || !s || s.type!=='yaoko') return false;
+  var off=state.prevExtraOff||{}, added=false;
+  Object.keys(pz.extras||{}).forEach(function(p){
+    if(!/^¥\d+$/.test(p)) return;
+    if((s.prices||[]).indexOf(p)>-1 || state.extraPrices.indexOf(p)>-1 || off[p]) return;
+    if(_prevZanVal(p,true)<=0) return;
+    state.extraPrices.push(p); added=true;
+  });
+  if(added) state.extraPrices.sort(function(a,b){return parseInt(a.replace('¥',''),10)-parseInt(b.replace('¥',''),10);});
+  return added;
+}
 function loadPrevZan(force){
   var s=state.store;
   if(!s || !(s.type==='yaoko'||s.type==='yaoko_simple')) return;
   var sid=state.storeId, name=s.name, ymd=_yesterdayStr();
-  if(!force && state.prevZan && state.prevZan.storeId===sid && state.prevZan.status==='ok' && state.prevZan.reqDate===ymd) return;
+  if(!force && state.prevZan && state.prevZan.storeId===sid && state.prevZan.status==='ok' && state.prevZan.reqDate===ymd){
+    if(_addPrevZanExtras() && state.screen==='form') _rerenderKeepInputs();
+    return;
+  }
   state.prevZan={storeId:sid, reqDate:ymd, status:'loading', items:{}, extras:{}, date:''};
   if(force) renderForm();
   var tries=0;
@@ -1527,6 +1549,7 @@ function loadPrevZan(force){
       if(res && res.success && res.items && !res._pending){
         state.prevZan={storeId:sid, reqDate:ymd, status:'ok',
           items:(res.items||{})[name]||{}, extras:(res.extras||{})[name]||{}, date:res.actualDate||res.date||ymd};
+        if(state.storeId===sid) _addPrevZanExtras();
       } else if(res && res._pending && tries<4){ setTimeout(go, 4000); return; }
       else { state.prevZan.status='err'; }
       if(state.screen==='form' && state.storeId===sid) _rerenderKeepInputs();
@@ -1801,6 +1824,7 @@ function _applyLoadedData(res) {
       });
     });
 
+    _addPrevZanExtras();   // 保存データに無くても、前日在庫が残っている追加商品の行は出す
     // フォームを再描画（読み込みボタンは _loadBtnHtml が完了の表示で描く）
     renderForm();
 }
