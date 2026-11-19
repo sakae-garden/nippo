@@ -65,6 +65,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .action-btn:active{transform:scale(.97)}.a-icon{font-size:20px}
 .summary-link-btn{display:flex;align-items:center;justify-content:center;gap:8px;background:var(--ink);color:#fff;border-radius:var(--r-btn);padding:13px 16px;text-decoration:none;font-size:15px;font-weight:700;letter-spacing:.04em;margin-bottom:10px;box-shadow:var(--shadow);transition:opacity .15s}
 .summary-link-btn:active{opacity:.8}
+/* 店舗依頼ボードへのリンク（サマリーの下。副次的な導線なので白地） */
 
 /* ============ 副次操作ボタン（保存データを読み込む） ============ */
 .load-btn{width:100%;padding:11px;background:var(--card);color:var(--ink);border:1px solid var(--border);border-radius:var(--r-btn);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:10px;letter-spacing:.02em;transition:opacity .15s;box-shadow:var(--shadow)}
@@ -157,14 +158,12 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);min-height:100vh
 .done-sub{font-size:14px;color:var(--sub);margin-bottom:32px;line-height:1.7}
 .home-btn{background:var(--ink);color:#fff;border:none;border-radius:var(--r-btn);padding:14px 32px;font-family:inherit;font-size:15px;font-weight:600;cursor:pointer}
 /* 完了画面の「記録の確認」状態表示（楽観的UI）。操作はブロックしない。
-   ds-pending=確認中 / ds-ok=確認済み / ds-ng=確認できず（警告＋再送導線） */
+   ds-pending=確認中 / ds-ok=確認済み
+   【2026-10-06】届いていないときの赤・黄の警告と再送ボタンは廃止（裏で自動で送り直す） */
 .done-status{margin:-16px auto 24px;max-width:420px;border-radius:10px;padding:10px 14px;font-size:12px;font-weight:600;line-height:1.6}
 .done-status.ds-pending{background:#f0f4f8;color:#5b7a99;border:1px dashed #b0bec5}
 .done-status.ds-ok{background:#edf7f1;color:#2d7a4f;border:1px solid #a5d6b8}
-.done-status.ds-ng{background:#fdecea;color:#b71c1c;border:1px solid #ef9a9a;text-align:left}
 .done-status .ds-msg{font-size:13px}
-.done-status .ds-sub{font-size:11px;font-weight:500;margin-top:4px;opacity:.85}
-.done-status .ds-retry{margin-top:8px;background:#b71c1c;color:#fff;border:none;border-radius:6px;padding:9px 18px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;width:100%}
 
 /* ============ 送信完了 確認テーブル: サマリー風デザイン（値引きは黒に統一） ============ */
 .done-confirm-wrap{margin:8px 0 28px;text-align:left;padding:0 4px}
@@ -266,6 +265,38 @@ td.itbl-cell.ctl-brown{background:#fff}
 .itbl-actions{display:flex;justify-content:flex-end;margin:8px 0 12px}
 .apply-mini{background:var(--card);color:var(--ink);border:1px solid var(--border);border-radius:var(--r-btn);padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;box-shadow:var(--shadow)}
 .apply-mini:active{opacity:.7}
+.apply-mini:disabled{opacity:.45;cursor:default}
+/* 【2026-11-09】毎日押すので大きく目立たせる（杉さん要望 10:25）。色は黒だと「ホームに戻る」等と同じなので青に（10:35） */
+.itbl-actions.main{justify-content:stretch;margin:10px 0 8px}
+.apply-main{flex:1;display:block;width:100%;background:#1f6fd1;color:#fff;border:none;border-radius:var(--r-btn);padding:15px 12px;font-size:16px;font-weight:800;letter-spacing:.04em;cursor:pointer;font-family:inherit;box-shadow:var(--shadow)}
+.apply-main:active{opacity:.8}
+.apply-main:disabled{background:#c9c7bf;color:#fff;cursor:default;box-shadow:none}
+/* 【2026-11-10】小さい青枠ボタン（押し間違い防止）と、画面の下に固定の送信 */
+.apply-small{background:linear-gradient(180deg,#dcebff 0%,#9fc6f6 55%,#82b2ee 100%);color:#0a428a;border:1px solid #6fa2e4;border-radius:12px;padding:13px 10px;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 3px 0 #7aa5dc,0 6px 12px rgba(31,111,209,.22);transition:transform .08s}   /* 【2026-11-10 10:55】跳ねる動きはやめた */
+.apply-small:active{transform:translateY(3px);box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 0 0 #7aa5dc,0 2px 4px rgba(31,111,209,.2);animation:none}
+.apply-small.done{background:#eef4fc;color:#8aa8d0;border-color:#dfe9f6;box-shadow:none;animation:none}
+.apply-small:disabled{background:#f0f0f0;color:#bbb;border-color:#e5e5e5;box-shadow:none;animation:none;cursor:default}
+@keyframes nudge{0%,70%,100%{transform:translateY(0)}80%{transform:translateY(-4px)}90%{transform:translateY(0)}95%{transform:translateY(-2px)}}
+@media (prefers-reduced-motion:reduce){.apply-small{animation:none}}
+.submit-float{position:fixed;left:50%;transform:translateX(-50%);bottom:52px;width:100%;max-width:480px;padding:8px 12px;background:rgba(245,243,238,.96);border-top:1px solid var(--border);z-index:150}
+.submit-float .submit-btn{margin-top:0;background:linear-gradient(180deg,#4fae79 0%,#2f8155 60%,#276f48 100%);border:1px solid #23663f;border-radius:14px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 4px 0 #1d5536,0 8px 14px rgba(0,0,0,.18);transition:transform .08s;text-shadow:0 1px 1px rgba(0,0,0,.25)}
+.submit-float .submit-btn:active{transform:translateY(4px);box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 0 0 #1d5536,0 2px 4px rgba(0,0,0,.15)}
+.submit-spacer{height:76px}
+.store-btn.sent .sname{color:var(--sub)}
+.sdone{flex:0 0 auto;margin-left:auto;margin-right:8px;font-size:12px;font-weight:800;color:#1f7a4a;background:#e3f3ea;border-radius:10px;padding:3px 9px;white-space:nowrap}
+.itbl th{white-space:nowrap}
+.twin-btns{display:flex;gap:8px;margin:10px 0 14px}
+.twin-btns > button{flex:1;min-width:0;margin:0;padding:10px 6px;font-size:13px;line-height:1.3}
+.load-btn.twin{border:1px solid #ddd1bd;color:#6b5e4a;background:linear-gradient(180deg,#fbf7f0 0%,#efe6d7 100%);border-radius:12px;box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 3px 0 #d6c8b0,0 5px 10px rgba(120,95,55,.12);font-weight:800}
+.load-btn.twin:active{transform:translateY(3px);box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 0 0 #d6c8b0}
+/* 【2026-11-09】ヤオコー系：前日在庫（読み取り専用・サマリーの残在庫） */
+.itbl th.itbl-prev{width:44px;line-height:1.2;font-size:11px}
+.itbl td.itbl-prev{background:#f8f7f2;font-size:15px;font-weight:700;color:var(--sub);font-variant-numeric:tabular-nums}
+.prev-note{font-size:11px;color:var(--sub);margin:-6px 0 10px;text-align:right}
+.prev-note.err{color:#c62828}
+.prev-note button{margin-left:6px;padding:2px 8px;font-family:inherit;font-size:11px;font-weight:700;color:#5b7a99;background:#fff;border:1px solid #b0bec5;border-radius:10px;cursor:pointer}
 
 /* ============ 値引きタイミング説明: 統一カード＋2日目黄・3日目赤アクセントのみ残す ============ */
 .dg-wrap{padding:12px var(--pad-card)}
@@ -285,37 +316,27 @@ td.itbl-cell.ctl-brown{background:#fff}
 .dg-tl-day{font-size:10px;font-weight:700;color:var(--sub)}
 .dg-tl-txt{font-size:10px;color:var(--ink);text-align:center;line-height:1.3}
 
-/* ============ ラベル在庫アラート（②産地シール / ③値段シール） ============ */
-.lbl-alert{background:#fff8e6;border:1px solid #f0c14b;border-left:4px solid #e6a817;
-  border-radius:var(--r);padding:12px 14px;margin-bottom:10px;box-shadow:var(--shadow)}
-.lbl-alert-ttl{font-size:13px;font-weight:700;color:#8a5a00;letter-spacing:.02em;display:flex;align-items:center;gap:6px}
-.lbl-alert-msg{font-size:12px;color:#6b5300;line-height:1.6;margin-top:5px}
-.lbl-alert-msg b{color:#c0392b;font-weight:700}
-.lbl-issue-wrap{margin-top:10px;display:flex;flex-direction:column;gap:8px}
-.lbl-issue-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.lbl-issue-row .lbl-issue-lbl{font-size:12px;font-weight:600;color:var(--ink);min-width:96px}
-.lbl-issue-row .lbl-issue-sub{font-size:11px;color:var(--sub)}
-.lbl-issue-row input[inputmode="numeric"]{width:72px;height:40px;border:1px solid var(--border);
-  border-radius:var(--r-btn);text-align:center;font-size:17px;font-weight:600;font-family:inherit;color:var(--ink);background:#fff}
-.lbl-issue-row input:focus{outline:none;border-color:var(--green)}
-.lbl-issue-btn{background:var(--green);color:#fff;border:none;border-radius:var(--r-btn);
-  padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;transition:opacity .15s}
-.lbl-issue-btn:active{opacity:.7}
-.lbl-issue-btn:disabled{opacity:.45;cursor:default}
-.lbl-issue-done{font-size:11px;color:var(--green);font-weight:700}
-.lbl-alert-note{font-size:10px;color:#a08000;margin-top:8px;font-style:italic}
-/* 任意発行（産地シール）: 常時表示・既定は閉じた状態 */
-.lbl-manual{background:var(--card);border:1px solid var(--border);border-radius:var(--r-btn);
-  box-shadow:var(--shadow);padding:10px 12px;margin-bottom:10px}
-.lbl-manual-hdr{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
-.lbl-manual-btn{background:none;border:none;padding:0;cursor:pointer;font-family:inherit;
-  font-size:14px;font-weight:600;color:var(--ink);display:flex;align-items:center;gap:6px}
-.lbl-manual-btn:active{opacity:.6}
-.lbl-manual-caret{display:inline-block;width:20px;text-align:center;font-weight:700;color:var(--green)}
-.lbl-manual-stock{font-size:12px;color:var(--sub);white-space:nowrap}
-.lbl-manual-stock b{font-size:14px;color:var(--ink);font-weight:700}
-.lbl-manual-body{margin-top:10px;border-top:1px solid var(--border);padding-top:10px}
-.lbl-manual-note{font-size:10px;color:var(--sub);margin-top:8px;font-style:italic}
+/* ============ 産地シール（回の箱とふだんの1行。2026-11-19 杉さんが見て決めた見本のまま。動きは付けない） ============ */
+#sanchiSlot{margin-bottom:12px}
+.sl-al{background:#e6007e;border:4px solid #111;border-radius:16px;padding:14px 16px;color:#fff;box-shadow:0 5px 0 #111;background-image:repeating-linear-gradient(135deg,rgba(0,0,0,.10) 0 14px,transparent 14px 28px)}
+.sl-a1{font-size:15px;font-weight:800;color:#f5ff00}
+.sl-a2{font-size:17px;font-weight:700;margin-top:4px}
+.sl-a3{font-size:20px;font-weight:700;margin-top:2px;display:flex;align-items:baseline;gap:8px}.sl-a3 b{font-size:58px;line-height:1.05;color:#f5ff00;font-weight:900;letter-spacing:-1px}
+.sl-bar{height:14px;background:#111;border-radius:8px;overflow:hidden;margin-top:8px}.sl-bar i{display:block;height:100%;background:#f5ff00}
+.sl-bn{font-size:12px;text-align:right;margin-top:3px;font-weight:700}
+.sl-row{display:flex;gap:8px;align-items:center;margin-top:8px}
+.sl-inp{flex:1;min-width:0;background:#fff;border:3px solid #111;border-radius:12px;height:50px;box-sizing:border-box;padding:0 12px;font-family:inherit;font-size:24px;font-weight:800;color:#111;text-align:right}
+.sl-inp:focus{outline:none}
+.sl-un{font-weight:800;font-size:16px}
+.sl-sv{background:#12833f;color:#fff;font-weight:800;font-size:17px;border-radius:12px;padding:0 26px;height:54px;line-height:48px;border:3px solid #111;font-family:inherit;cursor:pointer}
+.sl-sv:disabled{opacity:.5;cursor:default}
+.sl-td{margin-top:8px;font-size:13px;font-weight:700;color:#f5ff00}
+.sl-ok{background:#fff;border:1px solid #e3ded2;border-radius:12px;padding:12px 14px;font-size:13px;display:flex;align-items:center;cursor:pointer}.sl-ok b{font-size:17px;margin:0 3px}.sl-ok span{margin-left:auto;color:#12833f;font-weight:700}
+.sl-panel{background:#fff;border:1px solid #e3ded2;border-top:none;border-radius:0 0 12px 12px;padding:10px 14px 14px}
+.sl-panel .sl-un{color:#111}
+.sl-td2{margin-top:8px;font-size:13px;font-weight:700;color:#12833f}
+.sl-tana-btn{margin-top:12px;background:none;border:none;padding:4px 0;font-family:inherit;font-size:13px;font-weight:700;color:#5b6b7a;text-decoration:underline;cursor:pointer}
+.sl-tana-ttl{margin-top:14px;font-size:13px;font-weight:800;color:#111}
 
 /* ============ レスポンシブ ============ */
 @media (max-width: 360px){
@@ -356,10 +377,14 @@ td.itbl-cell.ctl-brown{background:#fff}
 </div>
 <div id="app"></div>
 <script src="shared-stores.js"></script>
+<script src="irai-notice.js"></script>
+<script src="fetch-log.js"></script>
+<script src="nippo-api.js"></script>
+<script src="unsent-notice.js"></script>
 <script>
 var API_URL = 'https://script.google.com/macros/s/AKfycbwe8_3Dp1U7an5wPVt8T2c2AXT6ltwM-T-bquI5IdGk4-uNCHtvd1Ifhn4MRv1-Oegp/exec';
-// ラベル在庫アラート スナップショット（夜の再計算結果。日中は固定表示）。
-// テスト環境では _propagate_test_env.py が /test/ 版に差し替える。
+// 【2026-11-19】画面はもうこのファイルを読まない（産地シールは GAS getSanchiRound を毎回読む）。
+// テスト環境の判定（IS_TEST_ENV）にだけ使う。テスト環境では _propagate_test_env.py が /test/ 版に差し替える。
 var LABEL_SNAPSHOT_URL = 'https://storage.googleapis.com/sakae-garden-snapshots/test/label_alert.json';
 // STORE_DEFS / ROUTES は shared-stores.js でグローバル定義（window.STORE_DEFS / window.ROUTES）
 
@@ -370,21 +395,78 @@ var LABEL_SNAPSHOT_URL = 'https://storage.googleapis.com/sakae-garden-snapshots/
 // 本番のキー名は従来のまま（サフィックス無し）なので、既存ユーザーの値は失われない。
 var IS_TEST_ENV = String(LABEL_SNAPSHOT_URL).indexOf('/test/') > -1;
 function lsKey(base){ return base + (IS_TEST_ENV ? '_test' : ''); }
+// 【2026-10-29】見ていた経路（小川・籠原・坂戸）を、配達商品情報と日報入力の間で引き継ぐ（杉さん要望）。
+// 優先順：URLの ?route=経路ID → この端末で最後に見た経路 → 一番左。経路はIDで覚える（並び・ラベルが変わってもずれない）。
+var LS_LAST_ROUTE = lsKey('last_route_v1');
+function _routeIdxById(id){ if(typeof ROUTES==='undefined' || !id) return -1; for(var i=0;i<ROUTES.length;i++){ if(ROUTES[i].id===id) return i; } return -1; }
+function _rememberRoute(idx){ try{ if(typeof ROUTES!=='undefined' && ROUTES[idx]) localStorage.setItem(LS_LAST_ROUTE, ROUTES[idx].id); }catch(e){} }
+// ブラウザの「戻る」でこの画面が前の状態のまま復元されたとき（bfcache）も、最後に見た経路に合わせる
+window.addEventListener('pageshow', function(e){
+  if(!e.persisted) return;
+  var i=-1; try{ i=_routeIdxById(localStorage.getItem(LS_LAST_ROUTE)||''); }catch(err){}
+  if(i>=0 && i!==state.route && state.screen==='home') switchRoute(i);
+});
+function _initialRouteIdx(){
+  var id='', i=-1;
+  try{ id = new URLSearchParams(location.search).get('route') || ''; }catch(e){}
+  i = _routeIdxById(id);
+  if(i>=0){
+    _rememberRoute(i);
+    // 引き継いだら URL から外す（このあとタブを切り替えて再読み込みしたときに、引き継ぎ元の経路へ戻らないように）
+    try{ var u=new URL(location.href); u.searchParams.delete('route'); history.replaceState(history.state,'',u.pathname+u.search+u.hash); }catch(e){}
+    return i;
+  }
+  try{ id = localStorage.getItem(LS_LAST_ROUTE) || ''; }catch(e){}
+  i = _routeIdxById(id);
+  return i>=0 ? i : 0;
+}
 var LS_CONFIG           = lsKey('nippo_config');
-var LS_HAITATSU_LATEST  = lsKey('haitatsu_latest');
-var LS_SANCHI_ISSUED    = lsKey('sanchi_issued_today_v1');
+// 【2026-10-04 廃止】納品指示を端末に残していたキー（haitatsu_latest・取得日・対象日・受け取り時刻）。
+// 前回の数字を画面に出す手段は設けない（杉さん決定 2026-10-04）ので、端末にも残さない。
+// 起動時に、以前の版が残した値を消す（haitatsu.html も同じキーを消す）。
+['haitatsu_latest','haitatsu_fetched_day_v1','haitatsu_target_day_v1','haitatsu_fetched_at_v1'].forEach(function(k){
+  try{ localStorage.removeItem(lsKey(k)); }catch(e){}
+});
+// 【2026-09-29】保存と送信の記録（GAS の「保存送信ログ」シート）に付ける端末IDと画面の版。
+// 端末IDはこの端末で一度だけ作るランダムな値（haitatsu.html と同じキーを共有＝同じ端末は同じID）。
+// 氏名・電話番号などは入れない。localStorage が使えない端末では画面を開くたびに変わる。
+var PAGE_BUILD = 'sanchi-round-20261119';   // 画面を変えて出すときに更新する（記録の「画面の版」）
+var LS_DEVICE_ID = lsKey('device_id_v1');
+var _deviceIdMemo = '';
+function _deviceId(){
+  if(_deviceIdMemo) return _deviceIdMemo;
+  var id='';
+  try{ id=localStorage.getItem(LS_DEVICE_ID)||''; }catch(e){}
+  if(!/^[0-9a-z]{6,20}$/.test(id)){
+    id=Math.random().toString(36).slice(2,8)+Date.now().toString(36).slice(-4);
+    try{ localStorage.setItem(LS_DEVICE_ID,id); }catch(e){}
+  }
+  return (_deviceIdMemo=id);
+}
+function _auditQuery(extra){
+  var q='&dev='+encodeURIComponent(_deviceId())+'&ver='+encodeURIComponent(PAGE_BUILD);
+  Object.keys(extra||{}).forEach(function(k){ q+='&'+k+'='+encodeURIComponent(String(extra[k])); });
+  return q;
+}
+// 【2026-10-06】取得の記録（fetch-log.js。失敗・遅れを GAS の「取得記録」シートへ送る）。読み込めなかった端末では何もしない
+if(window.FetchLog) FetchLog.init({ screen:'nippo', api:API_URL, test:IS_TEST_ENV, ver:PAGE_BUILD });
+function _flAttempt(action){ return window.FetchLog ? FetchLog.attempt(action) : { req:function(){ return null; }, bad:function(){}, ok:function(){}, fail:function(){}, abandon:function(){} }; }
 
-var state = { screen:'home', route:0, store:null, formData:{}, staff:'', config:null, extraPrices:[], labelAlert:null, labelIssued:{}, labelIssuedTotal:null, manualIssueOpen:false, sanchiIssuedToday:0 };
+var state = { screen:'home', route:_initialRouteIdx(), store:null, formData:{}, staff:'', config:null, extraPrices:[], sanchi:null, sanchiPanel:false, sanchiTana:false };
 var today = new Date();
 var DAYS = ['日','月','火','水','木','金','土'];
 var todayStr = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
-// 臨時品目の有効期間（haitatsu.html の _extrasAlive と同一規則）。
-// 配達商品情報は前夜に翌日分を入力するので、入力日D の指示は D と D+1 に有効。
-var yesterdayStr = (function(){
-  var d = new Date(today.getFullYear(), today.getMonth(), today.getDate()-1);
-  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-})();
-function _extrasAlive(d){ return !!d && String(d) >= yesterdayStr; }
+// 臨時品目の有効判定（haitatsu.html の _extraUntil / _extraAliveOn と同じ中身）。
+// 【2026-09-29】「対象日・最終編集日が当日か前日なら有効」（2日で失効）をやめ、
+// 品目ごとの終了日 entry.extrasUntil = {'¥360':'', '¥178':'2026-09-30'} で判定する。
+// 終了日が無い（''＝消すまで・旧データ）か、終了日が当日以降の品目だけが有効。
+var EXTRAS_UNTIL_BUILD = 'extras-until-20260929';   // 本番反映の確認用マーカー
+function _extraUntil(e, price){
+  var u = e && e.extrasUntil;
+  var v = String((u && typeof u === 'object' && u[price]) || '').slice(0,10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '';
+}
+function _extraAliveOn(e, price, day){ var u = _extraUntil(e, price); return !u || u >= day; }
 document.getElementById('hDate').textContent = today.getFullYear()+'年'+(today.getMonth()+1)+'月'+today.getDate()+'日（'+DAYS[today.getDay()]+'）';
 
 function loadConfig(cb) {
@@ -413,9 +495,14 @@ function getDefaultConfig() {
 // コールバックを残して拾う。短いタイムアウトで素早く確認導線に入りつつ、実際には
 // 成立していた送信を捨てずに済む。
 // settled ラッチで onOk/onErr の二重呼び出しを防ぐ。timeoutMs は呼び出し側で指定可（既定30秒）。
+// opts.flog: 取得の記録（fetch-log.js の A.req()）。打ち切り・エラー・到着を伝えるだけで、動きは変えない。
 var cbIdx=0;
+// 読み取りは nippo-api.js の切り替え表で GAS／Cloud Run を選ぶ。
+// nippo-api.js を読み込めなかったときは今の jsonp をそのまま使う
+function apiJsonp(url,base,onOk,onErr,timeoutMs,opts){ if(window.NippoApi) return NippoApi.jsonp(url,base,onOk,onErr,timeoutMs,opts); return jsonp(url,base,onOk,onErr,timeoutMs,opts); }
 function jsonp(url,base,onOk,onErr,timeoutMs,opts) {
   opts = opts || {};
+  var fl = opts.flog || null;
   var n=base+'_'+(cbIdx++), s=document.createElement('script');
   var settled=false, disposed=false, t=null, lt=null;
   function dispose(){
@@ -426,24 +513,26 @@ function jsonp(url,base,onOk,onErr,timeoutMs,opts) {
   }
   window[n]=function(d){
     clearTimeout(t);
+    if(fl) fl.arrive(settled);
     if(!settled){ settled=true; dispose(); onOk(d); return; }
     dispose();
     if(opts.onLate){ try{ opts.onLate(d); }catch(e){} }
   };
-  function failNow(){
+  function failNow(kind){
     if(settled) return;
     settled=true;
+    if(fl) fl.fail(kind);
     if(opts.onLate && opts.lateGraceMs>0){ lt=setTimeout(dispose, opts.lateGraceMs); }
     else { dispose(); }
     if(onErr) onErr();
   }
-  t=setTimeout(failNow, timeoutMs||30000);
+  t=setTimeout(function(){ failNow('timeout'); }, timeoutMs||30000);
   s.onload=function(){
     // script は実行完了したが window[n] が呼ばれていなければ失敗扱い（HTML中間ページ等）
     if(settled) return;
-    setTimeout(function(){ if(!settled) failNow(); },200);
+    setTimeout(function(){ if(!settled) failNow('html'); },200);
   };
-  s.onerror=function(){ failNow(); };
+  s.onerror=function(){ failNow('error'); };
   s.src=url+(url.indexOf('?')>-1?'&':'?')+'callback='+n;
   document.body.appendChild(s);
 }
@@ -473,7 +562,7 @@ function renderRouteTabs(){
   el.innerHTML=h;
 }
 function switchRoute(idx) {
-  state.route=idx;
+  state.route=idx; _rememberRoute(idx);
   for(var i=0;i<ROUTES.length;i++){ var t=document.getElementById('tab'+i); if(t) t.classList.toggle('active',i===idx); }
   renderHome();
 }
@@ -492,7 +581,28 @@ function confirmLeaveIfDirty(){
   if(!hasUnsavedInput()) return true;
   return confirm('送信していない入力があります。\n送信せずに戻りますか？');
 }
-function goBack(){ if(confirmLeaveIfDirty()) renderHome(); }
+function goBack(){ if(confirmLeaveIfDirty()) _toStoreList(); }
+// 【2026-10-29】店舗の入力画面（と送信完了画面）でスマホの「戻る」を押したら、前のページ（配達商品情報など）ではなく
+// その経路の店舗一覧に戻す（杉さん要望：戻る＝別の店舗を入力したい、の意味）。
+// 店舗を開くときに履歴を1つ積み、スマホの「戻る」でそれが外れたら店舗一覧を出す。
+var _skipLeaveConfirm = false;
+function _pushFormHistory(){
+  try{
+    if(history.state && history.state.nippoForm) history.replaceState({nippoForm:1}, '');
+    else history.pushState({nippoForm:1}, '');
+  }catch(e){}
+}
+// 画面の「← 戻る」「← 店舗一覧に戻る」：積んだ履歴があれば外してから店舗一覧へ（スマホの戻るを2回押さないと出られない、を防ぐ）
+function _toStoreList(){
+  if(history.state && history.state.nippoForm){ _skipLeaveConfirm = true; history.back(); return; }
+  renderHome();
+}
+window.addEventListener('popstate', function(){
+  if(state.screen !== 'form' && state.screen !== 'done') return;
+  if(!_skipLeaveConfirm && !confirmLeaveIfDirty()){ _pushFormHistory(); return; }
+  _skipLeaveConfirm = false;
+  renderHome();
+});
 
 function renderHome() {
   state.screen='home';
@@ -500,194 +610,148 @@ function renderHome() {
   var cfg=state.config||getDefaultConfig(), route=ROUTES[state.route];
   var html='<div class="screen">'
     + '<a href="summary.html" class="summary-link-btn">📊 サマリーを見る</a>'
-    + '<div class="action-row"><button class="action-btn" onclick="renderManual()"><span class="a-icon">📖</span>マニュアル</button><button class="action-btn" onclick="renderSettings()"><span class="a-icon">⚙️</span>設定</button></div>'
-    // 並び順: ②産地シールのアラート（通知＋全社一括の発行指示枚数）→ 任意発行パネル。
-    // 産地シールは全社共通1在庫なので、経路タブに関係なく常に同じ位置に出す。
-    + renderSanchiAlert()
-    + renderManualIssue();
+    // 産地シール：回の箱（今の経路が届いていないとき）か、在庫の1行。サマリーのボタンの下
+    + renderSanchiSlot()
+    + '<div class="action-row"><button class="action-btn" onclick="renderManual()"><span class="a-icon">📖</span>マニュアル</button><button class="action-btn" onclick="renderSettings()"><span class="a-icon">⚙️</span>設定</button></div>';
+  var _sent=_sentToday();
   route.groups.forEach(function(g) {
     html+='<div class="sec-lbl">'+g.label+'</div><div class="store-list">';
     g.stores.forEach(function(id) {
-      // ③値段シール：男衾・川本の店舗名の上に、アラート時のみ表示（値段ごとの発行入力欄付き）
-      if(id==='obusuma'||id==='kawamoto'){ html+=renderNedanAlertForStore(id); }
+      // 【2026-11-19 杉さん 09:32】直売所（男衾・川本）の値段シールは機能ごとやめた（表示も計算も無い）。
       var s=STORE_DEFS[id], sub=(cfg.storeContacts&&cfg.storeContacts[s.name])||'';
-      html+='<button class="store-btn '+s.cls+'" onclick="openStore(\''+id+'\')"><span class="si">'+s.icon+'</span><span class="sinfo"><span class="sname">'+s.name+'</span>'+(sub?'<br><span class="ssub">'+sub+'</span>':'')+'</span><span class="sarr">›</span></button>';
+      var sentAt=_sent[id];
+      html+='<button class="store-btn '+s.cls+(sentAt!==undefined?' sent':'')+'" onclick="openStore(\''+id+'\')"><span class="si">'+s.icon+'</span><span class="sinfo"><span class="sname">'+s.name+'</span>'+(sub?'<br><span class="ssub">'+sub+'</span>':'')+'</span>'+(sentAt!==undefined?'<span class="sdone">✓ 送信'+(sentAt?' '+eH(sentAt):'')+'</span>':'')+'<span class="sarr">›</span></button>';
     });
     html+='</div>';
   });
   html+='</div>';
   document.getElementById('app').innerHTML=html;
-  // 未送信の日報が端末に残っていれば、店舗一覧の先頭に再送導線を出す
-  _updateSubmitPendingBanner();
+  // 届いていない日報の一行（何度送っても届かないときだけ。2026-10-06）
+  _updateUnsentLine();
+  // 納品指示が取れていない／当日分が無いときの警告バー
+  _updateHaitatsuNotice();
+  _updateIraiNotice();
 }
 
-// ============ ラベル在庫アラート（②産地シール / ③値段シール） ============
-// 夜生成のスナップショット(label_alert.json)を読み、店舗選択画面に表示する。
-// 日中の発行入力は label_stock に追記されるが、スナップショットは夜まで再生成
-// されないため、日中はアラートが固定表示される（その場では消えない）。
-var _labelAlertFetched=false;
-function fetchLabelAlert(){
-  fetch(LABEL_SNAPSHOT_URL+'?_='+Date.now(),{cache:'no-store'})
-    .then(function(r){ if(!r.ok) throw new Error('http '+r.status); return r.json(); })
-    .then(function(j){
-      if(j && (j.sanchi||j.nedan)){
-        state.labelAlert=j; _labelAlertFetched=true;
-        if(state.screen==='home') renderHome();
-      }
-    }).catch(function(){ /* スナップショット無し/取得失敗時はアラート非表示（機能は非破壊） */ });
+// ============ 産地シール（ヤオコー ¥99 用）の回と在庫（2026-11-19 作り替え） ============
+// 回・期限・経路ごとの進み・今の在庫はサーバ（GAS getSanchiRound）が持ち、画面は毎回それを読む
+// （端末の中には覚えない＝どの端末でも同じ表示）。
+// 回が開いていて、今見ている経路が届いていないとき → 目立つ箱（残り枚数・期限・保存）。
+// それ以外 → 「産地シール 在庫 ○枚　＋ 発行を記録」の1行。
+var SANCHI_BUILD = 'sanchi-round-20261119';
+var _sanchiState = 'loading';   // 'loading' / 'ok' / 'error'
+var _sanchiSeq = 0;
+function fetchSanchiRound(cb){
+  var seq = ++_sanchiSeq;
+  apiJsonp(API_URL+'?action=getSanchiRound&_cb='+Date.now(),'cb_sanchi_round',function(res){
+    if(seq!==_sanchiSeq) return;   // 後から出した読み直しを優先する
+    if(res&&res.success){ state.sanchi=res; _sanchiState='ok'; } else _sanchiState='error';
+    if(cb) cb();
+    if(state.screen==='home') _renderSanchiSlot();
+  },function(){
+    if(seq!==_sanchiSeq) return;
+    _sanchiState='error';
+    if(cb) cb();
+    if(state.screen==='home') _renderSanchiSlot();
+  },30000);
 }
-// ===== 産地シール：当日の任意発行累計（localStorage 永続） =====
-// 即時非表示の判定に使う。ページを開き直しても当日中は維持し、リロードで
-// アラートが復活する事故を防ぐ。日付が変われば自動的に 0 から数え直す
-// （翌朝の真値は夜間再計算＝スナップショット側で決まる）。
-// キーは環境別（LS_SANCHI_ISSUED）。テストでの発行が本番のアラートを消す事故を防ぐ。
-function _loadSanchiIssuedToday(){
-  try{
-    var r=JSON.parse(localStorage.getItem(LS_SANCHI_ISSUED)||'null');
-    if(r && r.date===todayStr) return parseInt(r.count,10)||0;
-  }catch(e){}
-  return 0;
+function _fmtNum(n){ return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+function _fmtMdW(ds){
+  var p=String(ds||'').split('-'); if(p.length<3) return '';
+  var d=new Date(+p[0], +p[1]-1, +p[2]);
+  return (+p[1])+'/'+(+p[2])+'（'+'日月火水木金土'.charAt(d.getDay())+'）';
 }
-function _saveSanchiIssuedToday(n){
-  try{ localStorage.setItem(LS_SANCHI_ISSUED, JSON.stringify({date:todayStr, count:n})); }catch(e){}
+function _sanchiRouteId(){ var r=ROUTES[state.route]; return r?r.id:''; }
+// 店舗一覧の上に置く入れ物。中身だけ差し替える（入力中の店舗一覧を描き直さない）
+function renderSanchiSlot(){ return '<div id="sanchiSlot">'+_sanchiHtml()+'</div>'; }
+function _renderSanchiSlot(){
+  var el=document.getElementById('sanchiSlot'); if(!el) return;
+  // 入力中の数字は描き直しで消さない
+  var keep={}; ['slInpRound','slInpIssue','slInpTana'].forEach(function(id){ var i=document.getElementById(id); if(i) keep[id]=i.value; });
+  el.innerHTML=_sanchiHtml();
+  Object.keys(keep).forEach(function(id){ var i=document.getElementById(id); if(i) i.value=keep[id]; });
 }
-
-// ============ 産地シールの任意発行（アラート非表示時も常時使える） ============
-// 現時点在庫 ＝ ライブの累計発行数（GAS getLabelIssuedTotal）− 前夜計算の累計消費
-//              （スナップショット sanchi.delivered）。
-// ＝「発行は最新・消費は前夜時点」。消費(−側)は朝4:45の再計算まで反映されない目安値。
-// 取得失敗時は前夜計算の stock をそのまま表示（非破壊）。
-function fetchLabelIssuedTotal(){
-  jsonp(API_URL+'?action=getLabelIssuedTotal','cb_issued_total',function(res){
-    if(res&&res.success&&typeof res.sanchi==='number'){
-      state.labelIssuedTotal=res.sanchi;
-      if(state.screen==='home') renderHome();
-    }
-  },function(){ /* 失敗時は前夜計算の在庫にフォールバック */ });
-}
-// 表示用の「現時点在庫」。スナップショット未取得なら null（'—' 表示）。
-function currentSanchiStock(){
-  var la=state.labelAlert;
-  if(!la||!la.sanchi) return null;
-  var s=la.sanchi;
-  if(state.labelIssuedTotal!=null && typeof s.delivered==='number') return state.labelIssuedTotal-s.delivered;
-  return (typeof s.stock==='number')?s.stock:null;
-}
-function renderManualIssue(){
-  var stock=currentSanchiStock();
-  var open=!!state.manualIssueOpen;
-  var h='<div class="lbl-manual"><div class="lbl-manual-hdr">';
-  h+='<button class="lbl-manual-btn" onclick="toggleManualIssue()">'
-    +'<span class="lbl-manual-caret" id="lblManualCaret">'+(open?'−':'＋')+'</span>ラベルを発行する</button>';
-  h+='<span class="lbl-manual-stock">現時点在庫：<b>'+(stock==null?'—':stock)+'</b>枚</span>';
-  h+='</div>';
-  h+='<div class="lbl-manual-body" id="lblManualBody"'+(open?'':' style="display:none"')+'>';
-  h+='<div class="lbl-issue-wrap"><div class="lbl-issue-row">';
-  h+='<span class="lbl-issue-lbl">発行枚数</span>';
-  h+='<input type="text" inputmode="numeric" pattern="[0-9]*" id="manualInpSanchi" placeholder="発行数">';
-  h+='<button class="lbl-issue-btn" onclick="issueSanchiManual()">発行</button>';
-  if(state.sanchiIssuedToday>0) h+='<span class="lbl-issue-done">本日'+state.sanchiIssuedToday+'枚発行</span>';
-  h+='</div></div>';
-  h+='<div class="lbl-manual-note">※ ヤオコー産地シールのみ。全社共通の1在庫に加算されます。'
-    +'消費（納品分）の反映は夜の再計算です。</div>';
-  h+='</div></div>';
-  return h;
-}
-// 開閉は再描画せず DOM 直操作（アラート側の入力欄を消さないため）
-function toggleManualIssue(){
-  state.manualIssueOpen=!state.manualIssueOpen;
-  var b=document.getElementById('lblManualBody'), c=document.getElementById('lblManualCaret');
-  if(b) b.style.display=state.manualIssueOpen?'':'none';
-  if(c) c.textContent=state.manualIssueOpen?'−':'＋';
-}
-// 発行記録・在庫加算は従来と同一の仕組み（issueLabel → label_stock 追記）を流用。
-// 経路の区別は廃止し、route列には固定で '任意' を入れる（在庫は全sanchi合算＝経路非依存）。
-var SANCHI_MANUAL_ROUTE = '任意';
-function issueSanchiManual(){
-  var inp=document.getElementById('manualInpSanchi');
-  var n=parseInt(((inp&&inp.value)||'').trim(),10);
-  if(!n||n<=0){alert('発行数を入力してください');return;}
-  state.manualIssueOpen=true;  // 発行後の再描画でも開いたまま
-  _postIssue(_sanchiIssueUrl(n),'sanchi_manual',n);
-}
-function _sanchiIssueUrl(n){
-  return API_URL+'?action=issueLabel&type='+encodeURIComponent('産地シール')
-    +'&route='+encodeURIComponent(SANCHI_MANUAL_ROUTE)+'&count='+n+'&date='+todayStr
-    +'&staff='+encodeURIComponent(state.staff||'');
-}
-// 全社一括の発行指示枚数。GAS が need を返さない古いスナップショットでもフロントで再現する
-// （不足分 = 1000 − 在庫 → 上限200 → 10の位四捨五入）。
-function _sanchiNeed(s){
-  if(s.need!=null) return s.need;
-  var target=(s.target!=null)?s.target:1000, cap=(s.cap!=null)?s.cap:200;
-  var shortfall=(s.shortfall!=null)?s.shortfall:Math.max(target-(s.stock||0),0);
-  return Math.round(Math.min(Math.max(shortfall,0),cap)/10)*10;
-}
-// ②産地シール アラート（通知＋全社一括の発行指示枚数のみ。発行操作は任意発行パネルに一本化）
-function renderSanchiAlert(){
-  var la=state.labelAlert;
-  if(!la||!la.sanchi||!la.sanchi.alert) return '';
-  var s=la.sanchi;
-  var need=_sanchiNeed(s);
-  // 即時非表示: 当日の任意発行累計が発行指示枚数に達したら当日中は消す。
-  // 分割発行でも累計で判定。localStorage 永続なのでリロードしても復活しない。
-  // しきい値(解除1000枚)超えは条件にしない＝指示枚数到達のみで消す。
-  // 本判定は夜間再計算（persist は朝4:00-5:59）とは独立。
-  if(need>0 && state.sanchiIssuedToday>=need) return '';
-  var h='<div class="lbl-alert"><div class="lbl-alert-ttl">⚠️ 産地シール 残りわずか</div>';
-  h+='<div class="lbl-alert-msg">前日在庫 <b>'+s.stock+'枚</b>。<b>'+need+'枚以上</b> 発行してください。</div>';
-  if(state.sanchiIssuedToday>0){
-    h+='<div class="lbl-alert-msg">本日の発行 <b>'+state.sanchiIssuedToday+'枚</b>（あと'+Math.max(need-state.sanchiIssuedToday,0)+'枚）</div>';
+function _sanchiHtml(){
+  var s=state.sanchi, rid=_sanchiRouteId();
+  var rt=(s&&s.routes&&s.routes[rid])||null;
+  if(_sanchiState==='ok' && s.round && rt && !(rt.issued>=s.round.perRoute)){
+    var per=s.round.perRoute, issued=rt.issued, remain=Math.max(per-issued,0);
+    var pct=Math.min(100, per>0 ? issued/per*100 : 0);
+    var h='<div class="sl-al">';
+    h+='<div class="sl-a1">⚠ 産地シール　'+eH(ROUTES[state.route].label)+'</div>';
+    h+='<div class="sl-a2">'+_fmtMdW(s.round.deadline)+(s.round.expired?'を過ぎています':'まで')+'</div>';
+    h+='<div class="sl-a3">あと<b>'+_fmtNum(remain)+'</b>枚</div>';
+    h+='<div class="sl-bar"><i style="width:'+pct.toFixed(1)+'%"></i></div><div class="sl-bn">'+_fmtNum(issued)+' / '+_fmtNum(per)+'</div>';
+    h+='<div class="sl-row"><input class="sl-inp" id="slInpRound" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off"><div class="sl-un">枚</div>'
+      +'<button class="sl-sv lbl-issue-btn" onclick="saveSanchiIssue(\'slInpRound\')">保存</button></div>';
+    if(rt.today>0) h+='<div class="sl-td">今日 '+_fmtNum(rt.today)+'枚 記録済み</div>';
+    h+='</div>';
+    return h;
   }
-  h+='<div class="lbl-alert-note">※ 下の「＋ラベルを発行する」から発行してください。本日の発行累計が'+need+'枚に達すると、この表示は当日中は消えます。在庫の本反映は夜の再計算で翌朝です。</div></div>';
-  return h;
+  var stockTxt=(_sanchiState==='ok')?_fmtNum(s.stock):'—';
+  var h2='<div class="sl-ok" onclick="toggleSanchiPanel()">産地シール 在庫 <b>'+stockTxt+'</b>枚<span>'+(state.sanchiPanel?'閉じる':'＋ 発行を記録')+'</span></div>';
+  if(state.sanchiPanel){
+    h2+='<div class="sl-panel">';
+    h2+='<div class="sl-row"><input class="sl-inp" id="slInpIssue" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off"><div class="sl-un">枚</div>'
+      +'<button class="sl-sv lbl-issue-btn" onclick="saveSanchiIssue(\'slInpIssue\')">保存</button></div>';
+    if(rt&&rt.today>0) h2+='<div class="sl-td2">今日 '+_fmtNum(rt.today)+'枚 記録済み</div>';
+    if(!state.sanchiTana){
+      h2+='<button class="sl-tana-btn" onclick="openSanchiTana()">在庫を数え直す</button>';
+    } else {
+      h2+='<div class="sl-tana-ttl">在庫を数え直す</div>';
+      h2+='<div class="sl-row"><input class="sl-inp" id="slInpTana" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off"><div class="sl-un">枚</div>'
+        +'<button class="sl-sv lbl-issue-btn" onclick="saveSanchiTana()">保存</button></div>';
+    }
+    h2+='</div>';
+  }
+  return h2;
 }
-// ③値段シール アラート（男衾・川本、値段ごとの発行入力欄付き）
-function renderNedanAlertForStore(storeId){
-  var la=state.labelAlert;
-  if(!la||!la.nedan||!la.nedan.stores) return '';
-  var def=STORE_DEFS[storeId]; if(!def) return '';
-  var store=la.nedan.stores[def.name]; if(!store) return '';
-  var prices=la.nedan.prices||[], rows='';
-  prices.forEach(function(p){
-    var pp=store[p]; if(!pp||!pp.alert) return;
-    var key='nedan_'+storeId+'_'+p;
-    // 規定枚数 = GAS算出の need（不足分→上限200→10の位四捨五入）。無ければフロントで再現。
-    var need=(pp.need!=null)?pp.need:Math.round(Math.min(Math.max(500-pp.stock,0),200)/10)*10;
-    var issued=state.labelIssued[key]||0;
-    // 修正4（パターン1）: この店舗×値段で規定枚数以上を入力したら即座に非表示。他は残す。
-    if(need>0 && issued>=need) return;
-    rows+='<div class="lbl-issue-row">';
-    rows+='<span class="lbl-issue-lbl">'+eH(p)+' <span class="lbl-issue-sub">(前日在庫'+pp.stock+'枚／あと<b>'+need+'枚以上</b>発行)</span></span>';
-    rows+='<input type="text" inputmode="numeric" pattern="[0-9]*" id="nedanInp_'+eA(storeId)+'_'+esc(p)+'" placeholder="発行数">';
-    rows+='<button class="lbl-issue-btn" onclick="issueNedan(\''+eA(storeId)+'\',\''+eA(p)+'\')">発行</button>';
-    if(issued>0) rows+='<span class="lbl-issue-done">これまで'+issued+'枚（規定'+need+'枚）</span>';
-    rows+='</div>';
+function toggleSanchiPanel(){
+  state.sanchiPanel=!state.sanchiPanel; state.sanchiTana=false;
+  if(state.sanchiPanel && _sanchiState!=='ok') fetchSanchiRound();
+  _renderSanchiSlot();
+}
+function openSanchiTana(){ state.sanchiTana=true; _renderSanchiSlot(); }
+function _readCount(id, allowZero){
+  var inp=document.getElementById(id);
+  var v=((inp&&inp.value)||'').replace(/[０-９]/g,function(c){return String.fromCharCode(c.charCodeAt(0)-0xFEE0);}).replace(/[,，\s]/g,'');
+  if(!/^\d+$/.test(v)) return null;
+  var n=parseInt(v,10);
+  if(!allowZero && n<=0) return null;
+  return n;
+}
+// 発行の記録（経路は今のタブ）。保存できたら裏側を読み直して表示する
+function saveSanchiIssue(inpId){
+  var n=_readCount(inpId,false);
+  if(n==null){ alert('枚数を入れてください'); return; }
+  var rid=_sanchiRouteId();
+  var url=API_URL+'?action=issueLabel&type='+encodeURIComponent('産地シール')
+    +'&route='+encodeURIComponent(rid)+'&count='+n+'&date='+todayStr
+    +'&staff='+encodeURIComponent(state.staff||'');
+  _postIssue(url,function(){
+    // 読み直しが届くまでの間も、保存した分は見えるようにしておく
+    var s=state.sanchi;
+    if(s&&s.routes&&s.routes[rid]){ s.routes[rid].today+=n; if(s.round) s.routes[rid].issued+=n; s.stock+=n; }
+    var i=document.getElementById(inpId); if(i) i.value='';
   });
-  if(!rows) return '';
-  var h='<div class="lbl-alert"><div class="lbl-alert-ttl">⚠️ '+eH(def.name)+' 値段シール 残りわずか</div>';
-  h+='<div class="lbl-issue-wrap">'+rows+'</div>';
-  h+='<div class="lbl-alert-note">※ 規定枚数以上を入力したその値段の表示は消えます。在庫の本反映は夜の再計算で翌朝です。</div></div>';
-  return h;
 }
-function issueNedan(storeId,price){
-  var def=STORE_DEFS[storeId]; if(!def) return;
-  var inp=document.getElementById('nedanInp_'+storeId+'_'+esc(price));
-  var n=parseInt(((inp&&inp.value)||'').trim(),10);
-  if(!n||n<=0){alert('発行数を入力してください');return;}
-  var url=API_URL+'?action=issueLabel&type='+encodeURIComponent('値段シール')
-    +'&store='+encodeURIComponent(def.name)+'&price='+encodeURIComponent(price)
-    +'&count='+n+'&date='+todayStr+'&staff='+encodeURIComponent(state.staff||'');
-  _postIssue(url,'nedan_'+storeId+'_'+price,n);
+// 在庫の数え直し（label_stock に type「棚卸し」の行を足す）
+function saveSanchiTana(){
+  var n=_readCount('slInpTana',true);
+  if(n==null){ alert('数えた枚数を入れてください'); return; }
+  var cur=(_sanchiState==='ok'&&state.sanchi)?_fmtNum(state.sanchi.stock)+'枚':'（取れていません）';
+  if(!confirm('今の計算では'+cur+'。'+_fmtNum(n)+'枚に置き換えます')) return;
+  var url=API_URL+'?action=issueLabel&type='+encodeURIComponent('棚卸し')
+    +'&route='+encodeURIComponent(_sanchiRouteId())+'&count='+n+'&date='+todayStr
+    +'&staff='+encodeURIComponent(state.staff||'');
+  _postIssue(url,function(){
+    if(state.sanchi) state.sanchi.stock=n;
+    state.sanchiTana=false;
+  });
 }
-// 発行の送信。二重記録防止:
-//   F) 送信中は全発行ボタンを disabled（連打・再タップ封じ）
-//   B) 操作ごとに reqId(UUID) を発番し、再試行は同じ reqId で再送 → GAS側で重複検知
-//      （duplicate:true も success 扱い。ローカル加算は1回だけ）
-//   C) 全試行が失敗しても、最後に reqId で「記録が入ったか」をサーバに確認する。
-//      入っていれば成功扱い（誤ってもう一度発行させない＝別reqIdでの真の二重行を防ぐ）。
-// タイムアウトは30秒（GAS実測で15〜25秒かかることがある。HTML中間ページは onload 検知で
-// 即失敗するので、長めのタイムアウトでも体感は悪化しない）。
+// 送信。二重記録防止（2026-07-08 からの仕組みをそのまま）:
+//   送信中は保存ボタンを全部 disabled／操作ごとに reqId(UUID)、再試行は同じ reqId で再送 → GAS側で重複検知
+//   全試行が失敗しても、最後に reqId で「記録が入ったか」をサーバに確認し、入っていれば成功扱い
 var ISSUE_MAX_ATTEMPTS = 3;
 var ISSUE_RETRY_WAIT   = 2000;
 var ISSUE_TIMEOUT      = 30000;
@@ -696,55 +760,34 @@ function _setIssueBtnsDisabled(d){
   var b=document.querySelectorAll('.lbl-issue-btn');
   for(var i=0;i<b.length;i++) b[i].disabled=!!d;
 }
-// 発行成功時のローカル計上（1回の発行につき1度だけ呼ぶ）
-function _countIssued(key,n){
-  // 当日画面上の累積（複数回に分けて入力しても合算）。規定到達で即時非表示（renderHome内で判定）。
-  state.labelIssued[key]=(state.labelIssued[key]||0)+n;
-  if(key==='sanchi_manual'){
-    // 産地シールの即時非表示は「当日の任意発行累計」で判定。localStorage に永続化。
-    state.sanchiIssuedToday+=n;
-    _saveSanchiIssuedToday(state.sanchiIssuedToday);
-  }
-}
-function _postIssue(baseUrl,key,n){
+function _postIssue(baseUrl,onSaved){
   if(_issueBusy) return;                    // 送信中の再タップを無視
   _issueBusy=true; _setIssueBtnsDisabled(true);
   var reqId=_uuid();
   var url=baseUrl+'&reqId='+encodeURIComponent(reqId);
   function done(){ _issueBusy=false; _setIssueBtnsDisabled(false); hideLoading(); }
   function succeed(){
+    if(onSaved) onSaved();
     done();
-    _countIssued(key,n);
-    // 産地シールはライブ累計発行数にも加算 →「現時点在庫」がその場で増える
-    if(key.indexOf('sanchi_')===0 && state.labelIssuedTotal!=null) state.labelIssuedTotal+=n;
-    renderHome();
+    if(state.screen==='home') _renderSanchiSlot();
+    fetchSanchiRound();   // 裏側の値で置き換える（回が閉じた・届いたもここで反映）
   }
-  // 全試行が通信エラーで終わった時、reqId で記録の有無をサーバに確認する
   function confirmOrFail(){
     hideLoading(); showLoading('記録を確認中...');
-    jsonp(API_URL+'?action=getLabelIssuedTotal&reqId='+encodeURIComponent(reqId)+'&_cb='+Date.now(),
+    apiJsonp(API_URL+'?action=getLabelIssuedTotal&reqId='+encodeURIComponent(reqId)+'&_cb='+Date.now(),
       'cb_issue_confirm',function(res){
-        if(res&&res.success&&res.found){
-          if(typeof res.sanchi==='number') state.labelIssuedTotal=res.sanchi;
-          done();
-          _countIssued(key,n);
-          renderHome();
-          return;
-        }
-        done(); alert('通信エラーで発行を記録できませんでした。');
-      },function(){ done(); alert('通信エラーで発行を記録できませんでした。\n記録されたか不明です。時間をおいて在庫表示をご確認ください。'); },
+        if(res&&res.success&&res.found){ succeed(); return; }
+        done(); alert('通信エラーで記録できませんでした。');
+      },function(){ done(); alert('通信エラーで記録できませんでした。\n記録されたか不明です。時間をおいて在庫の表示を確かめてください。'); fetchSanchiRound(); },
       ISSUE_TIMEOUT);
   }
   function attempt(i){
     hideLoading();
-    showLoading(i===0?'発行を記録中...':'発行を記録中...（再試行 '+i+'/'+(ISSUE_MAX_ATTEMPTS-1)+'）');
-    // _cb はGoogle側リダイレクト状態のリフレッシュ用（冪等キーではない）
+    showLoading(i===0?'記録中...':'記録中...（再試行 '+i+'/'+(ISSUE_MAX_ATTEMPTS-1)+'）');
     jsonp(url+'&_cb='+Date.now()+'_'+i,'cb_issue',function(res){
-      // duplicate:true（同じreqIdの再送）も success として1回だけ計上する
-      if(res&&res.success){ succeed(); return; }
-      // ロック競合など retryable なサーバエラーは同じ reqId で再送
+      if(res&&res.success){ succeed(); return; }   // duplicate:true（同じreqIdの再送）も成功
       if(res&&res.retryable&&i+1<ISSUE_MAX_ATTEMPTS){ setTimeout(function(){attempt(i+1);},ISSUE_RETRY_WAIT); return; }
-      done(); alert('発行の記録に失敗しました。\n'+((res&&res.error)||''));
+      done(); alert('記録に失敗しました。\n'+((res&&res.error)||''));
     },function(){
       if(i+1<ISSUE_MAX_ATTEMPTS){ setTimeout(function(){attempt(i+1);},ISSUE_RETRY_WAIT); return; }
       confirmOrFail();
@@ -754,14 +797,33 @@ function _postIssue(baseUrl,key,n){
 }
 
 function openStore(id) {
-  state.store=STORE_DEFS[id]; state.storeId=id; state.formData={}; state.staff=''; state.extraPrices=[]; state.screen='form';
+  state.store=STORE_DEFS[id]; state.storeId=id; state.formData={}; state.autoChin={}; state.autoApplied=false; state.staff=''; state.extraPrices=[]; state.prevExtraOff={}; state.screen='form';
+  // 【2026-10-29】開いた店舗の経路を「見ている経路」にする（← 戻るで、その店舗の経路の一覧に戻るように）
+  var _ri = _routeIdxById(_routeIdOfStore(id));
+  if(_ri>=0 && _ri!==state.route){ state.route=_ri; _rememberRoute(_ri); renderRouteTabs(); }
+  _loadReset();   // 前に開いた店舗の読み込みが遅れて届いても使わない
   // 配達商品情報（haitatsu）の当日分があれば納品数のデフォルト値として反映（localStorage 即読み・0ms）
   applyHaitatsuDefault(id);
   // 同一日・同一経路で先に送信した担当者があれば自動選択（誤タップ抑止のため送信成功時のみ記憶）
   applyStaffMemory(id);
   setHeader(state.store.name,true,false); renderForm();
-  // バックグラウンドで getHaitatsu を fetch して localStorage を更新（既存表示は待たない・次回反映）
-  fetchHaitatsuBackground();
+  loadPrevZan(false);   // 【2026-11-09】前日在庫（ヤオコー系のみ）
+  _pushFormHistory();
+  // 【2026-09-24】ここでの再取得は廃止。納品指示は配達出発前に確定しているので
+  // 起動時の1回で足りる。店舗を開くたびに GAS を叩くと 13 回/配達になる。
+  // 取得が終わっていない／当日分が無い／取得に失敗した、は通知バーで知らせる。
+  _updateHaitatsuNotice();
+  _updateIraiNotice();   // この店舗への未完了の依頼（登録から完了まで。期限切れ未完了は赤）
+}
+
+// ===== 店舗依頼ボードのアラート（2026-10-03） =====
+// 起動時の getHaitatsu（fetchHaitatsuBackground）の応答に同梱される irai を使う。通信は増やさない。
+// 入力画面で、開いた店舗の依頼だけを #app の直前に出す（ホーム・完了・マニュアル・設定では消す）。
+var IRAI_BOARD_BUILD = 'irai-board-20261003';   // 本番反映の確認用マーカー
+function _updateIraiNotice(){
+  if(typeof IraiNotice === 'undefined') return;
+  IraiNotice.render(state.irai, { storeId: state.storeId, hide: state.screen !== 'form',
+    onNavigate: function(href){ if(confirmLeaveIfDirty()) window.location.href = href; } });
 }
 
 // ===== 担当者の経路内自動引継 =====
@@ -770,6 +832,17 @@ function openStore(id) {
 // 日次リセット: date が todayStr と異なれば全破棄
 // 経路判定: ROUTES[i].groups[j].stores に storeId が含まれる経路
 var LS_STAFF_MEMORY = lsKey('staff_by_route_v1');
+// 【2026-11-10】この端末で今日送信した店舗（店舗一覧に「✓ 送信 8:12」を出す。日付が変われば消える）
+var LS_SENT_TODAY = lsKey('nippo_sent_today_v1');
+var SENT_MARK_BUILD = 'sent-mark-20261110';
+function _sentToday(){
+  try{ var o=JSON.parse(localStorage.getItem(LS_SENT_TODAY)||'null'); if(o && o.date===todayStr && o.stores) return o.stores; }catch(e){}
+  return {};
+}
+function _markSent(storeId, at){
+  if(!storeId) return;
+  try{ var s=_sentToday(); s[storeId]=at||''; localStorage.setItem(LS_SENT_TODAY, JSON.stringify({date:todayStr, stores:s})); }catch(e){}
+}
 
 function _routeIdOfStore(storeId){
   if(typeof ROUTES==='undefined') return null;
@@ -823,53 +896,303 @@ function applyStaffMemory(id){
   } catch(e){}
 }
 
-// localStorage から当日の配達商品情報を読んで state.formData['納品_'+price] にセット
+// ===== 納品指示（配達商品情報）の当日判定 =====
+// 【2026-09-24 全面見直し】
+// 2026-09-21 の対策は「端末がそのセットを取得した日」を見ていた。これは
+// 「その日はじめて取得に成功するまで必ず当日でない」ことを意味するので、
+// 起動直後に開く1店舗目は構造的に必ず自動入力されない。2店舗目以降は
+// 起動時取得が返り終わっているので入る——というのが今回の症状。
+// さらに、当日分の指示が入力されていない場合も取得日スタンプは当日になるため、
+// 前日のセットを当日分として黙って自動入力してしまう欠陥もあった。
+//
+// 正しい基準は「そのセットが何日の配達に向けた指示か」＝対象日。
+// 配達商品情報は全店舗まとめて1セットで upsert され、getHaitatsu の
+// lastUpdated はそのセット全体の保存時刻（Asia/Tokyo, 'YYYY-MM-DD HH:mm:ss'）。
+// 運用は「前夜または当日朝に入力、配達出発前には必ず存在」なので:
+//   ・正午より前に保存 → その日の配達分
+//   ・正午以降に保存   → 翌日の配達分（前夜入力）
+// 配達の実測時間帯は 6:39〜11時台（日報の送信時刻・2026-08-25以降）なので、
+// 正午を境にすれば配達中の修正が翌日分に化けることはない。
+//
+// ★★★ この「保存時刻から対象日を推定する」構造は暫定である（2026-09-24 杉さん承認） ★★★
+// 本来は配達商品情報が保存の時点で「何日の配達に向けた指示か」を明示的に持つべきで、
+// 推定は要らない。次の作業でそちらへ移行する:
+//   ・配達商品情報シート（GAS nippo_summary_gas.js / HAITATSU_HEADERS）に対象日の列を追加
+//   ・haitatsu.html が保存時に対象日を明示して送る
+//   ・ここは lastUpdated からの推定をやめ、その対象日をそのまま使う
+//     （_haitatsuTargetDay / HAITATSU_EVENING_CUTOFF_H はその時点で不要になる）
+// 移行までの間だけ、正午を境にした推定で代用する。
+// なお正午の境目は「配達後（正午以降）に当日分を修正する運用があるか」の
+// 確認待ち。その運用があれば境目を後ろへずらす必要がある（ただし上の移行を
+// 済ませれば境目そのものが不要になる）。
+var HAITATSU_BUILD = 'haitatsu-target-day-20260924';   // 本番反映の確認用マーカー
+var HAITATSU_EVENING_CUTOFF_H = 12;   // ↑のとおり暫定
+// 【2026-09-29】取得中が長く続く対策。応答の遅れは転送層の裾（実測 中央値1.45秒・最大19.7秒）で、
+// 1本の要求を長く待つより、4秒で応答が無ければ同じ要求をもう1本並べるほうが早い。
+var HAITATSU_TIMEOUT      = 10000;   // 1本あたりのタイムアウト（旧20秒）
+var HAITATSU_HEDGE_MS     = 4000;    // この時間応答が無ければ同じ要求をもう1本出す
+var HAITATSU_RETRY_WAIT   = 8000;    // 失敗時に1回だけ置く間隔（1-4）
+
+function _haitatsuTargetDay(lastUpdated){
+  var m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):/.exec(String(lastUpdated||''));
+  if(!m) return '';
+  var d = new Date(parseInt(m[1],10), parseInt(m[2],10)-1, parseInt(m[3],10));
+  if(parseInt(m[4],10) >= HAITATSU_EVENING_CUTOFF_H) d.setDate(d.getDate()+1);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+// 【2026-10-04 最新だけを使う】従来は端末に残した値（haitatsu_latest）の対象日が当日なら、起動直後の
+// 取得が届く前から 'ok' にしてその数で自動入力していた。端末に残した後に配達商品情報が直されていると、
+// 古い数が入り、届いた最新は「空欄だけ埋める」ので古い数のまま残る。
+// 自動入力は、この画面で受け取った最新（haitatsuLatest）だけを使う。届くまでは 'loading'（自動入力しない）。
+// 復帰時、最新の受け取りから HAITATSU_RESUME_STALE_MS 以上たっていれば取り直す（届くまで自動入力しない）。
+// 取得できなかったときは「取得できませんでした」＋再取得だけ。前回の数字を見せる手段は設けない（2026-10-04 追補）。
+var LATEST_ONLY_BUILD = 'latest-only-20261004';   // 本番反映の確認用マーカー
+var HAITATSU_RESUME_STALE_MS = 60000;
+
+// 通知バーの状態: 'ok' 取得済みで当日分 / 'loading' 取得中 /
+//                 'stale' 当日分が無い / 'error' 取得できなかった
+var haitatsuStatus = 'loading';
+var haitatsuInfo   = { target:'', lastUpdated:'' };
+var haitatsuLatest = null;     // この画面で受け取った最新の納品指示（getHaitatsu の items）
+var haitatsuFreshAt = 0;       // それを受け取った時刻(ms)
+
+// この画面で受け取った最新の配達商品情報から、当日分を state.formData['納品_'+price] にセット
 // 同期処理。失敗は黙殺（起動を絶対に止めない）。
-function applyHaitatsuDefault(id) {
+// opts.onlyEmpty : 既に値が入っている欄は触らない（人の手入力を絶対に上書きしない）
+// 戻り値: 実際に値を入れたキーの配列
+function applyHaitatsuDefault(id, opts) {
+  opts = opts || {};
+  var filled = [];
+  function put(key, v){
+    if(opts.onlyEmpty){
+      var cur = state.formData[key];
+      if(cur !== '' && cur !== null && cur !== undefined) return false;
+    }
+    state.formData[key] = String(v);
+    filled.push(key);
+    return true;
+  }
   try {
     var def = STORE_DEFS[id];
-    if(!def) return;
-    var raw = localStorage.getItem(LS_HAITATSU_LATEST);
-    if(!raw) return;
-    var all = JSON.parse(raw);
+    if(!def) return filled;
+    // 最新を受け取っていて、その対象日が当日のときだけ入れる（前日以前の値を混入させない）
+    if(haitatsuStatus !== 'ok' || !haitatsuLatest) return filled;
+    var all = haitatsuLatest;
     var entry = all && all[def.name];
-    if(!entry) return;
+    if(!entry) return filled;
     if(entry.prices){
       Object.keys(entry.prices).forEach(function(price){
         var v = entry.prices[price];
-        if(v!==''&&v!==null&&v!==undefined) state.formData['納品_'+price] = String(v);
+        if(v!==''&&v!==null&&v!==undefined) put('納品_'+price, v);
       });
     }
     // 臨時品目（配達商品情報で追加された定番外の価格）も納品数の既定値にする。
     // 【2026-08-12 修正】配達商品情報は前夜に翌日分を入力する運用のため、
     // extrasDate === todayStr（入力日一致）だと入力の翌朝＝配達当日に消えていた。
-    // 入力日D の指示は D と D+1 に有効とする（haitatsu.html の _extrasAlive と同一規則）。
+    // 【2026-08-14 修正】さらに、前日日付のまま生きているセットを前夜に編集した分は
+    // extrasDate が延びず翌朝に失効していたので、最終編集日(extrasTouched)も見る
+    // 【2026-09-29】上の2日失効をやめ、品目ごとの終了日で判定する（_extraAliveOn）。
+    // ここに来るのは対象日が当日の指示だけなので、当日（todayStr）と比べる。
     // 既存価格と同じ値は取り込まない（納品_¥99 等を二重に上書きしない）。
-    if(entry.extras && _extrasAlive(entry.extrasDate) && (def.type==='yaoko' || def.type==='choku')){
+    if(entry.extras && typeof entry.extras === 'object' && (def.type==='yaoko' || def.type==='choku')){
       Object.keys(entry.extras).forEach(function(price){
         if(!/^¥\d+$/.test(price)) return;
         if((def.prices||[]).indexOf(price) > -1) return;
+        if(!_extraAliveOn(entry, price, todayStr)) return;   // 終了した品目は入れない
         var v = entry.extras[price];
         if(v===''||v===null||v===undefined) return;
-        if(state.extraPrices.indexOf(price) < 0) state.extraPrices.push(price);
-        state.formData['納品_臨#'+price] = String(v);
+        var had = state.extraPrices.indexOf(price) >= 0;
+        if(!had) state.extraPrices.push(price);
+        // 値を入れられなかった（手入力済み・入力中）のに行だけ増やすことはしない
+        if(!put('納品_臨#'+price, v) && !had) state.extraPrices.pop();
       });
       state.extraPrices.sort(function(a,b){return parseInt(a.replace('¥',''),10)-parseInt(b.replace('¥',''),10);});
     }
   } catch(e) {}
+  return filled;
 }
 
 var _haitatsuBgInflight = false;
-function fetchHaitatsuBackground() {
+var _haitatsuGen = 0;          // 取得の世代。前面復帰で取り直したとき、古い世代の応答は捨てる
+var _haitatsuStartedAt = 0;
+var _haitatsuFlog = null;      // 取得の記録（fetch-log.js）。進行中の試行
+// 起動時に1回だけ取得する（1-5）。失敗したときだけ、少し置いて1回再試行する（1-4）。
+// 成功後は店舗を開くたびに叩き直さない。
+// 【2026-09-29】4秒で応答が無ければ同じ要求をもう1本出し、先に返ったほうを使う
+// （後から返ったほうは捨てる）。両方失敗したときだけ失敗扱い。
+function fetchHaitatsuBackground(attempt) {
+  attempt = attempt || 0;
   if(_haitatsuBgInflight) return;
   _haitatsuBgInflight = true;
-  // 日付キー廃止：常に最新1セットを取得
-  jsonp(API_URL+'?action=getHaitatsu','cb_hai',function(res){
+  _haitatsuStartedAt = Date.now();
+  var gen = ++_haitatsuGen;
+  var settled = false, inflight = 0, fired = 0, hedgeT = null;
+  var A = _haitatsuFlog = _flAttempt('getHaitatsu');
+  function current(){ return !settled && gen === _haitatsuGen; }
+  function fire(){
+    fired++;
+    inflight++;
+    // 日付キー廃止：常に最新1セットを取得
+    apiJsonp(API_URL+'?action=getHaitatsu&_cb='+Date.now(),'cb_hai',function(res){
+      inflight--;
+      if(!current()) return;
+      if(res && res.success && res.items){ settled = true; clearTimeout(hedgeT); A.ok(); onOk(res); return; }
+      A.bad(res);
+      onFail();
+    },function(){ inflight--; if(current()) onFail(); }, HAITATSU_TIMEOUT, { flog: A.req() });
+  }
+  function onFail(){
+    // 【2026-10-04 失敗画面を減らす】1本目がすぐエラー（404・5xx・通信エラー・形の違う応答）で返ったら、
+    // 失敗を確定せずに4秒を待たずに2本目を出す（1回の試行で最大2本）
+    if(fired < 2){ if(hedgeT){ clearTimeout(hedgeT); hedgeT = null; } fire(); return; }
+    if(inflight > 0) return;   // もう1本がまだ返っていない
+    if(hedgeT){ clearTimeout(hedgeT); hedgeT = null; }
+    settled = true;
+    _haitatsuBgInflight = false;
+    A.fail();
+    _haitatsuFetchFailed(attempt);
+  }
+  if(haitatsuStatus !== 'ok') { haitatsuStatus = 'loading'; _updateHaitatsuNotice(); }
+  fire();
+  hedgeT = setTimeout(function(){ hedgeT = null; if(current() && fired < 2) fire(); }, HAITATSU_HEDGE_MS);
+  function onOk(res){
     _haitatsuBgInflight = false;
     if(res && res.success && res.items){
-      try { localStorage.setItem(LS_HAITATSU_LATEST, JSON.stringify(res.items)); } catch(e){}
+      // 店舗依頼のアラートは納品指示の対象日の判定と関係なく反映する
+      if(res.irai){ state.irai = res.irai; _updateIraiNotice(); }
+      var target = _haitatsuTargetDay(res.lastUpdated);
+      haitatsuInfo = { target: target, lastUpdated: String(res.lastUpdated||'') };
+      haitatsuLatest = res.items;
+      haitatsuFreshAt = Date.now();
+      haitatsuStatus = (target === todayStr) ? 'ok' : 'stale';
+      if(haitatsuStatus === 'ok') _applyHaitatsuToOpenForm();
+      _updateHaitatsuNotice();
     }
-  },function(){ _haitatsuBgInflight = false; });
+  }
+}
+function _haitatsuFetchFailed(attempt){
+  if(attempt === 0){
+    var gen = _haitatsuGen;
+    // 待ちの間に前面復帰などで取り直していれば、この再試行は出さない
+    setTimeout(function(){ if(gen === _haitatsuGen && !_haitatsuBgInflight) fetchHaitatsuBackground(1); }, HAITATSU_RETRY_WAIT);
+    return;   // 再試行中は 'loading' のまま
+  }
+  if(haitatsuStatus !== 'ok') haitatsuStatus = 'error';
+  _updateHaitatsuNotice();
+}
+function retryHaitatsu(){ fetchHaitatsuBackground(1); }
+// アプリが前面に戻ったとき、当日分がまだ取れていなければ取り直す。
+// 背面の間はタイマーが止まり、取得中の要求は宙に浮いたままになるので、
+// 始めてから HAITATSU_HEDGE_MS 以上たった要求は見切って（世代を進めて応答を捨てる）出し直す。
+// 【2026-10-04】取得済み（ok・stale）でも、受け取りから HAITATSU_RESUME_STALE_MS 以上たっていれば
+// 未確認に戻して取り直す（届くまで、これから開く店舗は自動入力しない）。日付が変わっていれば開き直す。
+// 入力中の店舗の欄には触らない（届いた最新は空欄だけに入る＝従来どおり）。
+function _haitatsuOnForeground(){
+  var n = new Date();
+  var ymd = n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');
+  if(ymd !== todayStr){ if(!hasUnsavedInput()) location.reload(); return; }
+  if(haitatsuStatus === 'ok' || haitatsuStatus === 'stale'){
+    if(Date.now() - haitatsuFreshAt < HAITATSU_RESUME_STALE_MS) return;
+    haitatsuStatus = 'loading';
+    haitatsuLatest = null;
+    _haitatsuGen++;
+    _haitatsuBgInflight = false;
+    fetchHaitatsuBackground(0);
+    return;
+  }
+  if(_haitatsuBgInflight){
+    if(Date.now() - _haitatsuStartedAt < HAITATSU_HEDGE_MS) return;
+    if(_haitatsuFlog) _haitatsuFlog.abandon();
+    _haitatsuGen++;
+    _haitatsuBgInflight = false;
+  }
+  fetchHaitatsuBackground(0);
+}
+
+// 当日分が裏の取得で届いたときに、すでに描画済みの入力画面へ反映する（1-2）。
+// 【2026-09-24 変更】従来は「納品欄にひとつでも値が入っていたら何もしない」
+// 「入力欄にフォーカスがあったら何もしない」という全か無かの判定だった。
+// 1店舗目は取得の到着前に人が入力を始めているのが普通なので、この条件では
+// ほぼ必ず不発になる。未入力の欄だけを埋める方式に改める。
+//   ・手入力済みの欄は触らない（onlyEmpty）
+//   ・再描画はせず input.value を差し込む（キーボードを閉じさせない）
+//   ・臨時品目で行が増えるときだけ再描画し、フォーカスと位置を復元する
+// フォーカス中の欄も、空であれば入れる。空＝まだ人が何も入れていないので
+// 奪うものが無く、ここを避けると「見ている欄だけ永久に空」になってしまう。
+// ただし入れた値は選択状態にして、続けて打った数字が連結されないようにする。
+function _applyHaitatsuToOpenForm(){
+  try {
+    if(state.screen !== 'form' || !state.storeId) return;
+    var ae = document.activeElement;
+    var beforeExtras = state.extraPrices.length;
+    var filled = applyHaitatsuDefault(state.storeId, { onlyEmpty:true });
+    if(!filled.length) return;
+    if(state.extraPrices.length !== beforeExtras){ _renderFormKeepFocus(); return; }
+    filled.forEach(function(key){
+      var el = document.querySelector('[data-fkey="'+key+'"]');
+      if(!el) return;
+      el.value = state.formData[key];
+      if(el === ae){ try{ el.select(); }catch(e){} }
+    });
+  } catch(e){}
+}
+function _renderFormKeepFocus(){
+  var ae = document.activeElement;
+  var k = (ae && ae.getAttribute) ? ae.getAttribute('data-fkey') : null;
+  var wasVal = (ae && k) ? ae.value : null;
+  var pos = null;
+  try { pos = (ae && typeof ae.selectionStart === 'number') ? ae.selectionStart : null; } catch(e){}
+  renderForm();
+  if(!k) return;
+  var el = document.querySelector('[data-fkey="'+k+'"]');
+  if(!el) return;
+  try {
+    el.focus();
+    // 空だった欄に指示が入ったときは選択状態にする（続けて打っても連結しない）
+    if(el.value !== wasVal && el.value !== '') el.select();
+    else if(pos !== null) el.setSelectionRange(pos,pos);
+  } catch(e){}
+}
+
+// ===== 納品指示の状態バー（1-3 / 1-4） =====
+// 「配達出発前には必ず存在する」ものなので、当日分が無ければ黙って空欄にせず
+// 目立つ警告を出す。通信エラーで取れなかった場合とは文面を分ける。
+// #app の外に置くので、ホーム↔入力画面を行き来しても消えない。
+function _updateHaitatsuNotice(){
+  var el = document.getElementById('haitatsu_notice');
+  var show = (state.screen === 'home' || state.screen === 'form') && haitatsuStatus !== 'ok';
+  if(!show){ if(el && el.parentNode) el.parentNode.removeChild(el); return; }
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'haitatsu_notice';
+    var app = document.getElementById('app');
+    if(app && app.parentNode) app.parentNode.insertBefore(el, app);
+  }
+  var tone = (haitatsuStatus === 'loading')
+    ? {bg:'#f0f4f8',fg:'#5b7a99',bd:'#b0bec5',btn:'#5b7a99'}
+    : (haitatsuStatus === 'stale')
+      ? {bg:'#fdecea',fg:'#b71c1c',bd:'#ef9a9a',btn:'#b71c1c'}
+      : {bg:'#fff8e1',fg:'#8a6100',bd:'#ffd54f',btn:'#8a6100'};
+  el.style.cssText = 'background:'+tone.bg+';color:'+tone.fg+';border:1px solid '+tone.bd
+    + ';border-radius:8px;padding:10px;margin:0 16px 8px;font-size:12px;text-align:center;font-weight:600;line-height:1.8';
+  var h;
+  if(haitatsuStatus === 'loading'){
+    h = '納品指示を取得中…<br>届くまで納品数は自動入力されません。';
+  } else if(haitatsuStatus === 'stale'){
+    h = '⚠️ 本日分の納品指示がありません<br>'
+      + '配達商品情報に本日（'+eH(todayStr)+'）の分が入っていません。'
+      + (haitatsuInfo.lastUpdated ? '<br>最終更新 '+eH(haitatsuInfo.lastUpdated)
+          + (haitatsuInfo.target ? '（'+eH(haitatsuInfo.target)+'の配達分）' : '') : '')
+      + '<br>前の日の値を入れないため、納品数は空欄のままにしています。';
+  } else {
+    h = '⚠️ 納品指示を取得できませんでした<br>通信エラーです（再試行も失敗）。'
+      + '<br>納品数は空欄のままです。手入力するか、電波の良い場所で再取得してください。';
+  }
+  if(haitatsuStatus !== 'loading'){
+    h += '<div><button onclick="retryHaitatsu()" style="margin-top:7px;background:'+tone.btn
+      + ';color:#fff;border:none;border-radius:6px;padding:6px 14px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">再取得する</button></div>';
+  }
+  el.innerHTML = h;
 }
 
 function renderForm() {
@@ -891,20 +1214,20 @@ function renderForm() {
   }
 
   // ③ 保存データを読み込む
-  html+='<button class="load-btn" id="loadBtn" onclick="loadSavedData()">📥 保存済みデータを読み込む</button>';
+  if(!(s.type==='yaoko'||s.type==='yaoko_simple')) html+=_loadBtnHtml();   // ヤオコー系は表の下の双子ボタン
 
   // ④ 商品追加（ヤオコー・直売所）
   if(s.type==='yaoko' || s.type==='choku') html+=bExtraMgr();
 
   // ⑤ 値引きタイミング説明（ヤオコー系のみ）
   // ※ bExtraSales（追加商品の販売数手入力欄）は廃止：エスマルシェが自動取得するため不要
-  if(s.type==='yaoko'||s.type==='yaoko_simple') {
-    html+=bDiscountGuide();
-  }
+  // 【2026-11-10 杉さん】値引きタイミングの説明は入力画面から外し、マニュアルに移した
 
   // 特記事項＋送信
   html+='<div class="fsec"><div class="fsec-hdr">📝 特記事項</div><div class="frow"><textarea oninput="upd(\'特記事項\',this.value)" placeholder="気になることがあれば記入">'+eH(state.formData['特記事項']||'')+'</textarea></div></div>';
-  html+='<button class="submit-btn" id="submitBtn" onclick="doSubmit()">✅ 送信する</button></div>';
+  // 【2026-11-10 杉さん】送信は画面の下に固定（スクロールしても押せる）
+  html+='<div class="submit-spacer"></div></div>';
+  html+='<div class="submit-float"><button class="submit-btn" id="submitBtn" onclick="doSubmit()">✅ 送信する</button></div>';
   document.getElementById('app').innerHTML=html;
 }
 
@@ -923,14 +1246,16 @@ function bTable(prices, isYaokoLike, hasSosei) {
   };
   var h='<div class="itbl-wrap"><table class="itbl"><thead><tr>';
   h+='<th class="itbl-price">価格</th>';
-  cols.forEach(function(c){ h+='<th class="itbl-col '+colCls[c]+'">'+c+'</th>'; });
+  if(isYaokoLike) h+='<th class="itbl-col itbl-prev">前日<br>在庫</th>';
+  cols.forEach(function(c){ h+='<th class="itbl-col '+colCls[c]+'">'+((isYaokoLike && c==='持ち帰り')?'持帰り':c)+'</th>'; });   // 5列の表では2行に折れるので見出しだけ短く
   h+='</tr></thead><tbody>';
   prices.forEach(function(p){
     h+='<tr><td class="itbl-price">'+eH(p)+'</td>';
+    if(isYaokoLike) h+='<td class="itbl-cell itbl-prev">'+_prevZanCell(p, false)+'</td>';
     cols.forEach(function(c){
       var key = c+'_'+p;
       var v = state.formData[key] || '';
-      h+='<td class="itbl-cell '+colCls[c]+'"><input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="0" value="'+eA(v)+'" oninput="upd(\''+eA(key)+'\',this.value)"></td>';
+      h+='<td class="itbl-cell '+colCls[c]+'"><input type="text" inputmode="numeric" pattern="[0-9]*" data-fkey="'+eA(key)+'" placeholder="0" value="'+eA(v)+'" onfocus="_selAll(this)" oninput="upd(\''+eA(key)+'\',this.value)"></td>';
     });
     h+='</tr>';
   });
@@ -939,17 +1264,25 @@ function bTable(prices, isYaokoLike, hasSosei) {
     state.extraPrices.forEach(function(p){
       var suffix='臨#'+p;
       h+='<tr class="itbl-extra"><td class="itbl-price">➕'+eH(p)+'</td>';
+      if(isYaokoLike) h+='<td class="itbl-cell itbl-prev">'+_prevZanCell(p, true)+'</td>';
       cols.forEach(function(c){
         var key = c+'_'+suffix;
         var v = state.formData[key] || '';
-        h+='<td class="itbl-cell '+colCls[c]+'"><input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="0" value="'+eA(v)+'" oninput="upd(\''+eA(key)+'\',this.value)"></td>';
+        h+='<td class="itbl-cell '+colCls[c]+'"><input type="text" inputmode="numeric" pattern="[0-9]*" data-fkey="'+eA(key)+'" placeholder="0" value="'+eA(v)+'" onfocus="_selAll(this)" oninput="upd(\''+eA(key)+'\',this.value)"></td>';
       });
       h+='</tr>';
     });
   }
   h+='</tbody></table></div>';
   if(isYaokoLike){
-    h+='<div class="itbl-actions"><button class="apply-mini" onclick="applyToChin()">→ 納品数を陳列数に一括反映</button></div>';
+    // 【2026-11-09 杉さん】「納品数を陳列数に」をやめ、「前日在庫＋納品 → 陳列数」だけにする
+    var pz = state.prevZan, ready = pz && pz.status==='ok' && pz.storeId===state.storeId;
+    // 【2026-11-10 杉さん】押し間違い防止：小さく右寄せ。押した後は「入れ済み」。2回目は手で直した行を上書きしない
+    var done = !!state.autoApplied;
+    // 【2026-11-10 杉さん】「保存データを読み込む」と双子のボタンにして横に並べる（色違い）。送信は別（下に固定）
+    h+='<div class="twin-btns">'+_loadBtnOnly('twin')+'<button class="apply-small'+(done?' done':'')+'" onclick="applyPrevPlusNouhin()"'+(ready?'':' disabled')+'>'+(done?'✓ 前日＋納品 入れ済み':'前日＋納品を入れる')+'</button></div>';
+    h+='<div id="load_note">'+_loadNoteHtml()+'</div>';
+    h+=_prevZanNote();
   }
   return h;
 }
@@ -1004,7 +1337,7 @@ function bExtraMgr() {
 function frow(label,key,isExtra) {
   var v=state.formData[key]||'';
   var unit=(state.store.units&&state.store.units[label])?state.store.units[label]:'個';
-  return '<div class="frow'+(isExtra?' extra':'')+'"><span class="frow-lbl">'+label+'</span><div class="frow-inp"><input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="0" value="'+eA(v)+'" oninput="upd(\''+eA(key)+'\',this.value)"><span class="frow-unit">'+unit+'</span></div></div>';
+  return '<div class="frow'+(isExtra?' extra':'')+'"><span class="frow-lbl">'+label+'</span><div class="frow-inp"><input type="text" inputmode="numeric" pattern="[0-9]*" data-fkey="'+eA(key)+'" placeholder="0" value="'+eA(v)+'" onfocus="_selAll(this)" oninput="upd(\''+eA(key)+'\',this.value)"><span class="frow-unit">'+unit+'</span></div></div>';
 }
 function addExtraPrice() {
   // prompt を廃止し、inputmode="numeric" のHTML入力モーダルで金額入力（数字テンキー対応）
@@ -1016,7 +1349,7 @@ function addExtraPrice() {
     var label='¥'+n;
     if(state.extraPrices.indexOf(label)>-1){alert(label+'は既に追加されています');return;}
     if((state.store.prices||[]).indexOf(label)>-1){alert('既存価格('+label+')と同じです。追加できません。');return;}
-    state.extraPrices.push(label);
+    state.extraPrices.push(label); _formEdits++;
     state.extraPrices.sort(function(a,b){return parseInt(a.replace('¥',''),10)-parseInt(b.replace('¥',''),10);});
     renderForm();
   });
@@ -1045,20 +1378,25 @@ function rmExtraPrice(idx) {
   Object.keys(state.formData).forEach(function(k){
     if(k.indexOf('_臨#'+p)>-1) delete state.formData[k];
   });
-  state.extraPrices.splice(idx,1);
+  state.extraPrices.splice(idx,1); _formEdits++;
+  if(!state.prevExtraOff) state.prevExtraOff={};
+  state.prevExtraOff[p]=true;
   renderForm();
 }
 function esc(s){return String(s).replace(/[^a-zA-Z0-9]/g,'_');}
 function eA(s){return String(s||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 function eH(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-function selStaff(n){state.staff=n;document.querySelectorAll('.sbtn').forEach(function(b){b.classList.toggle('sel',b.textContent===n);});}
+function selStaff(n){state.staff=n;_formEdits++;document.querySelectorAll('.sbtn').forEach(function(b){b.classList.toggle('sel',b.textContent===n);});}
 // 【新】直接入力方式のため updateChin は no-op（互換用に残す）
-function upd(k,v){state.formData[k]=v;}
+function upd(k,v){state.formData[k]=v;_formEdits++;_autoChinOnInput(k);}
+// 【2026-11-10】数字の欄をタップしたら中身を全部選ぶ（打てば置き換わる。消してから打たなくてよい）
+function _selAll(el){ setTimeout(function(){ try{ el.setSelectionRange(0, String(el.value).length); }catch(e){ try{ el.select(); }catch(e2){} } },0); }
 function updateChin() { /* 陳列数は直接入力になったため自動計算なし */ }
 // 【互換】cY: 陳列数の直接入力値を返す（旧: S+A+B+C 合計）
 function cY(p){return parseInt(state.formData['陳列数_'+p])||0;}
 // 【新】納品数を陳列数にコピー
 function applyToChin() {
+  _formEdits++;
   state.store.prices.forEach(function(p){state.formData['陳列数_'+p]=state.formData['納品_'+p]||'0';});
   if(state.store.type==='yaoko'){
     state.extraPrices.forEach(function(p){state.formData['陳列数_臨#'+p]=state.formData['納品_臨#'+p]||'0';});
@@ -1067,46 +1405,312 @@ function applyToChin() {
 }
 // 旧関数名も互換のため残す
 function applyToS(){ applyToChin(); }
-function loadSavedData() {
-  var btn = document.getElementById('loadBtn');
-  if (btn) { btn.disabled = true; btn.textContent = '📥 読み込み中...'; }
-  tryLoadDate(todayStr, false);
-}
-
-function shiftDate(ds, days) {
-  var d = new Date(ds+'T00:00:00');
-  d.setDate(d.getDate()+days);
+// ===== 【2026-11-09 杉さん】前日在庫（ヤオコー系） =====
+// 前日在庫＝前日の残在庫（サマリー・配達商品情報と同じ GAS getYaokoZaiko の zan。陳列数+蘇生庫+値引き−販売数）。
+// 前日の日付で取りに行く。表示だけで送信はしない（formData に入れない）。
+// ボタン「前日在庫＋納品 → 陳列数」で、陳列数 = 前日在庫 + 納品数 を入れる。
+var PREV_ZAN_BUILD = 'prev-zan-20261109';
+function _yesterdayStr(){
+  var d=new Date(today.getFullYear(), today.getMonth(), today.getDate()-1);
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
+function _prevZanEntry(p, isExtra){
+  var pz=state.prevZan;
+  if(!pz || pz.status!=='ok' || pz.storeId!==state.storeId) return null;
+  var tree = isExtra ? pz.extras : pz.items;
+  var e = tree && tree[p];
+  return (e && typeof e==='object') ? e : null;
+}
+function _prevZanVal(p, isExtra){
+  var e=_prevZanEntry(p, isExtra);
+  if(!e) return 0;
+  var n=parseInt(e.zan,10); return isNaN(n)?0:n;
+}
+function _prevZanCell(p, isExtra){
+  var pz=state.prevZan;
+  if(!pz || pz.storeId!==state.storeId || pz.status==='loading') return '…';
+  if(pz.status!=='ok') return '–';
+  var e=_prevZanEntry(p, isExtra);
+  return e ? String(_prevZanVal(p, isExtra)) : '0';
+}
+function _prevZanNote(){
+  var pz=state.prevZan;
+  if(!pz || pz.storeId!==state.storeId || pz.status==='loading') return '<div class="prev-note">前日在庫を読み込み中…</div>';
+  if(pz.status!=='ok') return '<div class="prev-note err">前日在庫を読み込めませんでした<button onclick="loadPrevZan(true)">もう一度</button></div>';
+  return '';
+}
+// 【2026-11-19 杉さん】前日在庫が残っている追加商品（¥360・¥698 など）は、今日の納品が無くても行を出す。
+// それまでは、行が出るのは「今日の配達商品情報にある追加商品」と「手で追加した商品」だけで、
+// 前日に残っていても行が無く、日報に入らないので在庫が消えていた。
+// ×で消した値段（state.prevExtraOff）は、その店舗を開いている間は出し直さない。
+function _addPrevZanExtras(){
+  var pz=state.prevZan, s=state.store;
+  if(!pz || pz.status!=='ok' || pz.storeId!==state.storeId || !s || s.type!=='yaoko') return false;
+  var off=state.prevExtraOff||{}, added=false;
+  Object.keys(pz.extras||{}).forEach(function(p){
+    if(!/^¥\d+$/.test(p)) return;
+    if((s.prices||[]).indexOf(p)>-1 || state.extraPrices.indexOf(p)>-1 || off[p]) return;
+    if(_prevZanVal(p,true)<=0) return;
+    state.extraPrices.push(p); added=true;
+  });
+  if(added) state.extraPrices.sort(function(a,b){return parseInt(a.replace('¥',''),10)-parseInt(b.replace('¥',''),10);});
+  return added;
+}
+function loadPrevZan(force){
+  var s=state.store;
+  if(!s || !(s.type==='yaoko'||s.type==='yaoko_simple')) return;
+  var sid=state.storeId, name=s.name, ymd=_yesterdayStr();
+  if(!force && state.prevZan && state.prevZan.storeId===sid && state.prevZan.status==='ok' && state.prevZan.reqDate===ymd){
+    if(_addPrevZanExtras() && state.screen==='form') _rerenderKeepInputs();
+    return;
+  }
+  state.prevZan={storeId:sid, reqDate:ymd, status:'loading', items:{}, extras:{}, date:''};
+  if(force) renderForm();
+  var tries=0;
+  function go(){
+    tries++;
+    jsonp(API_URL+'?action=getYaokoZaiko&date='+encodeURIComponent(ymd), 'cb_prevzan', function(res){
+      if(!state.prevZan || state.prevZan.storeId!==sid) return;
+      if(res && res.success && res.items && !res._pending){
+        state.prevZan={storeId:sid, reqDate:ymd, status:'ok',
+          items:(res.items||{})[name]||{}, extras:(res.extras||{})[name]||{}, date:res.actualDate||res.date||ymd};
+        if(state.storeId===sid) _addPrevZanExtras();
+      } else if(res && res._pending && tries<4){ setTimeout(go, 4000); return; }
+      else { state.prevZan.status='err'; }
+      if(state.screen==='form' && state.storeId===sid) _rerenderKeepInputs();
+    }, function(){
+      if(!state.prevZan || state.prevZan.storeId!==sid) return;
+      if(tries<3){ setTimeout(go, 3000); return; }
+      state.prevZan.status='err';
+      if(state.screen==='form' && state.storeId===sid) _rerenderKeepInputs();
+    }, 20000);
+  }
+  go();
+}
+// 入力中の値は state.formData にあるので、描き直しても消えない。スクロール位置だけ保つ。
+function _rerenderKeepInputs(){ var y=window.scrollY; renderForm(); window.scrollTo(0,y); }
+// 【2026-11-09 杉さん 10:27】ボタンを押した後は、蘇生庫・値引き・持ち帰り・納品を入れるたびに
+// 陳列数 = 前日在庫 + 納品 − 蘇生庫 − 値引き − 持ち帰り を自動で入れ直す（0未満は0）。
+// その行の陳列数を手で直したら、その行の自動はやめる（手の数字を優先）。
+var AUTO_CHIN_BUILD = 'auto-chin-20261109';
+var _AUTO_SRC = ['納品','蘇生庫','値引き','持ち帰り'];
+function _autoChinCalc(row){
+  var isExtra = row.indexOf('臨#')===0, p = isExtra ? row.slice(2) : row, fd=state.formData;
+  function n(c){ var v=parseInt(fd[c+'_'+row],10); return isNaN(v)?0:v; }
+  return Math.max(_prevZanVal(p,isExtra)+n('納品')-n('蘇生庫')-n('値引き')-n('持ち帰り'), 0);
+}
+function _autoChinOnInput(k){
+  if(!state.autoChin) return;
+  var i=k.indexOf('_'); if(i<0) return;
+  var col=k.slice(0,i), row=k.slice(i+1);
+  if(col==='陳列数'){ delete state.autoChin[row]; return; }
+  if(_AUTO_SRC.indexOf(col)<0 || !state.autoChin[row]) return;
+  var key='陳列数_'+row, v=String(_autoChinCalc(row));
+  state.formData[key]=v;
+  var el=document.querySelector('input[data-fkey="'+key.replace(/"/g,'\\"')+'"]');
+  if(el) el.value=v;
+}
+function applyPrevPlusNouhin(){
+  var pz=state.prevZan;
+  if(!pz || pz.status!=='ok' || pz.storeId!==state.storeId) return;
+  _formEdits++;
+  if(!state.autoChin) state.autoChin = {};
+  var again = !!state.autoApplied;
+  var rows = state.store.prices.slice();
+  if(state.store.type==='yaoko') state.extraPrices.forEach(function(p){ rows.push('臨#'+p); });
+  rows.forEach(function(row){
+    // 2回目以降：陳列数を手で直した行（自動が外れた行）は残す
+    if(again && !state.autoChin[row] && String(state.formData['陳列数_'+row]||'')!=='') return;
+    state.autoChin[row] = true;
+    state.formData['陳列数_'+row] = String(_autoChinCalc(row));
+  });
+  state.autoApplied = true;
+  _rerenderKeepInputs();
+}
+// ===== 保存済みデータの読み込み（2026-10-06 修正） =====
+// ・日報が未送信の店舗に販売数の取り込みで今日の行ができると、販売数だけの応答が success:true で返り、
+//   入力欄を全部消して空欄を描いていた。入力欄の値が1件も無い応答は「保存データなし」として扱い、
+//   入力欄を消さずに「本日の保存データはまだありません」と出す（GAS 側でも no_input を返す。どちらか片方でも正しく動く）。
+// ・前日の値は読み込まない（ずれるため。杉さん決定 2026-10-06）。読むのは今日だけ。
+//   販売数・売上金額は今日の分でも入力に持ち込まない（取り込みが書く列。読んだ値を送り返すと新しい取り込みを古い値で上書きする）。
+// ・「読み込み中」のまま終わらないことがあった（GAS の一時的な詰まり・スリープや背面で JSONP が宙に浮く）。
+//   4秒で2本目・1本目がすぐエラーなら2本目・遅れた応答も受け取る。10秒で「時間がかかっています」、
+//   30秒で失敗の表示（どちらも入力欄は消さない）。前面に戻ったとき・online で、進行中の読み込みは捨てて出し直す。
+// ・待っている間に手で入力していたら、届いたデータで置き換える前に確かめる。
+var LOAD_HEDGE_MS = 4000;     // 応答が無ければ2本目
+var LOAD_SLOW_MS = 10000;     // 「時間がかかっています」
+var LOAD_FAIL_MS = 30000;     // 失敗の表示
+var LOAD_LATE_MS = 90000;     // 失敗の表示の後も、遅れて届いた応答を受け取る
+var LOAD_RETRY_WAIT = 3000;   // 2本ともすぐ失敗したとき、次の2本までの間（失敗の表示までの間だけ）
+var _load = null;             // {gen, store, date, step, status, startedAt, stepAt, edits, timers, doneLabel}
+var _loadGen = 0;
+var _formEdits = 0;           // 手で入力した回数（読み込みの間に入力があったかの判定用）
+function _isImportedKey(k){ k = String(k||''); return k.indexOf('販売数') === 0 || k.indexOf('売上金額') === 0; }
+// 入力欄の値が1件でもあるか（販売数・売上金額など取り込み由来の列と req_id は数えない）
+function _hasFormInputItems(items){
+  if(!items || typeof items !== 'object') return false;
+  return Object.keys(items).some(function(k){
+    if(_isImportedKey(k) || k === 'req_id') return false;
+    var v = items[k];
+    return v !== '' && v !== null && v !== undefined;
+  });
+}
+function _loadLive(L, step){
+  return _load === L && L.step === step && (L.status === 'loading' || L.status === 'slow' || L.status === 'failed');
+}
+function _loadClearTimers(L){ if(!L) return; (L.timers||[]).forEach(function(t){ clearTimeout(t); }); L.timers = []; }
+function _loadReset(){ _loadGen++; _loadClearTimers(_load); _load = null; }
+function _loadBtnOnly(extraCls){
+  var L = _load, label = '📥 保存データを読み込む', dis = false;
+  if(L && (L.status === 'loading' || L.status === 'slow')){ label = '📥 読み込み中...'; dis = true; }
+  else if(L && L.status === 'done'){ label = L.doneLabel; dis = true; }
+  return '<button class="load-btn'+(extraCls?' '+extraCls:'')+'" id="loadBtn" onclick="loadSavedData()"'+(dis?' disabled':'')+'>'+eH(label)+'</button>';
+}
+function _loadBtnHtml(){
+  return _loadBtnOnly('') + '<div id="load_note">'+_loadNoteHtml()+'</div>';
+}
+function _loadNoteHtml(){
+  var L = _load;
+  if(L && L.status === 'empty'){
+    return '<div id="load_empty" style="background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;border-radius:8px;padding:8px 10px;margin:-4px 0 10px;font-size:12px;font-weight:600;line-height:1.7;text-align:center">'
+      + 'ℹ️ 本日の保存データはまだありません。入力した値はそのままです。</div>';
+  }
+  if(!L || (L.status !== 'slow' && L.status !== 'failed')) return '';
+  var msg = (L.status === 'slow')
+    ? '⏳ 時間がかかっています。入力した値はそのままです。'
+    : '⚠️ 保存済みデータを読み込めませんでした。入力した値はそのままです。電波の良い場所で再試行してください。';
+  return '<div style="background:#fff8e1;color:#8a6100;border:1px solid #ffd54f;border-radius:8px;padding:8px 10px;margin:-4px 0 10px;font-size:12px;font-weight:600;line-height:1.7;text-align:center">'
+    + msg + '<div><button onclick="retryLoad()" style="margin-top:6px;background:#8a6100;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">再試行</button></div></div>';
+}
+function _loadUpdateUi(){
+  var btn = document.getElementById('loadBtn'), L = _load;
+  if(btn){
+    if(L && (L.status === 'loading' || L.status === 'slow')){ btn.disabled = true; btn.textContent = '📥 読み込み中...'; }
+    else if(L && L.status === 'done'){ btn.disabled = true; btn.textContent = L.doneLabel; }
+    else { btn.disabled = false; btn.textContent = '📥 保存データを読み込む'; }
+  }
+  var note = document.getElementById('load_note');
+  if(note) note.innerHTML = _loadNoteHtml();
+}
+function loadSavedData() { _startLoad(); }
+function retryLoad() { _startLoad(); }
+// 読み込みを最初（今日）から始める。進行中のものがあれば捨てる（遅れて届いても使わない）。
+function _startLoad(){
+  if(!state.store) return;
+  _loadClearTimers(_load);
+  if(_load && _load.flog) _load.flog.abandon();   // 取得の記録：結果を待たずに出し直した（終わっていれば何もしない）
+  _load = { gen: ++_loadGen, store: state.store.name, step: 0, status: 'loading',
+            startedAt: Date.now(), stepAt: Date.now(), edits: _formEdits, timers: [], doneLabel: '' };
+  _loadUpdateUi();
+  tryLoadDate(todayStr);
+}
+// 前面に戻ったとき・online になったとき：進行中の読み込みは宙に浮いている可能性があるので捨てて出し直す。
+// 始めて4秒未満なら待つ。失敗の表示中でも、その後に手で入力していなければ出し直す。
+function _loadOnForeground(){
+  var L = _load;
+  if(!L || state.screen !== 'form' || !state.store || state.store.name !== L.store) return;
+  if(L.status === 'loading' || L.status === 'slow'){
+    if(Date.now() - L.stepAt < LOAD_HEDGE_MS) return;
+    _startLoad();
+  } else if(L.status === 'failed' && _formEdits === L.edits){
+    _startLoad();
+  }
+}
 
-function tryLoadDate(date, isFallback) {
-  var btn = document.getElementById('loadBtn');
-  var url = API_URL
-    + '?action=getStoreData'
-    + '&store=' + encodeURIComponent(state.store.name)
-    + '&date=' + date;
+function tryLoadDate(date) {
+  var L = _load;
+  if (!L) return;
+  _loadClearTimers(L);
+  var step = ++L.step;
+  L.date = date; L.stepAt = Date.now(); L.status = 'loading';
+  _loadUpdateUi();
+  // 10秒で「時間がかかっています」、30秒で失敗の表示（日付ごとに数える）
+  L.timers.push(setTimeout(function(){
+    if (_loadLive(L, step) && L.status === 'loading') { L.status = 'slow'; _loadUpdateUi(); }
+  }, LOAD_SLOW_MS));
+  L.timers.push(setTimeout(function(){
+    if (_loadLive(L, step) && L.status !== 'failed') { L.status = 'failed'; _loadUpdateUi(); }
+  }, LOAD_FAIL_MS));
+  _loadAttempt(L, step, date);
+}
 
-  jsonp(url, 'cb_load', function(res) {
-    if (!res.success) {
-      if (!isFallback) {
-        // 今日のデータが無ければ前日を試す（前日値引き継ぎ）
-        tryLoadDate(shiftDate(todayStr, -1), true);
-        return;
-      }
-      alert('本日・前日の保存データはありません。');
-      if (btn) { btn.disabled = false; btn.textContent = '📥 保存済みデータを読み込む'; }
-      return;
-    }
-    // 担当者は今日のデータからのみ反映（前日fallback時は触らない）
-    if (res.staff && !isFallback) state.staff = res.staff;
+// 1回の試行：1本目を出し、4秒応答が無いか、1本目がすぐエラーで返ったら2本目を出す（最大2本）。
+// 先に返ったほうを使う。2本ともエラーなら、失敗の表示までの間は3秒おいて次の試行。
+// 見切った後も LOAD_LATE_MS の間は遅れて届いた応答を受け取る（同じ読み込み・同じ日付のときだけ）。
+function _loadAttempt(L, step, date) {
+  var fired = 0, inflight = 0, over = false, hedgeT = null;
+  var A = L.flog = _flAttempt('getStoreData');
+  function fire(){
+    fired++; inflight++;
+    var url = API_URL
+      + '?action=getStoreData'
+      + '&store=' + encodeURIComponent(L.store)
+      + '&date=' + date
+      + '&_cb=' + Date.now();
+    apiJsonp(url, 'cb_load', function(res){ inflight--; onRes(res); },
+      function(){ inflight--; onErr(); }, LOAD_FAIL_MS,
+      { onLate: function(res){ onRes(res); }, lateGraceMs: LOAD_LATE_MS, flog: A.req() });
+  }
+  function onRes(res){
+    if (!_loadLive(L, step)) return;
+    if (!res || typeof res !== 'object' || typeof res.success !== 'boolean') { A.bad(res); onErr(); return; }   // 形の違う応答
+    over = true;
+    if (hedgeT) { clearTimeout(hedgeT); hedgeT = null; }
+    A.ok();
+    _loadReceived(L, step, date, res);
+  }
+  function onErr(){
+    if (over || !_loadLive(L, step)) return;
+    if (fired < 2) { if (hedgeT) { clearTimeout(hedgeT); hedgeT = null; } fire(); return; }
+    if (inflight > 0) return;   // もう1本がまだ返っていない
+    over = true;
+    A.fail();
+    if (L.status === 'failed') return;   // 失敗の表示の後は自動では出さない（再試行ボタン・前面復帰で出し直す）
+    L.timers.push(setTimeout(function(){
+      if (_loadLive(L, step) && L.status !== 'failed') _loadAttempt(L, step, date);
+    }, LOAD_RETRY_WAIT));
+  }
+  fire();
+  hedgeT = setTimeout(function(){ hedgeT = null; if (!over && fired < 2 && _loadLive(L, step)) fire(); }, LOAD_HEDGE_MS);
+}
+
+function _loadFinish(L, status, label) {
+  _loadClearTimers(L);
+  L.status = status; L.doneLabel = label || '';
+  _loadUpdateUi();
+}
+
+function _loadReceived(L, step, date, res) {
+  // 入力欄の値が1件も無い応答（GAS の no_input、今日の行が無い、または GAS が未反映で販売数だけの行が返ったもの）は
+  // 保存データなしとして扱う。入力欄は一切触らない（配達商品情報から入った納品数も残す）。前日は読まない。
+  if (!res.success || !_hasFormInputItems(res.items)) {
+    _loadFinish(L, 'empty');
+    return;
+  }
+  if (state.screen !== 'form' || !state.store || state.store.name !== L.store) { _loadFinish(L, 'idle'); return; }
+  // 待っている間に手で入力していたら、置き換える前に確かめる
+  if (_formEdits !== L.edits && !confirm('保存済みデータが届きました。\n入力中の値を、届いたデータで置き換えますか？')) {
+    _loadFinish(L, 'idle');
+    return;
+  }
+  _loadClearTimers(L);
+  L.status = 'done';
+  L.doneLabel = '✅ 読み込み完了';
+  _applyLoadedData(res);
+}
+
+function _applyLoadedData(res) {
+    if (res.staff) state.staff = res.staff;
 
     // formData / extraPrices をリセット
-    state.formData = {};
+    state.formData = {}; state.autoChin = {}; state.autoApplied = false;
     state.extraPrices = [];
 
     // GASのキー形式（例: "S品_¥99（個）"）→ アプリのキー形式（"S品_¥99"）に変換
     if (res.items) {
       Object.keys(res.items).forEach(function(key) {
+        // 販売数・売上金額は持ち込まない（入力欄が無いまま送信され、後から取り込まれた値を読んだ時点の値で上書きするため）
+        if (_isImportedKey(key)) return;
         var cleanKey = key.replace('（個）', '').replace('（kg）', '');
         state.formData[cleanKey] = res.items[key];
         // 元のキーそのままも保持（互換性）
@@ -1145,23 +1749,9 @@ function tryLoadDate(date, isFallback) {
       });
     });
 
-    // フォームを再描画
+    _addPrevZanExtras();   // 保存データに無くても、前日在庫が残っている追加商品の行は出す
+    // フォームを再描画（読み込みボタンは _loadBtnHtml が完了の表示で描く）
     renderForm();
-    // 読み込み完了メッセージ
-    var newBtn = document.getElementById('loadBtn');
-    if (newBtn) {
-      if (isFallback) {
-        newBtn.textContent = '📥 '+date.slice(5).replace('-','/')+'(前日)を読込';
-      } else {
-        newBtn.textContent = '✅ 読み込み完了';
-      }
-      newBtn.disabled = true;
-    }
-  }, function() {
-    alert('データの取得に失敗しました。');
-    var newBtn = document.getElementById('loadBtn');
-    if (newBtn) { newBtn.disabled = false; newBtn.textContent = '📥 保存済みデータを読み込む'; }
-  });
 }
 
 
@@ -1205,44 +1795,73 @@ function tryLoadDate(date, isFallback) {
 //         （画面を離れていれば店舗一覧のバナーが即座に出る）
 //     層3 次回起動時に reqId 照合し、未記録なら必ずバナーで知らせる
 //   二重記録対策（reqId dedup / ScriptLock / 確認導線）は一切弱めていない。
-var SUBMIT_MAX_ATTEMPTS = 3;
-var SUBMIT_RETRY_WAIT   = 600;
-// 【2026-08-12】12秒 → 7.5秒。実測 RTT 中央値3.6秒・p90 9.7秒に対し12秒は待ちすぎで、
-// 尾を引いた回は12秒フル待ちしてから確認・再送に入っていた。onLate があるので
-// 見切っても遅延到着した success は拾え、成立済みの書き込みを捨てることはない。
-var SUBMIT_TIMEOUT      = 7500;
-var SUBMIT_LATE_GRACE   = 25000;  // 見切り後に遅延到着を拾う猶予(ms)
-var CONFIRM_TIMEOUT     = 8000;   // getSubmitStatus 実測 p90≈3.8秒
-var SUBMIT_DEADLINE     = 22000;  // 新しい試行を始めてよい上限(ms)
-var LS_SUBMIT_PENDING   = lsKey('nippo_submit_pending_v1');
+// 【2026-09-29 再設計：送信は裏で届くまで面倒を見る。誤警告を出さない】
+// 調査（_backup\20260929_nippo3件調査\report.md 件3）で分かった穴:
+//   ・getSubmitStatus はロックを取らないので、送信が処理中・順番待ちでも「見つからない」を返す。
+//     それを「未送信」と確定扱いしていた（誤警告）
+//   ・見切った後に届いた成功を捨てていた。照合の結果も一度決まると再照合しなかった
+//   ・JSONP（script タグ）は画面を移るとページごと中断される
+//   ・日付が変わると前日の退避を黙って捨てていた
+// 新方式:
+//   ・送信は fetch の keepalive（画面を移っても送信が続く）。使えない端末は従来の JSONP
+//   ・照合と再送は裏で自動に回す（送信の5秒・15秒・45秒・2分後、以後3分ごと。前面復帰・起動時も）
+//   ・最後の送信から90秒以内の「見つからない」は処理中とみなし、数えない
+//   ・90秒を過ぎて見つからなければ同じ reqId で自動再送（二重記録にはならない）
+//   ・赤い警告は「最初の送信から10分・見つからない3回以上・自動再送2回済み」がそろったときだけ
+//   ・警告を出した後も照合は続け、届いたと分かれば黙って「送信済み」に直す
+//   ・前日以前の退避も捨てず、その日付のまま照合・再送する
+// reqId による重複排除（GAS のロック内照合）はそのまま使う。GAS は変えていない。
+// 【2026-10-06 杉さん要望：再送・復元の表示をやめる】
+//   ・店舗一覧の帯（確認中／電波待ち／赤い警告）・「いますぐ再送する」「破棄」・完了画面の赤い警告をやめた。
+//     照合と自動再送は従来どおり裏で続け、届いたら端末から消す
+//   ・自動再送の回数の上限（6回）をやめ、届くまで5分以上の間隔で送り続ける（端末に残すのは7日まで）
+//   ・何度送っても届かない（24時間・または5回。unsent-notice.js の設定）ときだけ、目立たない一行を出す
+// 【2026-10-06 追補】回数は「照合でサーバに無いと確定した回数」（notFound）で数える。照合の失敗・応答なしは数えない。
+//   24時間の条件は、この画面を開いてから照合を1回以上終えたもの（_dlRun の seen）だけに使う。
+//   照合と再送はアプリを開いている間だけ：起動時・前面復帰・電波復帰（online）・開いている間は数分おき
+var SUBMIT_BUILD          = 'no-restore-20261006b';  // 本番反映の確認用マーカー
+var SUBMIT_RETRY_WAIT     = 600;     // retryable（ロック待ち）のときの再送間隔(ms)
+var SUBMIT_RETRYABLE_MAX  = 2;       // retryable の即時再送の上限（1回の送信あたり）
+var SUBMIT_TIMEOUT        = 7500;    // 送信の応答を待つ時間。過ぎたら照合に任せる（送信自体は続く）
+var SUBMIT_LATE_GRACE     = 25000;   // JSONP で見切り後に遅延到着を拾う猶予(ms)
+var CONFIRM_TIMEOUT       = 8000;    // getSubmitStatus 実測 p90≈3.8秒
+var SUBMIT_PROCESSING_MS  = 90000;   // 最後の送信からこの間の「見つからない」は処理中扱い
+var SUBMIT_CHECK_STEPS    = [5000, 15000, 45000, 120000];   // 最後の送信からの照合の間隔
+var SUBMIT_CHECK_EVERY    = 180000;  // 上の後は3分ごと
+var SUBMIT_AUTO_RESEND    = 2;       // 見つからなければすぐ自動再送する回数
+var SUBMIT_AUTO_RESEND_GAP = 300000; // その後の自動再送の間隔の下限
+var LS_SUBMIT_PENDING     = lsKey('nippo_submit_pending_v1');
+// unsent-notice.js を読み込めなかった端末：送り直しは続け、一行は出さない
+function _un(){
+  return window.Unsent || { RESEND:true, due:function(){ return false; }, expired:function(){ return false; },
+                            md:function(v){ return String(v||''); }, render:function(){} };
+}
 var _submitBusy = false;
-// 楽観的UIでは「A店を送信→完了→B店を送信」が確認完了前に起こりうるので、
-// セッションは店舗ごとに並行して生かす（単一の _submitSess では後発が前発を殺す）。
-var _submitSessions = {};
 function _setSubmitBtnDisabled(d){
   var b=document.getElementById('submitBtn');
   if(b) b.disabled=!!d;
 }
 
-// ---- 未送信日報の退避と再送導線 ----
-// 保存するのは「そのまま再送できる完全な送信内容」。reqId も一緒に持つので、
-// 再送しても GAS 側の同一 date × reqId 重複検知で二重記録にならない。
+// ---- 未送信日報の退避 ----
+// 保存するのは「そのまま再送できる完全な送信内容」と、配送の進み具合
+// （firstSentAt/lastSentAt/sends/notFound/autoResends/lastReplyAt/rejected）。
+// reqId も一緒に持つので、再送しても GAS 側の同一 date × reqId 重複検知で二重記録にならない。
 //
-// 【店舗ごとに保持する】配達員は1経路で3〜6店舗を順に回り、店舗ごとに送信する。
-// 退避枠が1つしかないと「寄居店が失敗 → 次のみどりが丘店を送信 → 寄居店の
-// 退避が上書きされ、みどりが丘店の成功で消える」で失敗分の入力が消えてしまう。
-// 店舗名をキーにしたマップで持ち、成功した店舗の分だけを消す。
+// 【店舗×日付ごとに保持する】配達員は1経路で3〜6店舗を順に回り、店舗ごとに送信する。
+// 【2026-09-29】前日分を捨てずに残すので、キーは「日付|店舗名」にする
+// （前日の長瀬店が未着のまま今日の長瀬店を送っても、前日分を上書きしない）。
+// 旧形式（キー＝店舗名）も読み込み時に同じ形へ直す。
+function _pendingKey(p){ return p.date+'|'+p.storeName; }
 function _readPendingMap(){
   try{
     var raw=localStorage.getItem(LS_SUBMIT_PENDING);
     if(!raw) return {};
     var m=JSON.parse(raw);
     if(!m||typeof m!=='object'||Array.isArray(m)) return {};
-    // 当日分だけを残す（日付が変わったものは自然に消える）
     var out={};
     Object.keys(m).forEach(function(k){
       var o=m[k];
-      if(o&&o.storeName&&o.reqId&&o.items&&o.date===todayStr) out[k]=o;
+      if(o&&o.storeName&&o.reqId&&o.items&&/^\d{4}-\d{2}-\d{2}$/.test(String(o.date||''))) out[_pendingKey(o)]=o;
     });
     return out;
   }catch(e){ return {}; }
@@ -1254,54 +1873,236 @@ function _savePendingMap(m){
   }catch(e){}
 }
 function _writeSubmitPending(p){
-  var m=_readPendingMap(); m[p.storeName]=p; _savePendingMap(m);
+  var m=_readPendingMap(); m[_pendingKey(p)]=p; _savePendingMap(m);
 }
-function _clearSubmitPendingFor(storeName){
-  var m=_readPendingMap(); delete m[storeName]; _savePendingMap(m);
+function _findPendingByReq(reqId){
+  var m=_readPendingMap(), ks=Object.keys(m);
+  for(var i=0;i<ks.length;i++){ if(m[ks[i]].reqId===reqId) return m[ks[i]]; }
+  return null;
 }
-function _readSubmitPendingFor(storeName){
-  return _readPendingMap()[storeName] || null;
+// reqId で書き換える（同じ店舗・日付を後から別の送信で上書きしていたら何もしない）
+function _patchPending(reqId, fn){
+  var m=_readPendingMap(), ks=Object.keys(m);
+  for(var i=0;i<ks.length;i++){
+    if(m[ks[i]].reqId===reqId){ fn(m[ks[i]]); _savePendingMap(m); return m[ks[i]]; }
+  }
+  return null;
+}
+function _clearPendingByReq(reqId){
+  var m=_readPendingMap(), hit=false;
+  Object.keys(m).forEach(function(k){ if(m[k].reqId===reqId){ delete m[k]; hit=true; } });
+  if(hit) _savePendingMap(m);
+  return hit;
 }
 function _listSubmitPending(){
   var m=_readPendingMap();
-  return Object.keys(m).map(function(k){ return m[k]; });
+  return Object.keys(m).map(function(k){ return m[k]; })
+    .sort(function(a,b){ return a.date<b.date ? -1 : a.date>b.date ? 1 : 0; });
 }
-function _updateSubmitPendingBanner(){
-  var list=_listSubmitPending();
-  var el=document.getElementById('submit_pending_notice');
-  if(list.length===0){ if(el&&el.parentNode) el.parentNode.removeChild(el); return; }
-  if(!el){
-    el=document.createElement('div');
-    el.id='submit_pending_notice';
-    el.style.cssText='background:#fdecea;color:#b71c1c;border:1px solid #ef9a9a;border-radius:8px;padding:10px;margin:0 16px 8px;font-size:12px;text-align:center;font-weight:600;line-height:1.8';
-    var app=document.getElementById('app');
-    if(app&&app.parentNode) app.parentNode.insertBefore(el,app);
+
+// ---- 配送（送信・照合・自動再送）----
+// 状態は退避（localStorage）に持つので、画面の再読み込み・日付の変わり目をまたいで続く。
+// ここ（_dlRun）はこの画面の中だけの作業状態（通信中か・次のタイマー）。
+var _dlRun = {};   // reqId -> { sending, checking, timer, checks（次に使う照合の段）, retryable, seen（この画面で照合・送信を終えた） }
+function _dl(reqId){ return _dlRun[reqId] || (_dlRun[reqId]={ sending:false, checking:false, timer:null, checks:0, retryable:0, seen:false }); }
+
+function _submitUrl(p){
+  return API_URL+'?action=submit&store='+encodeURIComponent(p.storeName)+'&date='+p.date
+    +'&staff='+encodeURIComponent(p.staff)+'&items='+encodeURIComponent(JSON.stringify(p.items))
+    +'&reqId='+encodeURIComponent(p.reqId);
+}
+function _canKeepalive(){
+  try{ return typeof fetch==='function' && typeof Request==='function' && ('keepalive' in Request.prototype); }
+  catch(e){ return false; }
+}
+
+// 1回送る。結果は onResult(kind,res)：'ok'／'retryable'／'rejected'／'unknown'（読めない・遅い・通信失敗）。
+// 'unknown' の後に遅れて届いた応答も _dlOnLate で拾う。
+function _dlTransmit(p, onResult){
+  var url=_submitUrl(p)+'&_cb='+Date.now();
+  // 保存と送信の記録用（GAS はこの値を記録するだけで、送信の処理には使わない）
+  try{ url+=_auditQuery({ via:(_canKeepalive()?'keepalive':'jsonp'), why:(p.lastWhy||''), n:(p.sends||1) }); }catch(e){}
+  var done=false;
+  function fin(kind,res){ if(done) return false; done=true; onResult(kind,res); return true; }
+  function classify(res){
+    if(res&&res.success) return 'ok';               // duplicate:true（同じreqIdの再送）も成功
+    if(res&&res.retryable) return 'retryable';      // ロックが取れず、書き込みは起きていない
+    if(res&&res.success===false) return 'rejected'; // データ起因。行は追記されていない
+    return 'unknown';
   }
-  var h='⚠️ 未送信の日報があります（'+list.length+'件）<br>入力内容は端末に残してあります。';
-  list.forEach(function(p){
-    var sn=p.storeName.replace(/'/g,'');
-    h+='<div style="margin-top:7px;padding-top:7px;border-top:1px solid #f3c4c0">'
-      +eH(p.storeName)+'（'+eH(p.staff)+'・'+eH(p.at||'')+'）<br>'
-      +'<button onclick="resendSubmitPending(\''+sn+'\')" style="margin-top:5px;background:#b71c1c;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer">再送する</button>'
-      +' <button onclick="discardSubmitPending(\''+sn+'\')" style="margin-top:5px;margin-left:4px;background:none;border:1px solid #ef9a9a;border-radius:6px;padding:6px 10px;font-family:inherit;font-size:12px;color:#b71c1c;cursor:pointer">破棄</button>'
-      +'</div>';
+  if(_canKeepalive()){
+    // keepalive：画面を移っても・アプリを切り替えても要求は送られ続ける。
+    // GAS は ANYONE_ANONYMOUS の GET なので、CORS で応答（JSON）を読める。
+    // 読めなくても（CORS・通信断）書き込みは成立し得るので、結果は reqId の照合で確かめる。
+    // タイムアウトで abort はしない（abort すると keepalive の意味が無くなる）。
+    var t=setTimeout(function(){ fin('unknown'); }, SUBMIT_TIMEOUT);
+    fetch(url,{ method:'GET', keepalive:true, mode:'cors', credentials:'omit', cache:'no-store' })
+      .then(function(r){ return r.json(); })
+      .then(function(res){ clearTimeout(t); var k=classify(res); if(!fin(k,res)) _dlOnLate(p.reqId,k,res); })
+      .catch(function(){ clearTimeout(t); fin('unknown'); });
+    return;
+  }
+  // keepalive の無い端末：従来の JSONP。画面を移ると中断されるが、次に開いたときの照合と自動再送で拾う。
+  jsonp(url,'cb_sub',function(res){ var k=classify(res); if(!fin(k,res)) _dlOnLate(p.reqId,k,res); },
+    function(){ fin('unknown'); }, SUBMIT_TIMEOUT,
+    { lateGraceMs: SUBMIT_LATE_GRACE, onLate: function(res){ _dlOnLate(p.reqId,classify(res),res); } });
+}
+// 見切った後に届いた応答。成功ならその時点で「送信済み」に直す（警告を出した後でも）。
+function _dlOnLate(reqId, kind, res){
+  if(kind==='ok') _dlDelivered(reqId);
+  else if(kind==='rejected') _dlRejected(reqId, res);
+}
+
+// why: 'first'（送信ボタン）／'auto'（自動再送）／'retry'（ロック待ちの送り直し）
+function _dlSend(reqId, why){
+  var r=_dl(reqId);
+  if(r.sending) return;
+  var now=Date.now();
+  var p=_patchPending(reqId, function(o){
+    if(!o.firstSentAt){ o.firstSentAt=now; o.notFound=0; o.autoResends=0; o.rejected=''; }
+    if(why==='auto') o.autoResends=(o.autoResends||0)+1;
+    o.sends=(o.sends||0)+1;
+    o.lastWhy=why;   // 保存と送信の記録用（初回か再送か）
+    o.lastSentAt=now;
+    if(!o.lastReplyAt) o.lastReplyAt=now;
   });
-  el.innerHTML=h;
+  if(!p) return;
+  r.sending=true; r.checks=0;
+  clearTimeout(r.timer); r.timer=null;
+  _dlTransmit(p, function(kind,res){
+    r.sending=false; r.seen=true;
+    if(kind==='ok'){ _dlDelivered(reqId); return; }
+    if(kind==='rejected'){ _dlRejected(reqId,res); return; }
+    if(kind==='retryable' && r.retryable<SUBMIT_RETRYABLE_MAX){
+      // 書き込みは起きていないので、照合を挟まずすぐ同じ reqId で送り直す（自動再送には数えない）
+      r.retryable++;
+      r.timer=setTimeout(function(){ r.timer=null; _dlSend(reqId,'retry'); }, SUBMIT_RETRY_WAIT);
+      return;
+    }
+    r.retryable=0;
+    _dlArm(reqId);
+    _submitRefreshViews();
+  });
 }
-function resendSubmitPending(storeName){
-  var p=_readSubmitPendingFor(storeName);
-  if(!p){ _updateSubmitPendingBanner(); return; }
-  _runSubmit(p, true);
+
+// 次の照合を予約する（最後の送信からの経過で決める）
+function _dlArm(reqId){
+  var r=_dl(reqId), p=_findPendingByReq(reqId);
+  if(!p || r.sending || r.checking || p.rejected) return;
+  clearTimeout(r.timer);
+  // 過ぎてしまった段（再読み込み・背面復帰の後）は飛ばし、次の未来の段に合わせる（照合を連打しない）
+  var steps=SUBMIT_CHECK_STEPS, base=p.lastSentAt||0, now=Date.now(), at;
+  for(;;){
+    var i=r.checks;
+    at = base + (i<steps.length ? steps[i] : steps[steps.length-1]+(i-steps.length+1)*SUBMIT_CHECK_EVERY);
+    if(at>now) break;
+    r.checks++;
+  }
+  r.timer=setTimeout(function(){ r.timer=null; _dlCheck(reqId); }, at-now);
 }
-function discardSubmitPending(storeName){
-  if(!confirm(storeName+' の未送信日報を破棄します。よろしいですか？')) return;
-  _clearSubmitPendingFor(storeName);
-  _updateSubmitPendingBanner();
+
+function _dlCheck(reqId){
+  var r=_dl(reqId), p=_findPendingByReq(reqId);
+  if(!p || r.sending || r.checking) return;
+  if(!p.sends){
+    // 送った記録を持たない退避（旧版の退避・送信直前に画面が閉じた等）。届いている可能性があるので
+    // まず照合し、見つからなければそのまま自動再送に進む（lastSentAt=0＝処理中とはみなさない）。
+    var now0=Date.now();
+    p=_patchPending(reqId,function(o){ o.sends=1; o.firstSentAt=o.firstSentAt||now0; o.lastSentAt=0; o.lastReplyAt=o.lastReplyAt||now0; });
+  }
+  r.checking=true;
+  clearTimeout(r.timer); r.timer=null;
+  apiJsonp(API_URL+'?action=getSubmitStatus&store='+encodeURIComponent(p.storeName)
+    +'&date='+p.date+'&reqId='+encodeURIComponent(p.reqId)+'&_cb='+Date.now(),
+    'cb_pend_chk',function(res){
+      r.checking=false; r.seen=true;
+      if(res&&res.success&&res.found){ _dlDelivered(reqId); return; }
+      var cur=_findPendingByReq(reqId);
+      if(!cur) return;
+      if(res&&res.success){
+        var now=Date.now();
+        var processing = now-(cur.lastSentAt||0) < SUBMIT_PROCESSING_MS;   // 処理中・順番待ちの可能性
+        cur=_patchPending(reqId,function(o){ o.lastReplyAt=now; if(!processing) o.notFound=(o.notFound||0)+1; });
+        if(!processing && _dlShouldAutoResend(cur, now)){ _dlSend(reqId,'auto'); _submitRefreshViews(); return; }
+      }
+      // 照合自体の失敗（success でない応答）は何も確定させない
+      _dlArm(reqId);
+      _submitRefreshViews();
+    },function(){
+      // 照合できなかった（GAS の不調・電波）：未着とはみなさず、次の照合を予約するだけ
+      r.checking=false; r.seen=true;
+      _dlArm(reqId);
+      _submitRefreshViews();
+    },CONFIRM_TIMEOUT,{
+      lateGraceMs: SUBMIT_LATE_GRACE,
+      onLate: function(res){ if(res&&res.success&&res.found) _dlDelivered(reqId); }
+    });
+}
+// 【2026-10-06】回数の上限は設けない（届くまで、5分以上の間隔で送り続ける。端末に残すのは7日まで）
+function _dlShouldAutoResend(p, now){
+  var n=p.autoResends||0;
+  if(n < SUBMIT_AUTO_RESEND) return true;
+  return now-(p.lastSentAt||0) >= SUBMIT_AUTO_RESEND_GAP;
+}
+
+function _dlDelivered(reqId){
+  var r=_dlRun[reqId];
+  if(r){ clearTimeout(r.timer); delete _dlRun[reqId]; }
+  _clearPendingByReq(reqId);
+  _setDoneStatus(reqId,'ok','送信済み（サーバへの記録を確認しました）');
+  _updateUnsentLine();
+}
+function _dlRejected(reqId, res){
+  var r=_dlRun[reqId];
+  if(r){ clearTimeout(r.timer); r.timer=null; }
+  _patchPending(reqId,function(o){ o.rejected=String((res&&res.error)||'サーバエラー'); });
+  _submitRefreshViews();
+}
+
+// 退避が残っているものすべてについて、照合を始める。
+// now=true：前面復帰・起動時。予約を待たずにすぐ照合する（最後の送信から5秒以内は除く）。
+function _kickSubmitPendingChecks(now){
+  _listSubmitPending().forEach(function(p){
+    var r=_dl(p.reqId);
+    if(r.sending || r.checking || p.rejected) return;
+    if(now && Date.now()-(p.lastSentAt||0) >= SUBMIT_CHECK_STEPS[0]){ _dlCheck(p.reqId); return; }
+    if(!r.timer) _dlArm(p.reqId);
+  });
+}
+
+// 完了画面は「確認中…」のまま（届けば「送信済み」）。届かないときの警告・再送ボタンは出さない（2026-10-06）
+function _submitRefreshViews(){
+  _updateUnsentLine();
+}
+
+// 起動時：7日を過ぎた退避は送り直さずに消す。設定で「送り直さない」なら残っている分をすべて消す（2026-10-06）
+function _tidySubmitPending(){
+  var un=_un();
+  if(!un.RESEND){ _savePendingMap({}); return; }
+  var m=_readPendingMap(), hit=false;
+  Object.keys(m).forEach(function(k){
+    var o=m[k], first=o.firstSentAt || new Date(o.date+'T00:00:00').getTime();
+    if(un.expired(first)){ delete m[k]; hit=true; }
+  });
+  if(hit) _savePendingMap(m);
+}
+
+// 何度送っても届かない日報だけ、目立たない一行を出す（帯・ボタンは出さない。2026-10-06）。
+// 出す条件と出す／出さないの切り替えは unsent-notice.js。照合と自動再送の予約もここで掛け直す。
+function _updateUnsentLine(){
+  _kickSubmitPendingChecks(false);
+  var un=_un(), now=Date.now(), lines=[];
+  _listSubmitPending().forEach(function(p){
+    var r=_dlRun[p.reqId];
+    if(!un.due(p.firstSentAt||now, p.notFound||0, !!p.rejected, now, !!(r&&r.seen))) return;
+    var who=un.md(p.date)+' '+String(p.storeName||'').replace(/^ヤオコー/,'')+'の日報';
+    lines.push(p.rejected ? who+'をサーバが受け付けませんでした（'+p.rejected+'）' : who+'がサーバに届いていません');
+  });
+  un.render(lines);
 }
 
 function doSubmit() {
   if(_submitBusy) return;                    // 送信中の再タップを無視
-  window._M = { tClick: Date.now(), attempts: [], confirms: [] };   // 【計測】
   if(!state.staff){alert('担当者を選択してください');return;}
   var items=[];
   Object.keys(state.formData).forEach(function(k){var v=state.formData[k];if(v!==''&&v!==null&&v!==undefined)items.push({key:k,value:String(v)});});
@@ -1317,206 +2118,53 @@ function doSubmit() {
   };
   // 【最優先】送信を始める前に端末へ退避。以降どこで失敗しても入力は失われない。
   _writeSubmitPending(pending);
-  _runSubmit(pending, false);
+  _runSubmit(pending);
 }
 
-// 完了画面に出す「確認中／確認済み／確認できず」の控えめな表示。
+// 完了画面に出す「確認中／送信済み」の控えめな表示。
 // 操作はブロックしない。表示中の完了画面が別の送信のものなら何もしない
 // （A店の完了画面を見ている最中に、先に出したB店の確認結果で書き換えない）。
-function _setDoneStatus(reqId, kind, msg, storeName){
+function _setDoneStatus(reqId, kind, msg){
   var el=document.getElementById('done_status');
   if(!el || el.getAttribute('data-req')!==reqId) return false;
   el.className='done-status ds-'+kind;
-  if(kind==='ng'){
-    el.innerHTML='<div class="ds-msg">⚠️ '+eH(msg)+'</div>'
-      +'<div class="ds-sub">入力内容は端末に保存してあります。二重記録にはなりません。</div>'
-      +'<button class="ds-retry" onclick="resendSubmitPending(\''+eA(String(storeName||'').replace(/'/g,''))+'\')">🔄 いますぐ再送する</button>';
-  } else {
-    el.innerHTML='<div class="ds-msg">'+eH(msg)+'</div>';
-  }
+  el.innerHTML='<div class="ds-msg">'+eH(msg)+'</div>';
   return true;
 }
 
-function _runSubmit(pending, isResend){
-  // 楽観的UIは通常送信のみ。バナーからの再送は従来どおり結果を待って知らせる。
-  var optimistic = !isResend;
-  if(!optimistic && _submitBusy) return;
-  var sess={ done:false, timers:[], t0:Date.now() };
-  _submitSessions[pending.reqId]=sess;
-  // 【重要】単一セッション比較（旧: _submitSess===sess）はやめる。楽観的UIでは
-  // 複数店舗の確認が同時に走るため、後発の送信が前発の確認を殺してしまう。
-  function alive(){ return !sess.done; }
-  function endSess(){ sess.done=true; sess.timers.forEach(function(h){clearTimeout(h);}); sess.timers=[]; delete _submitSessions[pending.reqId]; }
-  function later(fn,ms){ var h=setTimeout(function(){ if(alive()) fn(); },ms); sess.timers.push(h); }
-
-  var url=API_URL+'?action=submit&store='+encodeURIComponent(pending.storeName)+'&date='+pending.date
-    +'&staff='+encodeURIComponent(pending.staff)+'&items='+encodeURIComponent(JSON.stringify(pending.items))
-    +'&reqId='+encodeURIComponent(pending.reqId);
-  _submitBusy=true; _setSubmitBtnDisabled(true);
-
-  function succeed(){
-    endSess();
-    _submitBusy=false; hideLoading(); _setSubmitBtnDisabled(false);
-    _clearSubmitPendingFor(pending.storeName);   // 成功した店舗の分だけ消す
-    _updateSubmitPendingBanner();
-    if(window._M){ var M=window._M; M.tVerified=Date.now(); M.verifyMs=M.tVerified-M.tClick;
-                   M.verifyResult='ok'; M.nAttempts=M.attempts.length;
-                   M.nTimeouts=M.attempts.filter(function(a){return a.timedOut;}).length;
-                   console.log('[MEASURE] verified', JSON.stringify(M)); }
-    if(optimistic){
-      // 完了画面は既に出ている。確認できた旨だけ静かに差し替える。
-      _setDoneStatus(pending.reqId,'ok','サーバへの記録を確認しました');
-      return;
-    }
-    if(isResend){
-      alert('✅ 未送信だった日報を送信しました。\n'+pending.storeName);
-      renderHome();
-    } else {
-      rememberStaff(state.store, pending.staff);
-      renderDone();
-    }
-  }
-  // 記録を確認できなかった。入力は退避済みなので失われない。
-  //   ・完了画面がまだ開いていれば、その場で警告＋再送ボタン（層2）
-  //   ・画面を離れていれば店舗一覧のバナーが即座に出る（層2の代替）
-  //   ・どちらも見逃しても次回起動時の reqId 照合でバナーが出る（層3）
-  function warnUnconfirmed(msg){
-    if(window._M){ var M=window._M; M.tVerified=Date.now(); M.verifyMs=M.tVerified-M.tClick;
-                   M.verifyResult='ng'; M.verifyMsg=msg; M.nAttempts=M.attempts.length;
-                   M.nTimeouts=M.attempts.filter(function(a){return a.timedOut;}).length;
-                   console.log('[MEASURE] unconfirmed', JSON.stringify(M)); }
-    _updateSubmitPendingBanner();
-    if(optimistic){
-      if(_setDoneStatus(pending.reqId,'ng',msg,pending.storeName)) return;
-      // 完了画面を離れている → バナーは既に出ている。操作を邪魔しないため
-      // alert は出さず、ホーム表示中ならバナーへ視線を誘導するだけにする。
-      return;
-    }
-    alert(msg+'\n\n入力内容は端末に保存してあります。\n'
-      +'店舗一覧の「未送信の日報があります」から再送できます\n'
-      +'（同じ送信IDで送るので二重記録にはなりません）。');
-  }
-  // 見切り。入力は退避済みなので失われない。店舗一覧のバナーから再送できる。
-  function giveUp(msg){
-    endSess();
-    _submitBusy=false; hideLoading(); _setSubmitBtnDisabled(false);
-    warnUnconfirmed(msg);
-    if(!optimistic && isResend) renderHome();
-  }
-  // データ起因の失敗は再送しても変わらないので退避を残したまま即通知
-  function hardFail(msg){
-    endSess();
-    _submitBusy=false; hideLoading(); _setSubmitBtnDisabled(false);
-    _updateSubmitPendingBanner();
-    if(optimistic){
-      if(_setDoneStatus(pending.reqId,'ng',msg,pending.storeName)) return;
-    }
-    alert(msg);
-  }
-  // 見切った後に遅れて届いた応答。成功なら即完了にして再送を打ち切る。
-  function lateOk(res){ if(alive() && res && res.success) succeed(); }
-
-  // 記録されたかを reqId でサーバに確認する（誤った再送信＝別reqIdでの二重行を防ぐ）
-  function confirmSubmit(onNotFound){
-    if(!alive()) return;
-    // 楽観的UIでは画面を覆わない（配達員の操作をブロックしない）
-    if(optimistic){ _setDoneStatus(pending.reqId,'pending','記録を確認しています…'); }
-    else { hideLoading(); showLoading('送信を確認中...'); }
-    var _C = null;
-    if(window._M){ _C = {tSend:Date.now()}; window._M.confirms.push(_C); }
-    var _cwrap = function(found){ if(_C){ _C.rtt = Date.now() - _C.tSend; _C.found = found; } };
-    jsonp(API_URL+'?action=getSubmitStatus&store='+encodeURIComponent(pending.storeName)
-      +'&date='+pending.date+'&reqId='+encodeURIComponent(pending.reqId)+'&_cb='+Date.now(),
-      'cb_sub_confirm',function(res){
-        if(!alive()) return;
-        _cwrap(!!(res&&res.found));
-        if(res&&res.success&&res.found){ succeed(); return; }
-        onNotFound();
-      },function(){
-        if(!alive()) return;
-        onNotFound();
-      },CONFIRM_TIMEOUT,{
-        lateGraceMs: SUBMIT_LATE_GRACE,
-        onLate: function(res){ if(alive() && res && res.success && res.found) succeed(); }
-      });
-  }
-
-  function attempt(i){
-    if(!alive()) return;
-    if(optimistic){
-      _setDoneStatus(pending.reqId,'pending', i===0?'記録を確認しています…':'記録を確認しています…（再送 '+i+'）');
-    } else {
-      hideLoading();
-      showLoading(i===0?'送信中...':'再送信中...（'+i+'/'+(SUBMIT_MAX_ATTEMPTS-1)+'）');
-    }
-    // _cb はGoogle側リダイレクト状態のリフレッシュ用（冪等キーではない）
-    var _A = null;
-    if(window._M){ _A = {i:i, tSend:Date.now()}; window._M.attempts.push(_A); }
-    jsonp(url+'&_cb='+Date.now()+'_'+i,'cb_sub',function(res){
-      if(_A){
-        _A.tRecv = Date.now(); _A.rtt = _A.tRecv - _A.tSend;
-        _A.dup = !!(res && res.duplicate); _A.ok = !!(res && res.success);
-        _A.server = (res && res._t) ? res._t : null;
-        _A.overhead = _A.server ? (_A.rtt - _A.server.doGetEntryToEnd) : null;
-        console.log('[MEASURE] attempt', JSON.stringify(_A));
-      }
-      if(!alive()) return;
-      // duplicate:true（同じreqIdの再送）も success として扱う
-      if(res&&res.success){ succeed(); return; }
-      if(res&&res.retryable){
-        // GAS が ScriptLock を取れなかった＝書き込みは起きていない。
-        // 確認を挟まず短い間隔ですぐ再送する（長時間ブロックしない）。
-        if(i+1<SUBMIT_MAX_ATTEMPTS && Date.now()-sess.t0<SUBMIT_DEADLINE){
-          if(optimistic) _setDoneStatus(pending.reqId,'pending','他の送信と重なりました。すぐに再送します…');
-          else showLoading('他の送信と重なりました。すぐに再送します...');
-          later(function(){attempt(i+1);},SUBMIT_RETRY_WAIT);
-          return;
-        }
-        giveUp('他の配達員の送信と重なり、順番待ちが解消しませんでした。');
-        return;
-      }
-      hardFail('送信に失敗しました。\n'+((res&&res.error)||'')+'\nもう一度お試しください。');
-    },function(){
-      if(_A){ _A.timedOut = true; _A.rtt = Date.now() - _A.tSend;
-              console.log('[MEASURE] attempt TIMEOUT', JSON.stringify(_A)); }
-      // タイムアウト/通信失敗。JSONP はキャンセルできず書き込みが成立している
-      // 可能性があるので、再送の前に必ず reqId で確認する。
-      if(!alive()) return;
-      confirmSubmit(function(){
-        if(i+1<SUBMIT_MAX_ATTEMPTS && Date.now()-sess.t0<SUBMIT_DEADLINE){
-          later(function(){attempt(i+1);},SUBMIT_RETRY_WAIT);
-          return;
-        }
-        giveUp('送信の確認が取れませんでした。');
-      });
-    },SUBMIT_TIMEOUT,{ lateGraceMs: SUBMIT_LATE_GRACE, onLate: lateOk });
-  }
-
-  if(optimistic){
-    // 【楽観的UI】応答を待たず完了画面へ。退避は呼び出し元で済んでいる（層1）。
-    // 担当者の引継ぎもここで記憶する（確認の成否に関わらず害はない）。
-    rememberStaff(state.store, pending.staff);
-    _submitBusy=false; _setSubmitBtnDisabled(false); hideLoading();
-    renderDone(pending.reqId);
-  }
-  attempt(0);
+// 【楽観的UI】応答を待たず完了画面へ。退避は呼び出し元で済んでいる。
+// 以降の送信・照合・再送はすべて裏（_dlSend/_dlCheck）で行う。
+function _runSubmit(pending){
+  rememberStaff(state.store, pending.staff);   // 確認の成否に関わらず害はない
+  _markSent(pending.storeId, pending.at);
+  _submitBusy=false; _setSubmitBtnDisabled(false); hideLoading();
+  renderDone(pending.reqId);
+  _dlSend(pending.reqId,'first');
 }
+
+// 前面に戻ったとき：送信の照合と、納品指示の取り直し（件2）
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState !== 'visible') return;
+  try{ _kickSubmitPendingChecks(true); _updateUnsentLine(); }catch(e){}
+  try{ _haitatsuOnForeground(); }catch(e){}
+  try{ _loadOnForeground(); }catch(e){}   // 保存済みデータの読み込み（2026-10-06）
+});
+// 回線が戻ったとき（Wi-Fi⇔モバイルの切替を含む）：宙に浮いた取得を捨てて出し直す（2026-10-04）
+window.addEventListener('online', function(){
+  try{ _kickSubmitPendingChecks(true); _updateUnsentLine(); }catch(e){}   // 送信の照合・再送（2026-10-06 追補）
+  try{ _haitatsuOnForeground(); }catch(e){}
+  try{ _loadOnForeground(); }catch(e){}
+});
 // reqId を渡すと、その送信の確認状態を表示する枠を出す（楽観的UI）。
 // 渡さない場合（従来の再送成功時など）は枠を出さない。
 function renderDone(reqId) {
-  if(window._M && !window._M.tDone){
-    var M = window._M;
-    M.tDone = Date.now();
-    M.totalUserWait = M.tDone - M.tClick;      // 押下→完了画面（体感）
-    console.log('[MEASURE] done', JSON.stringify(M));
-  }
-  state.screen='done';setHeader('送信完了',false,false);
+  state.screen='done';setHeader('送信完了',false,false);_updateHaitatsuNotice();_updateIraiNotice();
   var s=state.store;
   var confirm=renderDoneConfirm(s);
   var status = reqId
-    ? '<div class="done-status ds-pending" id="done_status" data-req="'+eA(reqId)+'"><div class="ds-msg">記録を確認しています…</div></div>'
+    ? '<div class="done-status ds-pending" id="done_status" data-req="'+eA(reqId)+'"><div class="ds-msg">確認中…</div></div>'
     : '';
-  document.getElementById('app').innerHTML='<div class="done-screen"><div class="done-icon">✅</div><div class="done-title">送信完了！</div><div class="done-sub">お疲れ様でした。<br>'+s.name+'の日報を送信しました。<br><br>'+todayStr.replace(/-/g,'/')+'　担当：'+state.staff+'</div>'+status+confirm+'<button class="home-btn" onclick="renderHome()">← 店舗一覧に戻る</button></div>';
+  document.getElementById('app').innerHTML='<div class="done-screen"><div class="done-icon">✅</div><div class="done-title">送信完了！</div><div class="done-sub">お疲れ様でした。<br>'+s.name+'の日報を送信しました。<br><br>'+todayStr.replace(/-/g,'/')+'　担当：'+state.staff+'</div>'+status+confirm+'<button class="home-btn" onclick="_toStoreList()">← 店舗一覧に戻る</button></div>';
 }
 function renderDoneConfirm(s) {
   if(!s) return '';
@@ -1614,10 +2262,10 @@ function renderDoneConfirm(s) {
 }
 
 function renderManual() {
-  state.screen='manual';setHeader('📖 入力マニュアル',true,false);
+  state.screen='manual';setHeader('📖 入力マニュアル',true,false);_updateIraiNotice();
   var h='<div class="manual"><h2>配達日報 入力ガイド（新レイアウト）</h2>';
   h+='<div class="manual-tip">📱 「送信する」を押すまでデータは保存されません。<br>⚠️ 入力ミスは再送信で修正できます（最新データが反映されます）。<br>🔄 過去データは旧項目(S品/A品/B品/C品)から新項目(陳列数/値引き)に自動変換されます。</div>';
-  h+='<h3><span class="manual-badge mb-green">🟩 納品数</span></h3><p>その日に店舗に持っていった個数。「→ 納品数を陳列数に一括反映」ボタンで、納品数をそのまま陳列数にコピーできます。<br>💡 配達商品情報アプリで事前入力していれば自動でデフォルト値が入ります。</p>';
+  h+='<h3><span class="manual-badge mb-green">🟩 納品数</span></h3><p>その日に店舗に持っていった個数。「前日在庫＋納品 → 陳列数」ボタンで、前日在庫（前日の残在庫）と納品数の合計を陳列数に入れられます。<br>💡 配達商品情報アプリで事前入力していれば自動でデフォルト値が入ります。</p>';
   h+='<h3><span class="manual-badge mb-blue">🟦 陳列数</span></h3><p>棚に並んでいる商品の合計個数（値引き対象は含めない）。<br>従来の <b>S品(当日) + A品(1日前) + B品(2日前)</b> を合算したものと同じ。個別の切り分けは廃止し、1つの入力欄に直接入力します。</p>';
   h+='<h3><span class="manual-badge mb-purple">🟪 蘇生庫へ</span></h3><p>蘇生庫に移した個数を入力します。（ヤオコーのみ）</p>';
   h+='<h3><span class="manual-badge mb-orange">🟧 持ち帰り</span></h3><p>持ち帰った個数を入力します。</p>';
@@ -1631,13 +2279,14 @@ function renderManual() {
      '<li>2日目：<b style="color:var(--accent-amber)">状態次第で値引き</b>（囲み日）</li>' +
      '<li>3日目：<b style="color:var(--red)">必ず値引き</b></li>' +
      '</ul>';
+  h+=bDiscountGuide();   // 【2026-11-10】入力画面から移した図
   h+='<h3 style="margin-top:20px">🌿 直売所（男衾・川本・道の駅おかべ）</h3><p>納品・前日在庫・持ち帰り の3列を入力。店頭在庫 = 納品 + 前日在庫 として集計されます。</p>';
   h+='</div>';
   document.getElementById('app').innerHTML=h;
 }
 
 function renderSettings() {
-  state.screen='settings';setHeader('⚙️ 設定',true,false);
+  state.screen='settings';setHeader('⚙️ 設定',true,false);_updateIraiNotice();
   var cfg=JSON.parse(JSON.stringify(state.config||getDefaultConfig()));
   var h='<div class="settings"><h2>設定</h2><div class="settings-sec"><div class="settings-sec-hdr">担当者リスト</div><div class="staff-list-edit"><div class="staff-tag-wrap" id="staffTagWrap">';
   cfg.staff.forEach(function(s,i){h+='<span class="staff-tag">'+eH(s)+'<button class="staff-tag-del" onclick="rmStaff('+i+')">×</button></span>';});
@@ -1694,25 +2343,21 @@ function saveCfg(){
 }
 
 // 未送信日報の自動照合。退避は「送信を始める前」に書くので、送信中にアプリを
-// 閉じた・リロードした場合は実際にはサーバに記録済みのことがある。reqId で
-// 照合し、記録済みなら黙って退避を消す（誤った未送信表示で再送させない）。
+// 閉じた・リロードした場合は実際にはサーバに記録済みのことがある。
+// 照合の実体は _kickSubmitPendingChecks（記録済みなら黙って消し、未着と
+// 確定したときだけ警告する）。ここは起動時の入口として残す。
+// 【2026-09-29】起動時は予約を待たずにすぐ照合する（前日以前の退避も対象）。
+// 【2026-10-06】起動時に帯は出さない。7日を過ぎた退避を消してから照合する。
 function _autoResolveSubmitPending(){
-  _listSubmitPending().forEach(function(p){
-    jsonp(API_URL+'?action=getSubmitStatus&store='+encodeURIComponent(p.storeName)
-      +'&date='+p.date+'&reqId='+encodeURIComponent(p.reqId)+'&_cb='+Date.now(),
-      'cb_pend_chk',function(res){
-        if(res&&res.success&&res.found){
-          _clearSubmitPendingFor(p.storeName);
-          _updateSubmitPendingBanner();
-        }
-      },function(){},CONFIRM_TIMEOUT);
-  });
+  _tidySubmitPending();
+  _kickSubmitPendingChecks(true);
+  _updateUnsentLine();
 }
 
-// 当日の任意発行累計を localStorage から復元（リロードでアラートが復活しないように）
-state.sanchiIssuedToday = _loadSanchiIssuedToday();
+// 産地シールの「当日の発行累計」を端末に覚える方式はやめた（2026-11-19）。残っている値は消す
+try{ localStorage.removeItem(lsKey('sanchi_issued_today_v1')); }catch(e){}
 renderRouteTabs();
-loadConfig(function(){ renderHome(); fetchHaitatsuBackground(); fetchLabelAlert(); fetchLabelIssuedTotal(); _autoResolveSubmitPending(); });
+loadConfig(function(){ renderHome(); fetchHaitatsuBackground(0); fetchSanchiRound(); _autoResolveSubmitPending(); });
 </script>
 
 <footer style="position:fixed;bottom:0;left:0;width:100%;height:52px;background:#1c1c1e;display:flex;align-items:center;justify-content:center;z-index:100">
