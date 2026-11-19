@@ -424,7 +424,7 @@ var LS_SANCHI_ISSUED    = lsKey('sanchi_issued_today_v1');
 // 【2026-09-29】保存と送信の記録（GAS の「保存送信ログ」シート）に付ける端末IDと画面の版。
 // 端末IDはこの端末で一度だけ作るランダムな値（haitatsu.html と同じキーを共有＝同じ端末は同じID）。
 // 氏名・電話番号などは入れない。localStorage が使えない端末では画面を開くたびに変わる。
-var PAGE_BUILD = 'prev-extras-20261119';   // 画面を変えて出すときに更新する（記録の「画面の版」）
+var PAGE_BUILD = 'no-nedan-alert-20261119';   // 画面を変えて出すときに更新する（記録の「画面の版」）
 var LS_DEVICE_ID = lsKey('device_id_v1');
 var _deviceIdMemo = '';
 function _deviceId(){
@@ -613,8 +613,8 @@ function renderHome() {
   route.groups.forEach(function(g) {
     html+='<div class="sec-lbl">'+g.label+'</div><div class="store-list">';
     g.stores.forEach(function(id) {
-      // ③値段シール：男衾・川本の店舗名の上に、アラート時のみ表示（値段ごとの発行入力欄付き）
-      if(id==='obusuma'||id==='kawamoto'){ html+=renderNedanAlertForStore(id); }
+      // 【2026-11-19 杉さん 09:32】直売所（男衾・川本）の値段シールのアラートは出さない（機能ごとやめる）。
+      // renderNedanAlertForStore は呼ばない（戻すときはここで呼ぶ）。
       var s=STORE_DEFS[id], sub=(cfg.storeContacts&&cfg.storeContacts[s.name])||'';
       var sentAt=_sent[id];
       html+='<button class="store-btn '+s.cls+(sentAt!==undefined?' sent':'')+'" onclick="openStore(\''+id+'\')"><span class="si">'+s.icon+'</span><span class="sinfo"><span class="sname">'+s.name+'</span>'+(sub?'<br><span class="ssub">'+sub+'</span>':'')+'</span>'+(sentAt!==undefined?'<span class="sdone">✓ 送信'+(sentAt?' '+eH(sentAt):'')+'</span>':'')+'<span class="sarr">›</span></button>';
